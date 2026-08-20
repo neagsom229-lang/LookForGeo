@@ -24,7 +24,7 @@ RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 RUN npm ci --legacy-peer-deps || npm i --legacy-peer-deps
 RUN npm run build || echo "No build script found"
 
-# Create ALL storage directories
+# Create storage directories
 RUN mkdir -p storage/framework/views \
     && mkdir -p storage/framework/cache \
     && mkdir -p storage/framework/sessions \
@@ -35,19 +35,9 @@ RUN mkdir -p storage/framework/views \
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
-# Create .env and generate key
+# Create .env and generate key (don't run database commands here!)
 COPY .env.example .env
 RUN php artisan key:generate
-
-# Clear and cache config
-RUN php artisan config:clear \
-    && php artisan cache:clear \
-    && php artisan view:clear \
-    && php artisan route:clear \
-    && php artisan migrate --force \
-    && php artisan config:cache \
-    && php artisan route:cache \
-    && php artisan view:cache
 
 # Enable Apache mod_rewrite
 RUN a2enmod rewrite
@@ -58,5 +48,9 @@ RUN sed -i 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available
 # Set ServerName to suppress warnings
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
+# Copy and set up startup script
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
 EXPOSE 8080
-CMD ["apache2-foreground"]
+CMD ["/start.sh"]
