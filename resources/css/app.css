@@ -1,0 +1,236 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+@source '../**/*.js';
+
+/* ============================================================
+ * DESIGN TOKENS
+ * Tailwind v4's CSS-first config: everything in @theme becomes both
+ * a real CSS custom property (usable as var(--...) anywhere, which is
+ * how app.js already reads var(--text-muted)) AND, for recognized
+ * namespaces (--color-*, --font-*, --spacing-*, --radius-*), a set of
+ * matching utility classes (bg-accent, text-teal, rounded-card, etc.)
+ * ============================================================ */
+@theme {
+    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+
+    /* Dark, violet-tinted surface stack — matches the existing UI */
+    --color-bg: #0a0714;
+    --color-panel: #120c24;
+    --color-panel-2: #170f2e;
+    --color-border: color-mix(in srgb, #8b5cf6 22%, transparent);
+
+    /* Text */
+    --color-text: #f4f2fb;
+    --color-text-muted: #948fab;
+
+    /* Accents */
+    --color-accent: #8b5cf6;    /* violet-500 — primary actions, active tabs */
+    --color-accent-2: #ec4899;  /* fuchsia — confidence-ring gradient end */
+    --color-teal: #2dd4bf;      /* coordinates, evidence tags */
+    --color-success: #34d399;
+    --color-danger: #f87171;
+
+    --radius-card: 1rem;
+    --radius-pill: 999px;
+}
+
+/* Plain aliases for code that reads CSS variables directly rather than via
+   a Tailwind utility (app.js uses var(--text-muted) in an inline style). */
+:root {
+    --text-muted: var(--color-text-muted);
+}
+
+/* ============================================================
+ * BASE — sensible, responsive-by-default resets
+ * ============================================================ */
+@layer base {
+    html {
+        -webkit-text-size-adjust: 100%;
+        scroll-behavior: smooth;
+    }
+
+    body {
+        background: var(--color-bg);
+        color: var(--color-text);
+        -webkit-font-smoothing: antialiased;
+        /* keep content clear of notches/home-indicators on phones */
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* Images and canvases never overflow their container on small screens */
+    img,
+    svg,
+    canvas {
+        max-width: 100%;
+        height: auto;
+    }
+
+    /* Fluid, auto-scaling headings — clamp(min, viewport-based, max) means
+       no per-breakpoint font-size overrides are needed for these tags. */
+    h1 {
+        font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.25rem);
+        line-height: 1.15;
+    }
+    h2 {
+        font-size: clamp(1.25rem, 1rem + 1vw, 1.75rem);
+        line-height: 1.2;
+    }
+    h3 {
+        font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.25rem);
+        line-height: 1.3;
+    }
+
+    /* Comfortable, larger tap targets on touch devices */
+    button,
+    a,
+    [role='button'],
+    [role='tab'] {
+        touch-action: manipulation;
+    }
+    @media (pointer: coarse) {
+        button,
+        a[role='button'],
+        [role='tab'] {
+            min-height: 40px;
+        }
+    }
+}
+
+/* ============================================================
+ * COMPONENTS — the concrete classes/ids app.js already targets
+ * ============================================================ */
+@layer components {
+    /* --- evidence tags (e.g. "crab traps", "coastal market") --- */
+    .evidence-tag {
+        @apply inline-flex items-center rounded-full px-3 py-1 text-xs sm:text-sm font-medium;
+        background: color-mix(in srgb, var(--color-teal) 14%, transparent);
+        color: var(--color-teal);
+        border: 1px solid color-mix(in srgb, var(--color-teal) 30%, transparent);
+    }
+
+    #evidenceTagsContainer {
+        @apply flex flex-wrap gap-2;
+    }
+
+    /* --- nearby-places rows --- */
+    .intel-item {
+        @apply flex items-center justify-between gap-3 py-2 text-sm;
+        border-bottom: 1px solid var(--color-border);
+    }
+    .intel-item:last-child {
+        border-bottom: none;
+    }
+    .intel-label {
+        @apply text-xs uppercase tracking-wide shrink-0;
+        color: var(--color-text-muted);
+    }
+    .intel-value {
+        @apply text-right;
+        color: var(--color-text);
+    }
+
+    /* --- upload drop zone --- */
+    #uploadCircle {
+        @apply flex flex-col items-center justify-center text-center transition-colors duration-150;
+        border: 2px dashed var(--color-border);
+    }
+    #uploadCircle.dragover {
+        border-color: var(--color-accent);
+        background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+    }
+
+    /* --- staged / uploaded preview images stay responsive and cropped
+       consistently regardless of the source photo's aspect ratio --- */
+    #stagedImagePreview,
+    #uploadedImage {
+        @apply w-full h-auto object-cover rounded-[var(--radius-card)];
+    }
+
+    /* --- loading skeleton --- */
+    #skeletonResults {
+        @apply animate-pulse rounded-[var(--radius-card)];
+        background: linear-gradient(
+            90deg,
+            var(--color-panel) 25%,
+            var(--color-panel-2) 37%,
+            var(--color-panel) 63%
+        );
+        background-size: 400% 100%;
+        animation: tg-shimmer 1.4s ease infinite;
+    }
+    @keyframes tg-shimmer {
+        0% { background-position: 100% 50%; }
+        100% { background-position: 0 50%; }
+    }
+
+    /* --- toast --- */
+    #toast {
+        @apply fixed left-1/2 z-50 -translate-x-1/2 rounded-[var(--radius-pill)] px-4 py-2.5 text-sm shadow-lg;
+        bottom: calc(1.25rem + env(safe-area-inset-bottom));
+        background: var(--color-panel-2);
+        border: 1px solid var(--color-border);
+        color: var(--color-text);
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, 8px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+        max-width: calc(100vw - 2rem);
+    }
+    #toast.show {
+        opacity: 1;
+        transform: translate(-50%, 0);
+    }
+
+    /* --- action buttons injected by app.js (Open in Maps / Copy / Refine) --- */
+    #tgMapActionBar button,
+    #tgRefineCta {
+        @apply rounded-lg text-xs sm:text-sm font-medium transition-colors duration-150;
+    }
+
+    /* --- self-detected tab bar: hide the scrollbar app.js enables via
+       overflow-x, so the "scrollable on mobile" fix looks intentional --- */
+    [role='tab']:first-child {
+        scrollbar-width: none;
+    }
+    [role='tab']:first-child::-webkit-scrollbar {
+        display: none;
+    }
+}
+
+/* ============================================================
+ * UTILITIES — small responsive helpers for the result layout
+ * ============================================================ */
+@layer utilities {
+    /* Two-column desktop layout that collapses to one column on tablet/mobile.
+       Opt-in: add class="tg-split" to the wrapper around the upload panel
+       and the results panel if you'd like this instead of custom grid classes. */
+    .tg-split {
+        @apply grid grid-cols-1 gap-6;
+    }
+    @media (min-width: 1024px) {
+        .tg-split {
+            grid-template-columns: minmax(280px, 360px) 1fr;
+        }
+    }
+
+    /* Clamp long AI descriptions to a readable number of lines on mobile,
+       full text on larger screens. */
+    .tg-clamp-mobile {
+        display: -webkit-box;
+        -webkit-line-clamp: 5;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    @media (min-width: 640px) {
+        .tg-clamp-mobile {
+            -webkit-line-clamp: unset;
+            overflow: visible;
+        }
+    }
+}

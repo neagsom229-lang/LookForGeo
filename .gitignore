@@ -1,0 +1,47 @@
+# Laravel
+/vendor/
+/node_modules/
+/storage/*.key
+/storage/framework/*
+/storage/logs/*
+/public/storage
+.env
+.env.backup
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+auth.json
+npm-debug.log
+yarn-error.log
+/.idea/
+/.vscode/
+*.sqlite
+*.sqlite-journal
+
+# PHP
+*.log
+*.cache
+*.pid
+*.lock
+
+# Composer
+composer.phar
+composer.lock
+
+# NPM
+package-lock.json
+yarn.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Deployment
+.docker/
+docker-compose.yml
