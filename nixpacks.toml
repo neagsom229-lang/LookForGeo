@@ -1,8 +1,11 @@
 [phases.setup]
-nixPkgs = ["php82", "php82Extensions.pdo_sqlite", "php82Extensions.sqlite3", "php82Extensions.exif", "php82Extensions.gd"]
+nixPkgs = ["php84", "php84Extensions...", "nodejs_20"]
 
 [phases.install]
-cmds = ["composer install --ignore-platform-reqs"]
+cmds = [
+    "composer install --ignore-platform-reqs",
+    "npm i"
+]
 
 [phases.build]
 cmds = ["composer install --no-dev --optimize-autoloader --ignore-platform-reqs"]

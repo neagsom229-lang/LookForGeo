@@ -15,17 +15,17 @@ nixPkgs = [
     "php82Extensions.zip",
     "php82Extensions.opcache",
     "php82Packages.composer",
-    "nginx",
-    "libmysqlclient",
+    "sqlite",
     "nodejs_20",
     "npm-10_x"
 ]
 
 [phases.install]
 cmds = [
-    "mkdir -p /var/log/nginx && mkdir -p /var/cache/nginx",
+    "mkdir -p /app/database",
+    "touch /app/database/database.sqlite",
     "composer install --ignore-platform-reqs",
-    "npm i"
+    "npm ci --legacy-peer-deps || npm i --legacy-peer-deps"
 ]
 
 [phases.build]

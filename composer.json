@@ -9,10 +9,15 @@
         "php": "^8.1",
         "google/cloud-ai-platform": "^1.64",
         "guzzlehttp/guzzle": "^7.15",
-        "laravel/framework": "^12.0",
+        "laravel/framework": "^11.0",
         "laravel/sanctum": "^4.3",
         "laravel/tinker": "^2.10.1",
-        "predis/predis": "^3.5"
+        "predis/predis": "^3.5",
+        "symfony/clock": "^7.0",
+        "symfony/css-selector": "^7.0",
+        "symfony/event-dispatcher": "^7.0",
+        "symfony/string": "^7.0",
+        "symfony/translation": "^7.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -21,7 +26,8 @@
         "laravel/sail": "^1.41",
         "mockery/mockery": "^1.6",
         "nunomaduro/collision": "^8.6",
-        "phpunit/phpunit": "^11.5.50"
+        "phpunit/phpunit": "^11.5.50",
+        "nesbot/carbon": "^2.0"
     },
     "autoload": {
         "psr-4": {
@@ -83,6 +89,9 @@
         "allow-plugins": {
             "pestphp/pest-plugin": true,
             "php-http/discovery": true
+        },
+        "platform": {
+            "php": "8.2.27"
         }
     },
     "minimum-stability": "stable",
