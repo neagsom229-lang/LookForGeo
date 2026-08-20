@@ -6,7 +6,7 @@
     "keywords": ["laravel", "framework"],
     "license": "MIT",
     "require": {
-        "php": "^8.2",
+        "php": "^8.1",
         "google/cloud-ai-platform": "^1.64",
         "guzzlehttp/guzzle": "^7.15",
         "laravel/framework": "^12.0",
