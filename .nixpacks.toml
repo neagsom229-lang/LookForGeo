@@ -30,10 +30,10 @@ cmds = [
 
 [phases.build]
 cmds = [
-    "composer install --no-dev --optimize-autoloader --ignore-platform-reqs",
-    "php artisan config:cache",
-    "php artisan route:cache",
-    "php artisan view:cache"
+    "DB_CONNECTION=sqlite DB_DATABASE=:memory: composer install --no-dev --optimize-autoloader --ignore-platform-reqs",
+    "DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan config:cache",
+    "DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan route:cache",
+    "DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan view:cache"
 ]
 
 [start]
