@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: look-for-geo
+    runtime: docker
+    repo: https://github.com/neagsom229-lang/LookForGeo
+    plan: free
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: DB_CONNECTION
+        value: sqlite
+      - key: DB_DATABASE
+        value: /data/database.sqlite
+    disks:
+      - name: sqlite-data
+        mountPath: /data
+        sizeGB: 1
