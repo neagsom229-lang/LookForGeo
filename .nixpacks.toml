@@ -1,0 +1,40 @@
+[phases.setup]
+nixPkgs = [
+    "php82",
+    "php82Extensions.bcmath",
+    "php82Extensions.curl",
+    "php82Extensions.exif",
+    "php82Extensions.gd",
+    "php82Extensions.mbstring",
+    "php82Extensions.mysqli",
+    "php82Extensions.pdo_mysql",
+    "php82Extensions.pdo_sqlite",
+    "php82Extensions.sqlite3",
+    "php82Extensions.tokenizer",
+    "php82Extensions.xml",
+    "php82Extensions.zip",
+    "php82Extensions.opcache",
+    "php82Packages.composer",
+    "nginx",
+    "libmysqlclient",
+    "nodejs_20",
+    "npm-10_x"
+]
+
+[phases.install]
+cmds = [
+    "mkdir -p /var/log/nginx && mkdir -p /var/cache/nginx",
+    "composer install --ignore-platform-reqs",
+    "npm i"
+]
+
+[phases.build]
+cmds = [
+    "composer install --no-dev --optimize-autoloader --ignore-platform-reqs",
+    "php artisan config:cache",
+    "php artisan route:cache",
+    "php artisan view:cache"
+]
+
+[start]
+cmd = "php artisan serve --host=0.0.0.0 --port=${PORT}"
