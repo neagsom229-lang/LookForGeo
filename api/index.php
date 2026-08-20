@@ -1,17 +1,19 @@
 <?php
 
-define('LARAVEL_START', microtime(true));
+// Set the Laravel application path
+$appPath = __DIR__ . '/../';
 
-require __DIR__ . '/../vendor/autoload.php';
+// Bootstrap Laravel
+require_once $appPath . 'vendor/autoload.php';
 
-$app = require_once __DIR__ . '/../bootstrap/app.php';
+$app = require_once $appPath . 'bootstrap/app.php';
 
-$kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);
-
+// Set the request context
 $request = Illuminate\Http\Request::capture();
+$app->instance('request', $request);
 
-$response = $kernel->handle($request);
-
+// Handle the request
+$response = $app->handle($request);
 $response->send();
 
-$kernel->terminate($request, $response);
+$app->terminate($request, $response);
