@@ -23,7 +23,6 @@ return new class extends Migration
             $table->string('image_url')->nullable();
             $table->timestamps();
             
-            // Indexes
             $table->index('name');
             $table->index('country');
             $table->index('latitude');

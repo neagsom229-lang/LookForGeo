@@ -9,5 +9,16 @@
       "src": "/(.*)",
       "dest": "/api/index.php"
     }
-  ]
+  ],
+  "builds": [
+    {
+      "src": "api/index.php",
+      "use": "vercel-php"
+    }
+  ],
+  "env": {
+    "APP_ENV": "production",
+    "APP_DEBUG": "false",
+    "APP_URL": "https://tracegeo.vercel.app"
+  }
 }
