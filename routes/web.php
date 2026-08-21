@@ -187,3 +187,21 @@ Route::get('/db-status', function () {
         ]);
     }
 });
+Route::get('/db-test', function () {
+    try {
+        // Test database connection
+        $pdo = DB::connection()->getPdo();
+        return response()->json([
+            'status' => 'success',
+            'message' => '✅ Database connected!',
+            'driver' => DB::connection()->getDriverName(),
+            'server_version' => $pdo->getAttribute(PDO::ATTR_SERVER_VERSION)
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => '❌ Database connection failed: ' . $e->getMessage(),
+            'error_code' => $e->getCode()
+        ], 500);
+    }
+});
