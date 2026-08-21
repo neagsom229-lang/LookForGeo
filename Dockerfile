@@ -20,8 +20,10 @@ COPY . /var/www/html
 # Install dependencies
 RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
+# Install npm dependencies (use npm install instead of npm ci)
+RUN npm install --legacy-peer-deps
+
 # Build assets
-RUN npm ci --legacy-peer-deps || npm i --legacy-peer-deps
 RUN npm run build || echo "No build script found"
 
 # Create storage directories
