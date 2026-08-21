@@ -35,20 +35,17 @@ RUN mkdir -p storage/framework/views \
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
-# Create .env and generate key (don't run database commands here!)
-COPY .env.example .env
+# Generate key
 RUN php artisan key:generate
 
 # Enable Apache mod_rewrite
 RUN a2enmod rewrite
 
-# Configure Apache to serve from public directory
+# Configure Apache
 RUN sed -i 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
-
-# Set ServerName to suppress warnings
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
-# Copy and set up startup script
+# Copy start script
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
 

@@ -16,11 +16,19 @@ if [ -z "$APP_KEY" ]; then
     php artisan key:generate
 fi
 
-# Check if database is configured (using DATABASE_URL)
+# Check if database is configured
 if [ ! -z "$DATABASE_URL" ]; then
-    echo "🔄 Running migrations..."
-    php artisan migrate --force
-    echo "✅ Migrations completed!"
+    echo "🔄 Checking database connection..."
+    
+    # Wait for database to be ready (retry up to 10 times)
+    for i in {1..10}; do
+        if php artisan migrate --force; then
+            echo "✅ Migrations completed successfully!"
+            break
+        fi
+        echo "⏳ Database not ready, retrying... ($i/10)"
+        sleep 3
+    done
 else
     echo "⚠️ DATABASE_URL not configured"
 fi
