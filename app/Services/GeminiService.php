@@ -14,7 +14,7 @@ class GeminiService
     public function __construct()
     {
         $this->apiKey = config('services.gemini.key');
-        $this->model = config('services.gemini.model', 'gemini-3.6-flash');
+        $this->model = config('services.gemini.model', 'gemini-2.0-flash-exp');
         
         Log::info('GeminiService initialized', [
             'api_key_set' => !empty($this->apiKey),
@@ -33,9 +33,17 @@ class GeminiService
                 return ['error' => 'api_key_missing', 'message' => 'API key not configured'];
             }
 
-            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}";
+            // ✅ Use the correct model name format
+            $model = $this->model;
             
-            Log::info('Calling Gemini API', ['model' => $this->model]);
+            // ✅ Map to correct Gemini model names
+            if (strpos($model, 'gemini-3.6') !== false) {
+                $model = 'gemini-1.5-flash'; // Fallback to stable model
+            }
+            
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$this->apiKey}";
+            
+            Log::info('Calling Gemini API', ['model' => $model, 'url' => $url]);
             
             $response = Http::timeout(120)->post($url, [
                 'contents' => [
@@ -52,10 +60,10 @@ class GeminiService
                     ]
                 ],
                 'generationConfig' => [
-                    'temperature' => 0.05,
-                    'maxOutputTokens' => 8192,
-                    'topP' => 0.9,
-                    'topK' => 50,
+                    'temperature' => 0.3,
+                    'maxOutputTokens' => 2048,  // ✅ Increased for better responses
+                    'topP' => 0.95,
+                    'topK' => 40,
                 ]
             ]);
 
@@ -71,6 +79,16 @@ class GeminiService
             }
 
             $result = $response->json();
+            
+            // ✅ Check if content exists
+            if (!isset($result['candidates'][0]['content']['parts'][0]['text'])) {
+                Log::error('Gemini returned empty content', ['result' => $result]);
+                
+                // ✅ Try with a simpler prompt
+                $simplePrompt = "Identify this location. Return JSON with landmark_name, city, country, latitude, longitude, confidence.";
+                return $this->analyzeImage($imageData, $simplePrompt);
+            }
+            
             $text = $result['candidates'][0]['content']['parts'][0]['text'] ?? '';
             
             Log::info('Gemini Response received', ['length' => strlen($text)]);
@@ -126,6 +144,11 @@ class GeminiService
         $country = $data['country'] ?? '';
         
         try {
+            // ✅ Check if Landmark model exists and has searchByName method
+            if (!class_exists(Landmark::class) || !method_exists(Landmark::class, 'searchByName')) {
+                return $data;
+            }
+            
             // Search in database
             $landmarks = Landmark::searchByName($landmarkName)
                 ->when($country, function($query, $country) {
@@ -185,15 +208,6 @@ class GeminiService
             if ($extracted) {
                 $coordinates[] = ['lat' => $extracted['lat'], 'lng' => $extracted['lng'], 'source' => 'Text'];
                 $sources[] = 'Text';
-            }
-        }
-        
-        // Source 3: Country-based approximation
-        if (isset($data['country']) && !empty($data['country'])) {
-            $countryCoord = $this->getCountryCoordinates($data['country']);
-            if ($countryCoord) {
-                $coordinates[] = ['lat' => $countryCoord['lat'], 'lng' => $countryCoord['lng'], 'source' => 'Country'];
-                $sources[] = 'Country';
             }
         }
         
@@ -400,38 +414,6 @@ class GeminiService
             $lng = floatval($matches[2]);
             if (abs($lat) <= 90 && abs($lng) <= 180 && $lat != 0 && $lng != 0) {
                 return ['lat' => $lat, 'lng' => $lng];
-            }
-        }
-        return null;
-    }
-
-    /**
-     * ✅ GET COUNTRY COORDINATES
-     */
-    private function getCountryCoordinates($country)
-    {
-        $countries = [
-            'cambodia' => ['lat' => 11.5564, 'lng' => 104.9282],
-            'united states' => ['lat' => 37.0902, 'lng' => -95.7129],
-            'united kingdom' => ['lat' => 51.5074, 'lng' => -0.1278],
-            'france' => ['lat' => 48.8566, 'lng' => 2.3522],
-            'italy' => ['lat' => 41.9028, 'lng' => 12.4964],
-            'japan' => ['lat' => 35.6762, 'lng' => 139.6503],
-            'india' => ['lat' => 20.5937, 'lng' => 78.9629],
-            'china' => ['lat' => 39.9042, 'lng' => 116.4074],
-            'australia' => ['lat' => -33.8688, 'lng' => 151.2093],
-            'egypt' => ['lat' => 30.0444, 'lng' => 31.2357],
-            'brazil' => ['lat' => -22.9068, 'lng' => -43.1729],
-            'thailand' => ['lat' => 13.7563, 'lng' => 100.5018],
-            'singapore' => ['lat' => 1.3521, 'lng' => 103.8198],
-            'uae' => ['lat' => 25.2048, 'lng' => 55.2708],
-            'south africa' => ['lat' => -33.9249, 'lng' => 18.4241],
-        ];
-        
-        $countryLower = strtolower($country);
-        foreach ($countries as $name => $coord) {
-            if (strpos($countryLower, $name) !== false) {
-                return $coord;
             }
         }
         return null;
@@ -651,7 +633,12 @@ PROMPT;
                 return null;
             }
 
-            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}";
+            $model = $this->model;
+            if (strpos($model, 'gemini-3.6') !== false) {
+                $model = 'gemini-1.5-flash';
+            }
+            
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$this->apiKey}";
             
             $prompt = $message;
             if (!empty($context)) {
