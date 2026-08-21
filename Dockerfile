@@ -17,10 +17,10 @@ WORKDIR /var/www/html
 # Copy application files
 COPY . /var/www/html
 
-# IMPORTANT: Create bootstrap/cache directory BEFORE running composer
+# Create bootstrap/cache before composer install
 RUN mkdir -p bootstrap/cache && chmod -R 775 bootstrap
 
-# Install dependencies (composer needs bootstrap/cache to exist)
+# Install dependencies
 RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
 # Install npm dependencies
@@ -38,9 +38,6 @@ RUN mkdir -p storage/framework/views \
 # Set permissions
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
-
-# Generate key
-RUN php artisan key:generate
 
 # Enable Apache mod_rewrite
 RUN a2enmod rewrite
