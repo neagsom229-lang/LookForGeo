@@ -1,11 +1,10 @@
-/.git
-/.github
-/.vscode
-/node_modules
 /vendor
+/node_modules
 /storage
 /tests
 /.env
 .env.*
 *.sqlite
 *.sqlite-journal
+.git
+.github

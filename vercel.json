@@ -1,24 +1,14 @@
 {
   "functions": {
     "api/index.php": {
-      "runtime": "vercel-php@0.7.0"
+      "runtime": "vercel-php@0.9.0"
     }
   },
-  "routes": [
+  "rewrites": [
     {
-      "src": "/(.*)",
-      "dest": "/api/index.php"
+      "source": "/(.*)",
+      "destination": "/api/index.php"
     }
   ],
-  "builds": [
-    {
-      "src": "api/index.php",
-      "use": "vercel-php"
-    }
-  ],
-  "env": {
-    "APP_ENV": "production",
-    "APP_DEBUG": "false",
-    "APP_URL": "https://tracegeo.vercel.app"
-  }
+  "outputDirectory": "public"
 }

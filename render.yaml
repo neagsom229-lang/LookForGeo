@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: LookForGeo
+    env: php
+    buildCommand: composer install --no-dev --optimize-autoloader
+    startCommand: php artisan serve --host=0.0.0.0 --port=$PORT
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: APP_URL
+        value: https://lookforgeo.onrender.com
+      - key: DATABASE_URL
+        value: postgresql://lookforgeo_db_user:6ZIAtzeEtNk0T0bevY4DPCvb6OS8B1OE@dpg-da3h4ogu01pc738n6ing-a:5432/lookforgeo_db
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: CACHE_DRIVER
+        value: file
+      - key: SESSION_DRIVER
+        value: file
+      - key: QUEUE_CONNECTION
+        value: sync
