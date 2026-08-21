@@ -14,7 +14,7 @@ class GeminiService
     public function __construct()
     {
         $this->apiKey = config('services.gemini.key');
-        $this->model = config('services.gemini.model', 'gemini-2.0-flash-exp');
+        $this->model = config('services.gemini.model', 'gemini-1.5-flash');
         
         Log::info('GeminiService initialized', [
             'api_key_set' => !empty($this->apiKey),
@@ -23,7 +23,26 @@ class GeminiService
     }
 
     /**
-     * Analyze image with Gemini AI
+     * ✅ MAIN ENTRY POINT - Called by AnalysisController
+     */
+    public function analyzeGeolocation($imageData, $metadata = [])
+    {
+        $prompt = $this->buildGeoPrompt($metadata);
+        $result = $this->analyzeImage($imageData, $prompt);
+        
+        if (!is_array($result)) {
+            return $this->getFallbackResponse('Invalid response from AI.');
+        }
+        
+        if (!isset($result['error'])) {
+            $result = $this->ultimateEnrichment($result);
+        }
+        
+        return $result;
+    }
+
+    /**
+     * ✅ Analyze image with Gemini AI
      */
     public function analyzeImage($imageData, $prompt)
     {
@@ -33,17 +52,12 @@ class GeminiService
                 return ['error' => 'api_key_missing', 'message' => 'API key not configured'];
             }
 
-            // ✅ Use the correct model name format
             $model = $this->model;
             
-            // ✅ Map to correct Gemini model names
-            if (strpos($model, 'gemini-3.6') !== false) {
-                $model = 'gemini-1.5-flash'; // Fallback to stable model
-            }
-            
+            // ✅ Use correct model name
             $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$this->apiKey}";
             
-            Log::info('Calling Gemini API', ['model' => $model, 'url' => $url]);
+            Log::info('Calling Gemini API', ['model' => $model]);
             
             $response = Http::timeout(120)->post($url, [
                 'contents' => [
@@ -61,13 +75,11 @@ class GeminiService
                 ],
                 'generationConfig' => [
                     'temperature' => 0.3,
-                    'maxOutputTokens' => 2048,  // ✅ Increased for better responses
+                    'maxOutputTokens' => 2048,
                     'topP' => 0.95,
                     'topK' => 40,
                 ]
             ]);
-
-            Log::info('Gemini API response', ['status' => $response->status()]);
 
             if ($response->status() === 429) {
                 return ['error' => 'quota_exceeded', 'message' => 'API quota exceeded. Please try again later.'];
@@ -80,28 +92,18 @@ class GeminiService
 
             $result = $response->json();
             
-            // ✅ Check if content exists
             if (!isset($result['candidates'][0]['content']['parts'][0]['text'])) {
                 Log::error('Gemini returned empty content', ['result' => $result]);
-                
-                // ✅ Try with a simpler prompt
-                $simplePrompt = "Identify this location. Return JSON with landmark_name, city, country, latitude, longitude, confidence.";
-                return $this->analyzeImage($imageData, $simplePrompt);
+                return $this->getFallbackResponse('AI returned empty response.');
             }
             
             $text = $result['candidates'][0]['content']['parts'][0]['text'] ?? '';
-            
-            Log::info('Gemini Response received', ['length' => strlen($text)]);
-            
             $text = $this->cleanText($text);
             $parsed = $this->parseAIResponse($text);
             
             if (!$parsed) {
                 return $this->getFallbackResponse('Could not parse AI response.');
             }
-            
-            // ✅ Ultimate enrichment
-            $parsed = $this->ultimateEnrichment($parsed);
             
             return $this->cleanArray($parsed);
 
@@ -605,25 +607,6 @@ PROMPT;
     }
 
     /**
-     * ✅ MAIN ENTRY POINT
-     */
-    public function analyzeGeolocation($imageData, $metadata = [])
-    {
-        $prompt = $this->buildGeoPrompt($metadata);
-        $result = $this->analyzeImage($imageData, $prompt);
-        
-        if (!is_array($result)) {
-            return $this->getFallbackResponse('Invalid response from AI.');
-        }
-        
-        if (!isset($result['error'])) {
-            $result = $this->ultimateEnrichment($result);
-        }
-        
-        return $result;
-    }
-
-    /**
      * ✅ CHAT WITH GEMINI
      */
     public function chat($message, $context = [])
@@ -634,10 +617,6 @@ PROMPT;
             }
 
             $model = $this->model;
-            if (strpos($model, 'gemini-3.6') !== false) {
-                $model = 'gemini-1.5-flash';
-            }
-            
             $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$this->apiKey}";
             
             $prompt = $message;
