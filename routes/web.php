@@ -205,3 +205,11 @@ Route::get('/db-test', function () {
         ], 500);
     }
 });
+Route::get('/run-migrations', function () {
+    try {
+        Artisan::call('migrate', ['--force' => true]);
+        return '✅ Migrations completed successfully!';
+    } catch (\Exception $e) {
+        return '❌ Error: ' . $e->getMessage();
+    }
+});
