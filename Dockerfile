@@ -17,10 +17,13 @@ WORKDIR /var/www/html
 # Copy application files
 COPY . /var/www/html
 
-# Install dependencies
+# IMPORTANT: Create bootstrap/cache directory BEFORE running composer
+RUN mkdir -p bootstrap/cache && chmod -R 775 bootstrap
+
+# Install dependencies (composer needs bootstrap/cache to exist)
 RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
-# Install npm dependencies (use npm install instead of npm ci)
+# Install npm dependencies
 RUN npm install --legacy-peer-deps
 
 # Build assets
@@ -30,8 +33,7 @@ RUN npm run build || echo "No build script found"
 RUN mkdir -p storage/framework/views \
     && mkdir -p storage/framework/cache \
     && mkdir -p storage/framework/sessions \
-    && mkdir -p storage/logs \
-    && mkdir -p bootstrap/cache
+    && mkdir -p storage/logs
 
 # Set permissions
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
