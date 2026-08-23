@@ -45,12 +45,16 @@ class AnalysisController extends Controller
             $file = $request->file('image');
 $filename = time() . '_' . $file->getClientOriginalName();
 
-$uploadedFile = cloudinary()->upload($file->getRealPath(), [
-    'folder' => 'tracegeo/analyses',
-    'public_id' => pathinfo($filename, PATHINFO_FILENAME),
-]);
-
-$path = $uploadedFile->getSecurePath(); // full Cloudinary HTTPS URL
+try {
+    $uploadedFile = cloudinary()->upload($file->getRealPath(), [
+        'folder' => 'tracegeo/analyses',
+        'public_id' => pathinfo($filename, PATHINFO_FILENAME),
+    ]);
+    $path = $uploadedFile->getSecurePath();
+} catch (\Exception $cloudinaryError) {
+    \Log::error('Cloudinary upload failed: ' . $cloudinaryError->getMessage());
+    throw new \Exception('Cloudinary upload failed: ' . $cloudinaryError->getMessage());
+}
             
             // ✅ Extract REAL metadata from image
             $metadata = $this->extractFullMetadata($file);
