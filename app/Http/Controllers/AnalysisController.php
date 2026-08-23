@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Http;
+use Cloudinary\Cloudinary;
+use Illuminate\Http\Request;
 use App\Models\Analysis;
 use App\Services\GeminiService;
 
@@ -41,8 +43,14 @@ class AnalysisController extends Controller
 
         try {
             $file = $request->file('image');
-            $filename = time() . '_' . $file->getClientOriginalName();
-            $path = $file->storeAs('uploads/analyses', $filename, 'public');
+$filename = time() . '_' . $file->getClientOriginalName();
+
+$uploadedFile = cloudinary()->upload($file->getRealPath(), [
+    'folder' => 'tracegeo/analyses',
+    'public_id' => pathinfo($filename, PATHINFO_FILENAME),
+]);
+
+$path = $uploadedFile->getSecurePath(); // full Cloudinary HTTPS URL
             
             // ✅ Extract REAL metadata from image
             $metadata = $this->extractFullMetadata($file);
@@ -142,7 +150,7 @@ class AnalysisController extends Controller
                     'confidence' => $analysis->confidence,
                     'description' => $analysis->description,
                     'type' => $analysis->type,
-                    'image_url' => Storage::url($path),
+                    'image_url' => $path,
                     'metadata' => json_decode($analysis->metadata, true),
                 ]
             ]);
@@ -519,7 +527,7 @@ class AnalysisController extends Controller
                     'confidence' => $analysis->confidence,
                     'description' => $analysis->description,
                     'type' => $analysis->type,
-                    'image_url' => $analysis->image_path ? Storage::url($analysis->image_path) : null,
+                    'image_url' => $analysis->image_path,
                     'metadata' => json_decode($analysis->metadata, true),
                 ]
             ]);
