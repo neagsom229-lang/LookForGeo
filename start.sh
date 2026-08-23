@@ -7,7 +7,7 @@ mkdir -p storage/framework/sessions
 mkdir -p storage/logs
 mkdir -p bootstrap/cache
 
-# ✅ Create the storage symlink
+# ✅ CRITICAL: Create the storage symlink
 php artisan storage:link || echo "Symlink already exists or failed"
 
 # Set permissions
