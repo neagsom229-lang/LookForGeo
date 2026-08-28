@@ -53,7 +53,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/analyze/{id}/retry', [AnalysisController::class, 'retry'])->name('api.analyze.retry');
         
         // (Optional) Status polling – uncomment if you switch to async later
-        // Route::get('/analyze/{id}/status', [AnalysisController::class, 'status'])->name('api.analyze.status');
+        Route::get('/analyze/{id}/status', [AnalysisController::class, 'status'])->name('api.analyze.status');
     });
 });
 
