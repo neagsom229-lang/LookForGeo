@@ -46,7 +46,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/analyze/store', [AnalysisController::class, 'store'])->name('api.analyze.store');
     
     // ✅ STATUS POLLING - Check progress of async analysis
-    Route::get('/analyze/status/{id}', [AnalysisController::class, 'status'])->name('api.analyze.status');
+    // Route::get('/analyze/status/{id}', [AnalysisController::class, 'status'])->name('api.analyze.status');
     
     // 📊 GET ALL ANALYSES - User's history
     Route::get('/analyze/history', [AnalysisController::class, 'history'])->name('api.analyze.history');
