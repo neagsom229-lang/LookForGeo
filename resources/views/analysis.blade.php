@@ -1885,6 +1885,8 @@
             attribution: DARK_ATTR,
             maxZoom: 19,
             minZoom: 1,
+            noWrap: true,          // <-- add this
+    bounds: [[-90, -180], [90, 180]]  // <-- add this
             noWrap: true
         }).addTo(earthMapInstance);
         setTimeout(() => {

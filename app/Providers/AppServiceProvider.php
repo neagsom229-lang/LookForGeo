@@ -10,6 +10,7 @@ use App\Services\PlacesService;
 use App\Services\SunService;
 use App\Services\WeatherService;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\URL; // <-- Add this import
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -24,5 +25,11 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(IpGeolocationService::class);
     }
 
-    public function boot(): void {}
+    public function boot(): void
+    {
+        // Force HTTPS in production to fix mixed content warnings
+        if ($this->app->environment('production')) {
+            URL::forceScheme('https');
+        }
+    }
 }
