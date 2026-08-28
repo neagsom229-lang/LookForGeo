@@ -42,18 +42,18 @@
         }
     },
     "scripts": {
-        "post-autoload-dump": [
-            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
-            "@php artisan package:discover --ansi"
-        ],
-        "post-update-cmd": [
-            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
-        ],
-        "post-install-cmd": [
-    "@php artisan storage:link",
-    "@php -r \"mkdir -p storage/logs; chmod -R 777 storage bootstrap/cache;\""
-]
-    },
+    "post-autoload-dump": [
+        "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+        "@php artisan package:discover --ansi"
+    ],
+    "post-update-cmd": [
+        "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+    ],
+    "post-install-cmd": [
+        "@php artisan storage:link",
+        "@php -r \"if (PHP_OS_FAMILY !== 'Windows') { system('mkdir -p storage/logs && chmod -R 777 storage bootstrap/cache'); }\""
+    ]
+},
     "extra": {
         "laravel": {
             "dont-discover": []
