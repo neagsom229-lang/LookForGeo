@@ -22,43 +22,57 @@ Route::post('/logout', [AuthController::class, 'webLogout']);
 Route::get('/', [HomeController::class, 'index'])->name('home');
 
 // ============================================
-// PROTECTED ROUTES (Auth Required)
+// PROTECTED ROUTES (Auth Required – Session)
 // ============================================
 
 Route::middleware(['auth'])->group(function () {
     // ------------------------------------------
-    // HTML VIEWS (return web pages)
+    // HTML VIEWS
     // ------------------------------------------
     Route::get('/analysis', [AnalysisController::class, 'index'])->name('analysis.index');
     Route::get('/history', [AnalysisController::class, 'history'])->name('analysis.history');
-    
-    // Dashboard data (returns JSON for the dashboard view)
+
+    // Dashboard data (JSON)
     Route::get('/api/dashboard-data', [HomeController::class, 'dashboardData'])->name('api.dashboard-data');
 
     // ------------------------------------------
-    // API ENDPOINTS (called by JavaScript)
-    // These are protected by session authentication.
+    // API ENDPOINTS (Session Auth)
     // ------------------------------------------
     Route::prefix('api')->group(function () {
-        // ✅ Main upload endpoint – processes the image and returns result directly
-        Route::post('/analyze', [AnalysisController::class, 'analyze'])->name('api.analyze');
-        
-        // 📋 Get a specific result by ID
-        Route::get('/results/{id}', [AnalysisController::class, 'getResults'])->name('api.results');
-        
-        // 🗑️ Delete an analysis record
-        Route::delete('/analyze/{id}', [AnalysisController::class, 'destroy'])->name('api.analyze.destroy');
-        
-        // 🔄 Retry a failed analysis
-        Route::post('/analyze/{id}/retry', [AnalysisController::class, 'retry'])->name('api.analyze.retry');
-        
-        // (Optional) Status polling – uncomment if you switch to async later
+        // ✅ ASYNC UPLOAD (RECOMMENDED)
+        Route::post('/analyze/store', [AnalysisController::class, 'store'])->name('api.analyze.store');
+
+        // ✅ STATUS POLLING
         Route::get('/analyze/{id}/status', [AnalysisController::class, 'status'])->name('api.analyze.status');
+
+        // 📋 Get results
+        Route::get('/results/{id}', [AnalysisController::class, 'getResults'])->name('api.results');
+
+        // 🗑️ Delete
+        Route::delete('/analyze/{id}', [AnalysisController::class, 'destroy'])->name('api.analyze.destroy');
+
+        // 🔄 Retry
+        Route::post('/analyze/{id}/retry', [AnalysisController::class, 'retry'])->name('api.analyze.retry');
+
+        // 🖼️ Fetch image from URL
+        Route::get('/fetch-image', [AnalysisController::class, 'fetchImage'])->name('api.fetch-image');
+
+        // 🌍 Street View
+        Route::get('/street-view', [AnalysisController::class, 'streetView'])->name('api.street-view');
+
+        // 🧹 Clear cache
+        Route::post('/clear-cache', [AnalysisController::class, 'clearCache'])->name('api.clear-cache');
+
+        // 📊 History (API version)
+        Route::get('/history', [AnalysisController::class, 'getHistory'])->name('api.history');
+
+        // ⚡ SYNC (legacy – optional)
+        // Route::post('/analyze', [AnalysisController::class, 'analyze'])->name('api.analyze');
     });
 });
 
 // ============================================
-// DEBUG ROUTES (Safe to keep – ignore these)
+// DEBUG ROUTES
 // ============================================
 
 Route::get('/debug/test-api', function () {
@@ -79,16 +93,16 @@ Route::get('/test-gemini', function () {
     try {
         $apiKey = config('services.gemini.key');
         $model = config('services.gemini.model', 'gemini-3.6-flash');
-        
+
         if (empty($apiKey)) {
             return response()->json([
                 'error' => 'GEMINI_API_KEY is not set in .env file',
                 'key_status' => 'missing'
             ], 400);
         }
-        
+
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
-        
+
         $response = \Illuminate\Support\Facades\Http::timeout(30)->post($url, [
             'contents' => [
                 [
@@ -102,7 +116,7 @@ Route::get('/test-gemini', function () {
                 'maxOutputTokens' => 100,
             ]
         ]);
-        
+
         return response()->json([
             'api_key_set' => !empty($apiKey),
             'model' => $model,
@@ -110,7 +124,7 @@ Route::get('/test-gemini', function () {
             'status' => $response->status(),
             'response' => $response->json(),
         ]);
-        
+
     } catch (\Exception $e) {
         return response()->json([
             'error' => $e->getMessage(),

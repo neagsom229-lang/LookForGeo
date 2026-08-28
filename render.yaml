@@ -2,7 +2,7 @@ services:
   - type: web
     name: LookForGeo
     env: php
-    buildCommand: composer install --no-dev --optimize-autoloader
+    buildCommand: composer install --no-dev --optimize-autoloader && php artisan migrate --force
     startCommand: php artisan serve --host=0.0.0.0 --port=$PORT
     envVars:
       - key: APP_ENV
@@ -20,4 +20,37 @@ services:
       - key: SESSION_DRIVER
         value: file
       - key: QUEUE_CONNECTION
-        value: sync
+        value: database
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_EMBED_KEY
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false
+
+  - type: worker
+    name: queue-worker
+    env: php
+    buildCommand: composer install --no-dev --optimize-autoloader
+    startCommand: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: DATABASE_URL
+        value: postgresql://lookforgeo_db_user:6ZIAtzeEtNk0T0bevY4DPCvb6OS8B1OE@dpg-da3h4ogu01pc738n6ing-a:5432/lookforgeo_db
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: CACHE_DRIVER
+        value: file
+      - key: SESSION_DRIVER
+        value: file
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_EMBED_KEY
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false

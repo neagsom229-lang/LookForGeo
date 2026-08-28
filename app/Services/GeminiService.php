@@ -109,123 +109,126 @@ class GeminiService
      * this backoff window covers, so retrying just burns more of the
      * shared time budget for no benefit.
      */
-    private function sendGeminiRequestWithRetry($model, $imageData, $prompt, float $deadline)
-    {
-        $backoffMicros = 1_000_000; // start at 1s
-        $maxBackoffMicros = (int) config('services.gemini.max_backoff_ms', 5000) * 1000;
-        $attempt = 0;
-        $lastResult = ['error' => 'unknown', 'message' => 'Request never attempted'];
+    private function sendGeminiRequestWithRetry($model, $imageData, $prompt)
+{
+    $retries = $this->maxRetries;
+    $backoff = 1000000;
 
-        while (true) {
-            $attempt++;
+    for ($attempt = 1; $attempt <= $retries + 1; $attempt++) {
+        try {
+            $result = $this->sendSingleGeminiRequest($model, $imageData, $prompt);
 
-            if (microtime(true) >= $deadline) {
-                Log::warning("Gemini [{$model}] time budget exhausted before attempt {$attempt}");
-                return $lastResult;
+            // If the error is retryable (timeout, connection, 503, 429, server_error)
+            $retryableErrors = ['timeout', 'connection_error', 'service_unavailable', 'quota_exceeded', 'server_error'];
+            if (isset($result['error']) && in_array($result['error'], $retryableErrors)) {
+                if ($attempt <= $retries) {
+                    Log::warning("Gemini request attempt $attempt failed, retrying in " . ($backoff / 1000000) . 's', [
+                        'error' => $result['message']
+                    ]);
+                    usleep($backoff);
+                    $backoff *= 2;
+                    continue;
+                }
+                return $result; // no retries left
             }
 
-            $lastResult = $this->sendSingleGeminiRequest($model, $imageData, $prompt);
+            // Non-retryable error or success
+            return $result;
 
-            if (!isset($lastResult['error'])) {
-                return $lastResult;
+        } catch (\Exception $e) {
+            if ($attempt <= $retries) {
+                Log::warning("Gemini request attempt $attempt threw exception, retrying in " . ($backoff / 1000000) . 's', [
+                    'exception' => $e->getMessage()
+                ]);
+                usleep($backoff);
+                $backoff *= 2;
+                continue;
             }
-
-            $retryable = in_array($lastResult['error'], ['timeout', 'connection_error'], true)
-                || ($lastResult['error'] === 'api_error' && ($lastResult['status'] ?? 0) >= 500);
-
-            if (!$retryable || $attempt > $this->maxRetries) {
-                return $lastResult;
-            }
-
-            // Don't sleep past the deadline just to make an attempt we know we'll skip.
-            $remaining = $deadline - microtime(true);
-            if ($remaining <= 0) {
-                return $lastResult;
-            }
-            $sleepMicros = (int) min($backoffMicros, $remaining * 1_000_000);
-
-            Log::warning("Gemini [{$model}] attempt {$attempt} failed, retrying in " . round($sleepMicros / 1_000_000, 1) . 's', [
-                'error' => $lastResult['message'],
-            ]);
-
-            usleep(max(0, $sleepMicros));
-            // Full jitter would be more correct under real concurrency, but
-            // a capped exponential backoff is enough here given the low
-            // retry count and shared deadline already bounding worst case.
-            $backoffMicros = min($backoffMicros * 2, $maxBackoffMicros);
+            Log::error('Gemini request failed after all retries: ' . $e->getMessage());
+            return ['error' => 'request_exception', 'message' => $e->getMessage()];
         }
     }
+
+    return ['error' => 'unknown', 'message' => 'Request failed after all retries'];
+}
 
     /**
      * SEND A SINGLE REQUEST TO GEMINI (no retry logic — that lives in the caller)
      */
     private function sendSingleGeminiRequest($model, $imageData, $prompt)
-    {
-        try {
-            if (empty($this->apiKey)) {
-                return ['error' => 'api_key_missing', 'message' => 'Gemini API key not configured'];
-            }
+{
+    if (empty($this->apiKey)) {
+        return ['error' => 'api_key_missing', 'message' => 'Gemini API key not configured'];
+    }
 
-            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$this->apiKey}";
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$this->apiKey}";
 
-            $imageData = $this->compressImageIfNeeded($imageData);
+    $compressedImage = $this->compressImageIfNeeded($imageData);
 
-            $payload = [
-                'contents' => [
+    $payload = [
+        'contents' => [
+            [
+                'parts' => [
+                    ['text' => $prompt],
                     [
-                        'parts' => [
-                            ['text' => $prompt],
-                            [
-                                'inline_data' => [
-                                    'mime_type' => 'image/jpeg',
-                                    'data' => base64_encode($imageData),
-                                ],
-                            ],
+                        'inline_data' => [
+                            'mime_type' => 'image/jpeg',
+                            'data' => base64_encode($compressedImage),
                         ],
                     ],
                 ],
-                'generationConfig' => [
-                    'temperature' => 0.2,
-                    'maxOutputTokens' => 4096,
-                    'topP' => 0.95,
-                    'topK' => 40,
-                ],
-            ];
+            ],
+        ],
+        'generationConfig' => [
+            'temperature' => 0.2,
+            'maxOutputTokens' => 4096,
+            'topP' => 0.95,
+            'topK' => 40,
+        ],
+    ];
 
-            $response = Http::timeout($this->requestTimeout)->post($url, $payload);
+    try {
+        $response = Http::timeout($this->requestTimeout)->post($url, $payload);
 
-            if ($response->status() === 429) {
-                return ['error' => 'quota_exceeded', 'message' => 'API quota exceeded. Try again later.', 'status' => 429];
-            }
-
-            if (!$response->successful()) {
-                Log::error("Gemini API error (status {$response->status()}): " . $response->body());
-                return ['error' => 'api_error', 'message' => "HTTP {$response->status()}", 'status' => $response->status()];
-            }
-
-            $data = $response->json();
-            $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
-
-            if (empty($text)) {
-                return ['error' => 'empty_response', 'message' => 'Model returned no text content'];
-            }
-
-            $text = $this->cleanText($text);
-
-            $parsed = $this->parseAIResponse($text);
-            if (!$parsed) {
-                return ['error' => 'parse_error', 'message' => 'Could not parse AI response.'];
-            }
-
-            return $this->cleanArray($parsed);
-        } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            Log::error('Gemini connection/timeout error: ' . $e->getMessage());
-            return ['error' => 'timeout', 'message' => $e->getMessage()];
-        } catch (\Exception $e) {
-            Log::error('Gemini request error: ' . $e->getMessage());
-            return ['error' => 'connection_error', 'message' => $e->getMessage()];
+        // ✅ Retry on quota or server errors
+        if ($response->status() === 429) {
+            return ['error' => 'quota_exceeded', 'message' => 'API quota exceeded. Try again later.'];
         }
+
+        if ($response->status() === 503) {
+            return ['error' => 'service_unavailable', 'message' => 'Gemini service temporarily unavailable (503)'];
+        }
+
+        if ($response->status() >= 500) {
+            return ['error' => 'server_error', 'message' => 'Gemini server error: ' . $response->status()];
+        }
+
+        if (!$response->successful()) {
+            Log::error("Gemini API error (status {$response->status()}): " . $response->body());
+            return ['error' => 'api_error', 'message' => "HTTP {$response->status()}"];
+        }
+
+        $data = $response->json();
+        $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+
+        if (empty($text)) {
+            return ['error' => 'empty_response', 'message' => 'Model returned no text content'];
+        }
+
+        $text = $this->cleanText($text);
+        $parsed = $this->parseAIResponse($text);
+        if (!$parsed) {
+            return ['error' => 'parse_error', 'message' => 'Could not parse AI response.'];
+        }
+
+        return $this->cleanArray($parsed);
+
+    } catch (\Illuminate\Http\Client\ConnectionException $e) {
+        return ['error' => 'timeout', 'message' => $e->getMessage()];
+    } catch (\Exception $e) {
+        return ['error' => 'connection_error', 'message' => $e->getMessage()];
     }
+}
 
     /**
      * ULTIMATE GEOLOCATION PROMPT
@@ -893,6 +896,8 @@ PROMPT;
             'nearest_airport' => null,
             'candidates' => [],
             'candidate_gap' => null,
+            'is_error' => true,           // <-- ADD THIS
+        'error_message' => $msg, 
         ];
     }
 }

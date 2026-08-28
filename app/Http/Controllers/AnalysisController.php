@@ -31,20 +31,19 @@ class AnalysisController extends Controller
     }
 
     /**
-     * Show history page
+     * Show history page (filtered by logged-in user)
      */
     public function history()
     {
-        $analyses = GeoAnalysis::orderBy('created_at', 'desc')
+        $analyses = GeoAnalysis::where('user_id', auth()->id())
+            ->orderBy('created_at', 'desc')
             ->paginate(20);
-            
+
         return view('history', ['analyses' => $analyses]);
     }
 
     /**
-     * ✅ ASYNC UPLOAD - FAST RESPONSE (NO CLOUDINARY)
-     * Stores file locally, creates record, dispatches job
-     * Returns in UNDER 2 SECONDS
+     * ✅ ASYNC UPLOAD – Stores file, creates record, dispatches job
      */
     public function store(Request $request)
 {
@@ -69,11 +68,9 @@ class AnalysisController extends Controller
             'size' => $file->getSize()
         ]);
 
-        // ✅ Store the file locally
+        // Store the file locally
         $path = $file->store('uploads/analyses', 'public');
         $imageUrl = asset('storage/' . $path);
-        
-        // ✅ Get the FULL path for the job
         $fullPath = storage_path('app/public/' . $path);
 
         Log::info('📁 File stored locally', [
@@ -83,8 +80,9 @@ class AnalysisController extends Controller
             'file_exists' => file_exists($fullPath)
         ]);
 
-        // ✅ Create the record
+        // Create the record
         $analysis = GeoAnalysis::create([
+            'user_id' => auth()->id(),
             'status' => 'processing',
             'stage' => 0,
             'stage_label' => 'Uploaded',
@@ -96,8 +94,28 @@ class AnalysisController extends Controller
 
         Log::info('✅ GeoAnalysis created with ID: ' . $analysis->id);
 
-        // ✅ Dispatch job with correct paths
-        AnalyzeImageJob::dispatch($analysis->id, $fullPath, $filename);
+        // ============================================================
+        // ✅ DISPATCH JOB WITH TRY-CATCH
+        // ============================================================
+        try {
+            AnalyzeImageJob::dispatch($analysis->id, $fullPath, $filename);
+            Log::info('✅ Job dispatched successfully for analysis ID: ' . $analysis->id);
+        } catch (\Exception $jobException) {
+            Log::error('❌ Job dispatch FAILED: ' . $jobException->getMessage());
+            Log::error('Stack trace: ' . $jobException->getTraceAsString());
+
+            // Update the analysis to failed since the job couldn't be dispatched
+            $analysis->update([
+                'status' => 'failed',
+                'error' => 'Job dispatch failed: ' . $jobException->getMessage(),
+                'finished_at' => now(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Analysis could not be started: ' . $jobException->getMessage()
+            ], 500);
+        }
 
         return response()->json([
             'success' => true,
@@ -114,7 +132,7 @@ class AnalysisController extends Controller
     } catch (\Exception $e) {
         Log::error('❌ Analysis store error: ' . $e->getMessage());
         Log::error('Stack trace: ' . $e->getTraceAsString());
-        
+
         return response()->json([
             'success' => false,
             'message' => 'Error starting analysis: ' . $e->getMessage()
@@ -123,78 +141,74 @@ class AnalysisController extends Controller
 }
 
     /**
-     * ✅ POLLING ENDPOINT - Frontend polls every 500-700ms
+     * ✅ POLLING ENDPOINT – No ownership check (can be public once ID is known)
      */
     public function status($id)
-{
-    try {
-        $analysis = GeoAnalysis::find($id);
+    {
+        try {
+            $analysis = GeoAnalysis::find($id);
 
-        if (!$analysis) {
+            if (!$analysis) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Analysis not found'
+                ], 404);
+            }
+
+            $elapsed = 0;
+            if ($analysis->started_at) {
+                $end = $analysis->finished_at ?? now();
+                $elapsed = round($analysis->started_at->diffInSeconds($end), 1);
+            }
+
+            $response = [
+                'success' => true,
+                'status' => $analysis->status,
+                'stage' => $analysis->stage ?? 0,
+                'stage_label' => $analysis->stage_label ?? 'Processing',
+                'progress' => $analysis->progress ?? 0,
+                'elapsed' => $elapsed,
+                'image_url' => $analysis->image_url,
+            ];
+
+            if ($analysis->status === 'completed' && $analysis->result) {
+                $result = $analysis->result;
+                if (is_string($result)) {
+                    $result = json_decode($result, true);
+                }
+                $response['result'] = $result;
+                $response['data'] = [
+                    'id' => $analysis->id,
+                    'landmark_name' => $result['landmark_name'] ?? 'Unknown',
+                    'city' => $result['city'] ?? null,
+                    'country' => $result['country'] ?? null,
+                    'latitude' => $result['latitude'] ?? null,
+                    'longitude' => $result['longitude'] ?? null,
+                    'confidence' => $result['confidence'] ?? 0,
+                    'description' => $result['description'] ?? null,
+                    'image_url' => $analysis->image_url,
+                    'tags' => $result['tags'] ?? [],
+                    'reasoning' => $result['reasoning'] ?? null,
+                ];
+            }
+
+            if ($analysis->status === 'failed') {
+                $response['error'] = $analysis->error;
+            }
+
+            return response()->json($response);
+
+        } catch (\Exception $e) {
+            Log::error('❌ Status fetch error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Analysis not found'
-            ], 404);
+                'message' => 'Error fetching status: ' . $e->getMessage()
+            ], 500);
         }
-
-        // ✅ Calculate elapsed time safely
-        $elapsed = 0;
-        if ($analysis->started_at) {
-            $end = $analysis->finished_at ?? now();
-            $elapsed = round($analysis->started_at->diffInSeconds($end), 1);
-        }
-
-        $response = [
-            'success' => true,
-            'status' => $analysis->status,
-            'stage' => $analysis->stage ?? 0,
-            'stage_label' => $analysis->stage_label ?? 'Processing',
-            'progress' => $analysis->progress ?? 0,
-            'elapsed' => $elapsed,
-            'image_url' => $analysis->image_url,
-        ];
-
-        // ✅ If completed, include results
-        if ($analysis->status === 'completed' && $analysis->result) {
-            $result = $analysis->result;
-            if (is_string($result)) {
-                $result = json_decode($result, true);
-            }
-            $response['result'] = $result;
-            $response['data'] = [
-                'id' => $analysis->id,
-                'landmark_name' => $result['landmark_name'] ?? 'Unknown',
-                'city' => $result['city'] ?? null,
-                'country' => $result['country'] ?? null,
-                'latitude' => $result['latitude'] ?? null,
-                'longitude' => $result['longitude'] ?? null,
-                'confidence' => $result['confidence'] ?? 0,
-                'description' => $result['description'] ?? null,
-                'image_url' => $analysis->image_url,
-                'tags' => $result['tags'] ?? [],
-                'reasoning' => $result['reasoning'] ?? null,
-            ];
-        }
-
-        // ✅ If failed, include error
-        if ($analysis->status === 'failed') {
-            $response['error'] = $analysis->error;
-        }
-
-        return response()->json($response);
-
-    } catch (\Exception $e) {
-        Log::error('❌ Status fetch error: ' . $e->getMessage());
-        
-        return response()->json([
-            'success' => false,
-            'message' => 'Error fetching status: ' . $e->getMessage()
-        ], 500);
     }
-}
 
     /**
-     * 📊 Get all analyses for the authenticated user (API)
+     * 📊 API: Get all analyses for the authenticated user
      */
     public function getHistory(Request $request)
     {
@@ -206,7 +220,8 @@ class AnalysisController extends Controller
         }
 
         try {
-            $analyses = GeoAnalysis::orderBy('created_at', 'desc')
+            $analyses = GeoAnalysis::where('user_id', auth()->id())
+                ->orderBy('created_at', 'desc')
                 ->paginate(20);
 
             return response()->json([
@@ -249,7 +264,7 @@ class AnalysisController extends Controller
     }
 
     /**
-     * 🗑️ Delete an analysis
+     * 🗑️ Delete an analysis (ownership check)
      */
     public function destroy($id)
     {
@@ -261,12 +276,14 @@ class AnalysisController extends Controller
         }
 
         try {
-            $analysis = GeoAnalysis::find($id);
+            $analysis = GeoAnalysis::where('id', $id)
+                ->where('user_id', auth()->id())
+                ->first();
 
             if (!$analysis) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Analysis not found'
+                    'message' => 'Analysis not found or does not belong to you.'
                 ], 404);
             }
 
@@ -292,7 +309,7 @@ class AnalysisController extends Controller
     }
 
     /**
-     * 🔄 Retry a failed analysis
+     * 🔄 Retry a failed analysis (ownership check)
      */
     public function retry($id)
     {
@@ -304,19 +321,21 @@ class AnalysisController extends Controller
         }
 
         try {
-            $analysis = GeoAnalysis::find($id);
+            $analysis = GeoAnalysis::where('id', $id)
+                ->where('user_id', auth()->id())
+                ->first();
 
             if (!$analysis) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Analysis not found'
+                    'message' => 'Analysis not found or does not belong to you.'
                 ], 404);
             }
 
             if ($analysis->status !== 'failed') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Only failed analyses can be retried'
+                    'message' => 'Only failed analyses can be retried.'
                 ], 400);
             }
 
@@ -349,7 +368,8 @@ class AnalysisController extends Controller
     }
 
     /**
-     * ⚡ SYNC ANALYZE - Legacy method (kept for backward compatibility)
+     * ⚡ SYNC ANALYZE – Legacy method (backward compatibility)
+     * Note: This also creates a record with user_id now.
      */
     public function analyze(Request $request)
     {
@@ -368,15 +388,12 @@ class AnalysisController extends Controller
             $file = $request->file('image');
             $filename = time() . '_' . $file->getClientOriginalName();
 
-            // Store locally
             $path = $file->store('uploads/analyses', 'public');
             $imageUrl = asset('storage/' . $path);
 
-            // Extract metadata
             $metadata = $this->extractFullMetadata($file);
             $imageData = $this->getImageData($file);
 
-            // Analyze with Gemini
             $aiResult = $this->geminiService->analyzeGeolocation($imageData, $metadata);
 
             if (isset($aiResult['error'])) {
@@ -386,8 +403,9 @@ class AnalysisController extends Controller
                 ], 500);
             }
 
-            // Create GeoAnalysis record
+            // ✅ ADDED user_id here
             $analysis = GeoAnalysis::create([
+                'user_id' => auth()->id(),
                 'status' => 'completed',
                 'stage' => 4,
                 'stage_label' => 'Complete',
@@ -432,7 +450,6 @@ class AnalysisController extends Controller
                 Log::warning('Image compression failed, using original: ' . $e->getMessage());
             }
         }
-
         return file_get_contents($file->path());
     }
 
@@ -446,7 +463,6 @@ class AnalysisController extends Controller
         }
 
         $image = @imagecreatefromstring(file_get_contents($file->path()));
-
         if (!$image) {
             return null;
         }
@@ -493,16 +509,13 @@ class AnalysisController extends Controller
                         'longitude' => $this->gpsToDecimal($exif['GPSLongitude'], $exif['GPSLongitudeRef'] ?? 'E')
                     ];
                 }
-
                 $data['camera'] = [
                     'make' => $exif['Make'] ?? null,
                     'model' => $exif['Model'] ?? null,
                 ];
-
                 $data['datetime'] = $exif['DateTimeOriginal'] ?? $exif['DateTime'] ?? null;
                 $data['software'] = $exif['Software'] ?? null;
                 $data['copyright'] = $exif['Copyright'] ?? null;
-
                 $data['settings'] = [
                     'aperture' => $exif['ApertureFNumber'] ?? null,
                     'iso' => $exif['ISOSpeedRatings'] ?? null,
@@ -564,10 +577,10 @@ class AnalysisController extends Controller
         }
 
         $request->validate(['url' => 'required|url']);
-        
+
         try {
             $response = Http::timeout(30)->get($request->input('url'));
-            
+
             if (!$response->successful()) {
                 return response()->json([
                     'success' => false,
@@ -577,7 +590,7 @@ class AnalysisController extends Controller
 
             $content = $response->body();
             $contentType = $response->header('Content-Type');
-            
+
             if (!str_starts_with($contentType, 'image/')) {
                 return response()->json([
                     'success' => false,
@@ -612,15 +625,15 @@ class AnalysisController extends Controller
     }
 
     /**
-     * Get analysis results by ID
+     * Get analysis results by ID (no ownership check – can be public)
      */
     public function getResults($id)
     {
         try {
             $analysis = GeoAnalysis::findOrFail($id);
-            
+
             $result = is_string($analysis->result) ? json_decode($analysis->result, true) : $analysis->result;
-            
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -653,7 +666,7 @@ class AnalysisController extends Controller
     public function getSessionData(Request $request)
     {
         $result = $request->session()->get('analysis_result');
-        return $result ? response()->json(['success' => true, 'data' => $result]) 
+        return $result ? response()->json(['success' => true, 'data' => $result])
                        : response()->json(['success' => false, 'message' => 'No data found'], 404);
     }
 

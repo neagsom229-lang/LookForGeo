@@ -41,138 +41,99 @@ class AnalyzeImageJob implements ShouldQueue
     }
 
     public function handle(GeminiService $geminiService)
-    {
-        try {
-            Log::channel('single')->info('🔍 Starting AnalyzeImageJob for ID: ' . $this->analysisId);
+{
+    Log::info('🔥 AnalyzeImageJob STARTED for ID ' . $this->analysisId);
 
-            // ✅ Get analysis
-            $analysis = GeoAnalysis::find($this->analysisId);
-
-            if (!$analysis) {
-                Log::channel('single')->error('❌ Analysis not found: ' . $this->analysisId);
-                $this->fail(new \Exception('Analysis record not found'));
-                return;
-            }
-
-            Log::channel('single')->info('📊 Analysis found', [
-                'id' => $analysis->id,
-                'status' => $analysis->status,
-                'image_path' => $analysis->image_path,
-                'image_url' => $analysis->image_url,
-            ]);
-
-            // ✅ Skip if already completed or permanently failed
-            if (in_array($analysis->status, ['completed', 'failed'])) {
-                Log::channel('single')->info('⏭️ Analysis already ' . $analysis->status . ', skipping: ' . $this->analysisId);
-                return;
-            }
-
-            // ✅ STEP 1: Mark as processing
-            Log::channel('single')->info('📝 Updating analysis to processing...');
-            $analysis->update([
-                'status' => 'processing',
-                'stage' => 1,
-                'stage_label' => 'Processing Image',
-                'progress' => 20,
-                'error' => null,
-                'started_at' => now(),
-            ]);
-
-            // ✅ STEP 2: Load image data
-            $imageData = $this->loadImageData($analysis);
-            if (!$imageData) {
-                $error = 'No image found. Path: ' . ($analysis->image_path ?? 'null') . ', URL: ' . ($analysis->image_url ?? 'null');
-                Log::channel('single')->error('❌ ' . $error);
-                $analysis->update([
-                    'status' => 'failed',
-                    'error' => $error,
-                    'finished_at' => now(),
-                ]);
-                $this->fail(new \Exception($error));
-                return;
-            }
-
-            Log::channel('single')->info('✅ Image loaded successfully, size: ' . strlen($imageData) . ' bytes');
-
-            // ✅ STEP 3: Update to AI Analysis
-            $analysis->update([
-                'stage' => 2,
-                'stage_label' => 'AI Analysis',
-                'progress' => 40,
-            ]);
-
-            // ✅ STEP 4: Extract metadata
-            $metadata = $this->extractMetadata($analysis);
-            Log::channel('single')->info('✅ Metadata extracted', ['has_gps' => isset($metadata['gps'])]);
-
-            // ✅ STEP 5: Call Gemini API (with retries handled inside service)
-            Log::channel('single')->info('🤖 Calling Gemini API...');
-            $aiResult = $geminiService->analyzeGeolocation($imageData, $metadata);
-
-            // ✅ Check if the AI returned a real error (not just "Unknown Location")
-            if (isset($aiResult['is_error']) && $aiResult['is_error'] === true) {
-                $errorMsg = $aiResult['error_message'] ?? 'AI analysis failed without specific message';
-                Log::channel('single')->error('❌ Gemini API returned error: ' . $errorMsg);
-                throw new \Exception($errorMsg);
-            }
-
-            Log::channel('single')->info('✅ Gemini API returned result', [
-                'landmark' => $aiResult['landmark_name'] ?? 'Unknown',
-                'confidence' => $aiResult['confidence'] ?? 0,
-            ]);
-
-            // ✅ STEP 6: Update to Cloudinary
-            $analysis->update([
-                'stage' => 3,
-                'stage_label' => 'Uploading to Cloudinary',
-                'progress' => 70,
-            ]);
-
-            // ✅ STEP 7: Upload to Cloudinary
-            $cloudinaryUrl = $this->uploadToCloudinary($analysis);
-            Log::channel('single')->info('☁️ Cloudinary upload result', ['url' => $cloudinaryUrl ?? 'none']);
-
-            // ✅ STEP 8: Complete
-            $finalResult = array_merge($aiResult, [
-                'image_url' => $cloudinaryUrl ?? $analysis->image_url,
-            ]);
-
-            $analysis->update([
-                'status' => 'completed',
-                'stage' => 4,
-                'stage_label' => 'Complete',
-                'progress' => 100,
-                'result' => json_encode($finalResult),
-                'image_url' => $cloudinaryUrl ?? $analysis->image_url,
-                'finished_at' => now(),
-                'error' => null,
-            ]);
-
-            Log::channel('single')->info('🎉 Analysis COMPLETED for ID: ' . $this->analysisId);
-
-        } catch (\Exception $e) {
-            Log::channel('single')->error('❌ Job FAILED: ' . $e->getMessage());
-            Log::channel('single')->error('Stack trace: ' . $e->getTraceAsString());
-
-            // Mark as failed if not already
-            try {
-                $analysis = GeoAnalysis::find($this->analysisId);
-                if ($analysis && !in_array($analysis->status, ['completed', 'failed'])) {
-                    $analysis->update([
-                        'status' => 'failed',
-                        'error' => $e->getMessage(),
-                        'finished_at' => now(),
-                    ]);
-                    Log::channel('single')->info('✅ Error status saved to database');
-                }
-            } catch (\Exception $updateError) {
-                Log::channel('single')->error('❌ Failed to save error: ' . $updateError->getMessage());
-            }
-
-            // Re-throw to trigger job retry (if attempts remain)
-            throw $e;
+    try {
+        // ✅ Get analysis
+        $analysis = GeoAnalysis::find($this->analysisId);
+        if (!$analysis) {
+            Log::error('❌ Analysis not found: ' . $this->analysisId);
+            $this->fail(new \Exception('Analysis record not found'));
+            return;
         }
+
+        Log::info('📊 Analysis found', [
+            'id' => $analysis->id,
+            'status' => $analysis->status,
+            'image_path' => $analysis->image_path,
+        ]);
+
+        // ✅ Skip if already completed or failed
+        if (in_array($analysis->status, ['completed', 'failed'])) {
+            Log::info('⏭️ Analysis already ' . $analysis->status . ', skipping: ' . $this->analysisId);
+            return;
+        }
+
+        // ✅ STEP 1: Mark as processing
+        $analysis->markStage(1, 20);
+        Log::info('📝 Updated to stage 1 (processing)');
+
+        // ✅ STEP 2: Load image data
+        $imageData = $this->loadImageData($analysis);
+        if (!$imageData) {
+            $error = 'No image found. Path: ' . ($analysis->image_path ?? 'null');
+            Log::error('❌ ' . $error);
+            $analysis->markAsFailed($error);
+            $this->fail(new \Exception($error));
+            return;
+        }
+        Log::info('✅ Image loaded, size: ' . strlen($imageData) . ' bytes');
+
+        // ✅ STEP 3: Extract metadata
+        $metadata = $this->extractMetadata($analysis);
+        Log::info('✅ Metadata extracted', ['has_gps' => isset($metadata['gps'])]);
+
+        // ✅ STEP 4: AI Analysis
+        $analysis->markStage(2, 40);
+        Log::info('🤖 Calling Gemini API...');
+
+        $aiResult = $geminiService->analyzeGeolocation($imageData, $metadata);
+
+        // ✅ Check for AI error
+        if (isset($aiResult['is_error']) && $aiResult['is_error'] === true) {
+            $errorMsg = $aiResult['error_message'] ?? 'AI analysis failed without specific message';
+            Log::error('❌ Gemini API returned error: ' . $errorMsg);
+            throw new \Exception($errorMsg);
+        }
+
+        Log::info('✅ Gemini API returned result', [
+            'landmark' => $aiResult['landmark_name'] ?? 'Unknown',
+            'confidence' => $aiResult['confidence'] ?? 0,
+        ]);
+
+        // ✅ STEP 5: Upload to Cloudinary (optional, but continues even if fails)
+        $analysis->markStage(3, 70);
+        $cloudinaryUrl = $this->uploadToCloudinary($analysis);
+        Log::info('☁️ Cloudinary upload result', ['url' => $cloudinaryUrl ?? 'none']);
+
+        // ✅ STEP 6: Complete
+        $finalResult = array_merge($aiResult, [
+            'image_url' => $cloudinaryUrl ?? $analysis->image_url,
+        ]);
+
+        $analysis->markAsCompleted($finalResult);
+        Log::info('🎉 Analysis COMPLETED for ID: ' . $this->analysisId);
+
+    } catch (\Exception $e) {
+        Log::error('❌ Job FAILED: ' . $e->getMessage());
+        Log::error('Stack trace: ' . $e->getTraceAsString());
+
+        // Update status to failed if not already
+        try {
+            $analysis = GeoAnalysis::find($this->analysisId);
+            if ($analysis && !in_array($analysis->status, ['completed', 'failed'])) {
+                $analysis->markAsFailed($e->getMessage());
+                Log::info('✅ Error status saved to database');
+            }
+        } catch (\Exception $updateError) {
+            Log::error('❌ Failed to save error: ' . $updateError->getMessage());
+        }
+
+        // Re-throw to trigger job retry (if attempts remain)
+        throw $e;
     }
+}
 
     /**
      * Load image data from various sources.
