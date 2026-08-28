@@ -48,6 +48,10 @@
         ],
         "post-update-cmd": [
             "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+        ],
+        "post-install-cmd": [
+            "@php artisan storage:link",
+            "@php -r \"if (PHP_OS_FAMILY !== 'Windows') { system('chmod -R 775 storage bootstrap/cache'); }\""
         ]
     },
     "extra": {
