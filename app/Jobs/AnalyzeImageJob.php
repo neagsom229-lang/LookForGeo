@@ -18,9 +18,10 @@ class AnalyzeImageJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    // Retry configuration – 3 attempts with exponential backoff
     public $tries = 3;
     public $backoff = [10, 30, 60];
-    public $timeout = 120;
+    public $timeout = 180; // increased to allow for API retries
 
     protected $analysisId;
     protected $localPath;
@@ -31,7 +32,7 @@ class AnalyzeImageJob implements ShouldQueue
         $this->analysisId = $analysisId;
         $this->localPath = $localPath;
         $this->filename = $filename;
-        
+
         Log::channel('single')->info('📦 AnalyzeImageJob created', [
             'analysis_id' => $analysisId,
             'local_path' => $localPath,
@@ -46,7 +47,7 @@ class AnalyzeImageJob implements ShouldQueue
 
             // ✅ Get analysis
             $analysis = GeoAnalysis::find($this->analysisId);
-            
+
             if (!$analysis) {
                 Log::channel('single')->error('❌ Analysis not found: ' . $this->analysisId);
                 $this->fail(new \Exception('Analysis record not found'));
@@ -60,9 +61,9 @@ class AnalyzeImageJob implements ShouldQueue
                 'image_url' => $analysis->image_url,
             ]);
 
-            // ✅ Skip if already completed
-            if ($analysis->status === 'completed') {
-                Log::channel('single')->info('⏭️ Analysis already completed, skipping: ' . $this->analysisId);
+            // ✅ Skip if already completed or permanently failed
+            if (in_array($analysis->status, ['completed', 'failed'])) {
+                Log::channel('single')->info('⏭️ Analysis already ' . $analysis->status . ', skipping: ' . $this->analysisId);
                 return;
             }
 
@@ -74,63 +75,11 @@ class AnalyzeImageJob implements ShouldQueue
                 'stage_label' => 'Processing Image',
                 'progress' => 20,
                 'error' => null,
+                'started_at' => now(),
             ]);
-            Log::channel('single')->info('✅ Updated to stage 1');
 
-            // ✅ STEP 2: Find and load image
-            Log::channel('single')->info('🔍 Looking for image file...');
-            $imageData = null;
-            $imageSource = null;
-
-            // Check passed path
-            if ($this->localPath) {
-                Log::channel('single')->info('📁 Checking passed path: ' . $this->localPath);
-                if (file_exists($this->localPath)) {
-                    $imageData = file_get_contents($this->localPath);
-                    $imageSource = 'passed_path';
-                    Log::channel('single')->info('✅ Loaded from passed path, size: ' . strlen($imageData));
-                }
-            }
-
-            // Check storage path
-            if (!$imageData && $analysis->image_path) {
-                $fullPath = storage_path('app/public/' . $analysis->image_path);
-                Log::channel('single')->info('📁 Checking storage path: ' . $fullPath);
-                if (file_exists($fullPath)) {
-                    $imageData = file_get_contents($fullPath);
-                    $imageSource = 'storage_path';
-                    Log::channel('single')->info('✅ Loaded from storage path, size: ' . strlen($imageData));
-                } else {
-                    Log::channel('single')->warning('⚠️ File not found: ' . $fullPath);
-                    // Try to list what's in the directory
-                    $dir = dirname($fullPath);
-                    if (is_dir($dir)) {
-                        $files = scandir($dir);
-                        Log::channel('single')->info('📂 Files in directory: ' . implode(', ', array_slice($files, 0, 10)));
-                    }
-                }
-            }
-
-            // Check Laravel Storage
-            if (!$imageData && $analysis->image_path) {
-                Log::channel('single')->info('📁 Checking Laravel Storage: ' . $analysis->image_path);
-                if (Storage::disk('public')->exists($analysis->image_path)) {
-                    $imageData = Storage::disk('public')->get($analysis->image_path);
-                    $imageSource = 'laravel_storage';
-                    Log::channel('single')->info('✅ Loaded from Laravel Storage, size: ' . strlen($imageData));
-                }
-            }
-
-            // Check URL
-            if (!$imageData && $analysis->image_url) {
-                Log::channel('single')->info('📸 Checking URL: ' . $analysis->image_url);
-                $imageData = @file_get_contents($analysis->image_url);
-                if ($imageData) {
-                    $imageSource = 'url';
-                    Log::channel('single')->info('✅ Loaded from URL, size: ' . strlen($imageData));
-                }
-            }
-
+            // ✅ STEP 2: Load image data
+            $imageData = $this->loadImageData($analysis);
             if (!$imageData) {
                 $error = 'No image found. Path: ' . ($analysis->image_path ?? 'null') . ', URL: ' . ($analysis->image_url ?? 'null');
                 Log::channel('single')->error('❌ ' . $error);
@@ -143,7 +92,7 @@ class AnalyzeImageJob implements ShouldQueue
                 return;
             }
 
-            Log::channel('single')->info('✅ Image loaded successfully from: ' . $imageSource);
+            Log::channel('single')->info('✅ Image loaded successfully, size: ' . strlen($imageData) . ' bytes');
 
             // ✅ STEP 3: Update to AI Analysis
             $analysis->update([
@@ -151,27 +100,23 @@ class AnalyzeImageJob implements ShouldQueue
                 'stage_label' => 'AI Analysis',
                 'progress' => 40,
             ]);
-            Log::channel('single')->info('✅ Updated to stage 2');
 
-            // ✅ STEP 4: Get metadata
-            $metadata = [];
-            if ($analysis->image_path) {
-                $fullPath = storage_path('app/public/' . $analysis->image_path);
-                if (file_exists($fullPath)) {
-                    $metadata = $this->extractMetadata($fullPath);
-                    Log::channel('single')->info('✅ Metadata extracted', ['has_gps' => isset($metadata['gps'])]);
-                }
-            }
+            // ✅ STEP 4: Extract metadata
+            $metadata = $this->extractMetadata($analysis);
+            Log::channel('single')->info('✅ Metadata extracted', ['has_gps' => isset($metadata['gps'])]);
 
-            // ✅ STEP 5: Call Gemini API
+            // ✅ STEP 5: Call Gemini API (with retries handled inside service)
             Log::channel('single')->info('🤖 Calling Gemini API...');
             $aiResult = $geminiService->analyzeGeolocation($imageData, $metadata);
 
-            if (isset($aiResult['error'])) {
-                throw new \Exception($aiResult['message'] ?? 'AI analysis failed');
+            // ✅ Check if the AI returned a real error (not just "Unknown Location")
+            if (isset($aiResult['is_error']) && $aiResult['is_error'] === true) {
+                $errorMsg = $aiResult['error_message'] ?? 'AI analysis failed without specific message';
+                Log::channel('single')->error('❌ Gemini API returned error: ' . $errorMsg);
+                throw new \Exception($errorMsg);
             }
 
-            Log::channel('single')->info('✅ Gemini API returned', [
+            Log::channel('single')->info('✅ Gemini API returned result', [
                 'landmark' => $aiResult['landmark_name'] ?? 'Unknown',
                 'confidence' => $aiResult['confidence'] ?? 0,
             ]);
@@ -182,50 +127,10 @@ class AnalyzeImageJob implements ShouldQueue
                 'stage_label' => 'Uploading to Cloudinary',
                 'progress' => 70,
             ]);
-            Log::channel('single')->info('✅ Updated to stage 3');
 
             // ✅ STEP 7: Upload to Cloudinary
-            $cloudinaryUrl = null;
-            $localFile = null;
-
-            if ($this->localPath && file_exists($this->localPath)) {
-                $localFile = $this->localPath;
-            } elseif ($analysis->image_path) {
-                $fullPath = storage_path('app/public/' . $analysis->image_path);
-                if (file_exists($fullPath)) {
-                    $localFile = $fullPath;
-                }
-            }
-
-            if ($localFile) {
-                try {
-                    Log::channel('single')->info('☁️ Uploading to Cloudinary...');
-                    Configuration::instance([
-                        'cloud' => [
-                            'cloud_name' => 'hyv3laps',
-                            'api_key' => '189951824121921',
-                            'api_secret' => env('CLOUDINARY_API_SECRET'),
-                        ],
-                        'url' => ['secure' => true],
-                    ]);
-
-                    $uploadApi = new UploadApi();
-                    $uploadResult = $uploadApi->upload($localFile, [
-                        'folder' => 'tracegeo/analyses',
-                        'public_id' => pathinfo($this->filename ?? $analysis->image_path ?? 'image', PATHINFO_FILENAME),
-                    ]);
-                    
-                    $cloudinaryUrl = $uploadResult['secure_url'];
-                    Log::channel('single')->info('✅ Cloudinary upload successful', ['url' => $cloudinaryUrl]);
-                    
-                    if (file_exists($localFile)) {
-                        @unlink($localFile);
-                        Log::channel('single')->info('🗑️ Local file deleted');
-                    }
-                } catch (\Exception $e) {
-                    Log::channel('single')->error('❌ Cloudinary upload failed: ' . $e->getMessage());
-                }
-            }
+            $cloudinaryUrl = $this->uploadToCloudinary($analysis);
+            Log::channel('single')->info('☁️ Cloudinary upload result', ['url' => $cloudinaryUrl ?? 'none']);
 
             // ✅ STEP 8: Complete
             $finalResult = array_merge($aiResult, [
@@ -249,9 +154,10 @@ class AnalyzeImageJob implements ShouldQueue
             Log::channel('single')->error('❌ Job FAILED: ' . $e->getMessage());
             Log::channel('single')->error('Stack trace: ' . $e->getTraceAsString());
 
+            // Mark as failed if not already
             try {
                 $analysis = GeoAnalysis::find($this->analysisId);
-                if ($analysis) {
+                if ($analysis && !in_array($analysis->status, ['completed', 'failed'])) {
                     $analysis->update([
                         'status' => 'failed',
                         'error' => $e->getMessage(),
@@ -263,56 +169,96 @@ class AnalyzeImageJob implements ShouldQueue
                 Log::channel('single')->error('❌ Failed to save error: ' . $updateError->getMessage());
             }
 
+            // Re-throw to trigger job retry (if attempts remain)
             throw $e;
         }
     }
 
-    public function failed(\Exception $exception)
+    /**
+     * Load image data from various sources.
+     */
+    private function loadImageData(GeoAnalysis $analysis)
     {
-        Log::channel('single')->error('❌❌❌ Job PERMANENTLY FAILED after ' . $this->tries . ' attempts:', [
-            'analysis_id' => $this->analysisId,
-            'error' => $exception->getMessage(),
-        ]);
-
-        try {
-            $analysis = GeoAnalysis::find($this->analysisId);
-            if ($analysis) {
-                $analysis->update([
-                    'status' => 'failed',
-                    'error' => 'Permanent failure: ' . $exception->getMessage(),
-                    'finished_at' => now(),
-                ]);
-            }
-        } catch (\Exception $e) {
-            Log::channel('single')->error('❌ Failed to update permanent failure: ' . $e->getMessage());
+        // Check passed path
+        if ($this->localPath && file_exists($this->localPath)) {
+            Log::channel('single')->info('📁 Loading from passed path: ' . $this->localPath);
+            return file_get_contents($this->localPath);
         }
+
+        // Check storage path (full path)
+        if ($analysis->image_path) {
+            $fullPath = storage_path('app/public/' . $analysis->image_path);
+            if (file_exists($fullPath)) {
+                Log::channel('single')->info('📁 Loading from storage path: ' . $fullPath);
+                return file_get_contents($fullPath);
+            }
+        }
+
+        // Check Laravel Storage
+        if ($analysis->image_path && Storage::disk('public')->exists($analysis->image_path)) {
+            Log::channel('single')->info('📁 Loading from Laravel Storage: ' . $analysis->image_path);
+            return Storage::disk('public')->get($analysis->image_path);
+        }
+
+        // Check URL
+        if ($analysis->image_url) {
+            Log::channel('single')->info('📸 Loading from URL: ' . $analysis->image_url);
+            $data = @file_get_contents($analysis->image_url);
+            if ($data) {
+                return $data;
+            }
+        }
+
+        return null;
     }
 
-    private function extractMetadata($filePath)
+    /**
+     * Extract EXIF metadata from the image.
+     */
+    private function extractMetadata(GeoAnalysis $analysis)
     {
         $data = [];
-        if (!$filePath || !file_exists($filePath)) return $data;
+        $filePath = null;
 
-        if (function_exists('exif_read_data')) {
-            try {
-                $exif = @exif_read_data($filePath);
-                if ($exif) {
-                    if (isset($exif['GPSLatitude']) && isset($exif['GPSLongitude'])) {
-                        $data['gps'] = [
-                            'latitude' => $this->gpsToDecimal($exif['GPSLatitude'], $exif['GPSLatitudeRef'] ?? 'N'),
-                            'longitude' => $this->gpsToDecimal($exif['GPSLongitude'], $exif['GPSLongitudeRef'] ?? 'E')
-                        ];
-                    }
-                    $data['camera'] = [
-                        'make' => $exif['Make'] ?? null,
-                        'model' => $exif['Model'] ?? null,
-                    ];
-                    $data['datetime'] = $exif['DateTimeOriginal'] ?? $exif['DateTime'] ?? null;
-                }
-            } catch (\Exception $e) {
-                Log::channel('single')->warning('⚠️ Could not extract EXIF: ' . $e->getMessage());
+        if ($this->localPath && file_exists($this->localPath)) {
+            $filePath = $this->localPath;
+        } elseif ($analysis->image_path) {
+            $fullPath = storage_path('app/public/' . $analysis->image_path);
+            if (file_exists($fullPath)) {
+                $filePath = $fullPath;
             }
         }
+
+        if (!$filePath) {
+            return $data;
+        }
+
+        if (!function_exists('exif_read_data')) {
+            return $data;
+        }
+
+        try {
+            $exif = @exif_read_data($filePath);
+            if ($exif) {
+                if (isset($exif['GPSLatitude']) && isset($exif['GPSLongitude'])) {
+                    $data['gps'] = [
+                        'latitude' => $this->gpsToDecimal($exif['GPSLatitude'], $exif['GPSLatitudeRef'] ?? 'N'),
+                        'longitude' => $this->gpsToDecimal($exif['GPSLongitude'], $exif['GPSLongitudeRef'] ?? 'E'),
+                    ];
+                }
+                $data['camera'] = [
+                    'make' => $exif['Make'] ?? null,
+                    'model' => $exif['Model'] ?? null,
+                ];
+                $data['datetime'] = $exif['DateTimeOriginal'] ?? $exif['DateTime'] ?? null;
+                if (isset($exif['ISOSpeedRatings'])) {
+                    $data['settings']['iso'] = $exif['ISOSpeedRatings'];
+                }
+            }
+        } catch (\Exception $e) {
+            Log::channel('single')->warning('⚠️ EXIF extraction failed: ' . $e->getMessage());
+        }
+
         return $data;
     }
 
@@ -329,5 +275,95 @@ class AnalyzeImageJob implements ShouldQueue
         }
 
         return $decimal;
+    }
+
+    /**
+     * Upload to Cloudinary using environment configuration.
+     * Returns the secure URL or null on failure.
+     */
+    private function uploadToCloudinary(GeoAnalysis $analysis)
+    {
+        $localFile = null;
+
+        if ($this->localPath && file_exists($this->localPath)) {
+            $localFile = $this->localPath;
+        } elseif ($analysis->image_path) {
+            $fullPath = storage_path('app/public/' . $analysis->image_path);
+            if (file_exists($fullPath)) {
+                $localFile = $fullPath;
+            }
+        }
+
+        if (!$localFile) {
+            Log::channel('single')->warning('☁️ No local file to upload to Cloudinary');
+            return null;
+        }
+
+        // Load credentials from config (set in config/services.php)
+        $cloudName = config('services.cloudinary.cloud_name');
+        $apiKey = config('services.cloudinary.api_key');
+        $apiSecret = config('services.cloudinary.api_secret');
+
+        if (empty($cloudName) || empty($apiKey) || empty($apiSecret)) {
+            Log::channel('single')->warning('☁️ Cloudinary credentials not set, skipping upload');
+            return null;
+        }
+
+        try {
+            Log::channel('single')->info('☁️ Uploading to Cloudinary...');
+            Configuration::instance([
+                'cloud' => [
+                    'cloud_name' => $cloudName,
+                    'api_key' => $apiKey,
+                    'api_secret' => $apiSecret,
+                ],
+                'url' => ['secure' => true],
+            ]);
+
+            $uploadApi = new UploadApi();
+            $publicId = pathinfo($this->filename ?? $analysis->image_path ?? 'image', PATHINFO_FILENAME);
+            $uploadResult = $uploadApi->upload($localFile, [
+                'folder' => 'tracegeo/analyses',
+                'public_id' => $publicId,
+            ]);
+
+            $url = $uploadResult['secure_url'] ?? null;
+            Log::channel('single')->info('✅ Cloudinary upload successful', ['url' => $url]);
+
+            // Optionally delete local file after successful upload
+            if ($url && file_exists($localFile)) {
+                @unlink($localFile);
+                Log::channel('single')->info('🗑️ Local file deleted after Cloudinary upload');
+            }
+
+            return $url;
+        } catch (\Exception $e) {
+            Log::channel('single')->error('❌ Cloudinary upload failed: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Called when all retries are exhausted.
+     */
+    public function failed(\Exception $exception)
+    {
+        Log::channel('single')->error('❌❌❌ Job PERMANENTLY FAILED after ' . $this->tries . ' attempts:', [
+            'analysis_id' => $this->analysisId,
+            'error' => $exception->getMessage(),
+        ]);
+
+        try {
+            $analysis = GeoAnalysis::find($this->analysisId);
+            if ($analysis && !in_array($analysis->status, ['completed', 'failed'])) {
+                $analysis->update([
+                    'status' => 'failed',
+                    'error' => 'Permanent failure: ' . $exception->getMessage(),
+                    'finished_at' => now(),
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::channel('single')->error('❌ Failed to update permanent failure: ' . $e->getMessage());
+        }
     }
 }
