@@ -1,1693 +1,2898 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TraceGeo — OSINT Analysis</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    
-    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-    
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
-        :root {
-            --bg-deep: #07070d;
-            --bg-card: #0e0e18;
-            --bg-panel: #0c0c16;
-            --border: rgba(255,255,255,0.06);
-            --text: #ffffff;
-            --text-secondary: #9ca3af;
-            --text-muted: #6b7280;
-            --accent: #8b5cf6;
-            --success: #2dd4bf;
-            --cyan: #22d3ee;
-            --warning: #fbbf24;
-            --danger: #f87171;
-            --radius: 12px;
-            --radius-lg: 22px;
-            --shadow: 0 20px 60px rgba(0,0,0,0.55);
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    :root {
+        --bg-deep: #07070d;
+        --bg-card: #0e0e18;
+        --bg-panel: #0c0c16;
+        --border: rgba(255, 255, 255, 0.06);
+        --text: #ffffff;
+        --text-secondary: #9ca3af;
+        --text-muted: #6b7280;
+        --accent: #c98a46;
+        --accent-deep: #a86a2e;
+        --success: #2dd4bf;
+        --cyan: #22d3ee;
+        --warning: #fbbf24;
+        --danger: #f87171;
+        --radius: 12px;
+        --radius-lg: 22px;
+        --shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+    }
+
+    body {
+        font-family: 'Inter', sans-serif;
+        background: var(--bg-deep);
+        color: var(--text);
+        min-height: 100vh;
+        overflow: hidden;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            animation-duration: 0.001ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.001ms !important;
+        }
+    }
+
+    a:focus-visible,
+    button:focus-visible,
+    [tabindex]:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+    }
+
+    /* ===== NAVBAR ===== */
+    .navbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 28px;
+        background: rgba(7, 7, 13, 0.92);
+        backdrop-filter: blur(16px);
+        border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 17px;
+        font-weight: 700;
+        text-decoration: none;
+        color: var(--text);
+    }
+
+    .logo .icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 700;
+        color: #fff;
+    }
+
+    .tagline {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-align: center;
+        flex: 1;
+    }
+
+    .nav-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .nav-status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-right: 12px;
+    }
+
+    .nav-status .pulse-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--success);
+        box-shadow: 0 0 20px var(--success);
+        animation: pulseDot 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulseDot {
+
+        0%,
+        100% {
+            opacity: 1;
+            transform: scale(1);
         }
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background: var(--bg-deep);
-            color: var(--text);
-            min-height: 100vh;
-            overflow: hidden;
+        50% {
+            opacity: 0.3;
+            transform: scale(0.7);
         }
+    }
 
-        .globe-bg {
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            pointer-events: none;
-            background: 
-                radial-gradient(ellipse at 30% 20%, rgba(139,92,246,0.08), transparent 55%),
-                radial-gradient(ellipse at 75% 80%, rgba(34,211,238,0.05), transparent 50%);
-            animation: bgPulse 8s ease-in-out infinite alternate;
-        }
+    .nav-status .status-text {
+        font-size: 12px;
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
 
-        @keyframes bgPulse {
-            0% { opacity: 0.6; transform: scale(1); }
-            100% { opacity: 1; transform: scale(1.05); }
-        }
+    .btn {
+        padding: 7px 16px;
+        border-radius: 8px;
+        border: none;
+        font-size: 12.5px;
+        font-weight: 600;
+        transition: all 0.25s ease;
+        font-family: 'Inter', sans-serif;
+        text-decoration: none;
+        cursor: pointer;
+    }
 
-        .navbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            z-index: 100;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 28px;
-            background: rgba(7,7,13,0.92);
-            backdrop-filter: blur(16px);
-            border-bottom: 1px solid var(--border);
-        }
+    .btn-ghost {
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text-secondary);
+        border: 1px solid var(--border);
+    }
 
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 9px;
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 17px;
-            font-weight: 700;
-            text-decoration: none;
-            color: var(--text);
-        }
+    .btn-ghost:hover {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.08);
+    }
 
-        .logo .icon {
-            width: 28px;
-            height: 28px;
-            border-radius: 8px;
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 13px;
-            font-weight: 700;
-            color: #fff;
-        }
+    /* ===== STAGE ===== */
+    .stage-frame {
+        position: fixed;
+        top: 68px;
+        left: 24px;
+        right: 24px;
+        bottom: 20px;
+        border-radius: var(--radius-lg);
+        border: 1px solid rgba(45, 212, 191, 0.2);
+        background: #05050a;
+        overflow: hidden;
+        box-shadow: var(--shadow), 0 0 0 1px rgba(255, 255, 255, 0.02);
+        z-index: 5;
+    }
 
-        .tagline {
-            font-size: 12px;
-            color: var(--text-muted);
-            text-align: center;
-            flex: 1;
-        }
+    .stage-content {
+        position: absolute;
+        inset: 0;
+    }
 
-        .nav-actions {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
+    /* ===== STARFIELD GLOBE (Frame 3 & 5) ===== */
+    #starfieldCanvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+        opacity: 0;
+        transition: opacity 0.8s ease;
+        pointer-events: none;
+    }
 
-        .nav-status {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-right: 12px;
-        }
+    #starfieldCanvas.visible {
+        opacity: 1;
+    }
 
-        .nav-status .pulse-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--success);
-            box-shadow: 0 0 20px var(--success);
-            animation: pulseDot 1.2s ease-in-out infinite;
-        }
+    /* ===== FLAT DARK MAP (Frame 2, 4, 6) ===== */
+    .map-earth-container {
+        position: absolute;
+        inset: 0;
+        background: #05050a;
+        overflow: hidden;
+        z-index: 2;
+        opacity: 1;
+        transition: opacity 0.8s ease;
+    }
 
-        @keyframes pulseDot {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.3; transform: scale(0.7); }
-        }
+    .map-earth-container.hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
 
-        .nav-status .status-text {
-            font-size: 12px;
-            color: var(--text-secondary);
-            font-weight: 500;
-        }
+    .map-earth-container #earthMap {
+        width: 100%;
+        height: 100%;
+        background: #05050a;
+    }
 
-        .btn {
-            padding: 7px 16px;
-            border-radius: 8px;
-            border: none;
-            font-size: 12.5px;
-            font-weight: 600;
-            transition: all 0.25s ease;
-            font-family: 'Inter', sans-serif;
-            text-decoration: none;
-            cursor: pointer;
-        }
+    /* Vignette overlay on flat map */
+    .map-vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(ellipse at center, transparent 40%, rgba(5, 5, 10, 0.75) 100%);
+        z-index: 5;
+    }
 
-        .btn-ghost {
-            background: rgba(255,255,255,0.04);
-            color: var(--text-secondary);
-            border: 1px solid var(--border);
-        }
-        .btn-ghost:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+    /* ===== MAP STATUS BAR ===== */
+    .map-status {
+        position: absolute;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 20;
+        text-align: center;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+        color: var(--text-secondary);
+        background: rgba(7, 7, 13, 0.75);
+        padding: 8px 20px;
+        border-radius: 20px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        min-width: 220px;
+        transition: all 0.5s ease;
+        white-space: nowrap;
+    }
 
-        .btn-primary {
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
-            color: #fff;
-            box-shadow: 0 4px 16px rgba(139,92,246,0.3);
-        }
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(139,92,246,0.5);
-        }
+    .map-status .highlight {
+        color: var(--cyan);
+        font-weight: 600;
+    }
 
-        .btn-success {
-            background: linear-gradient(135deg, var(--success), #10b981);
-            color: #fff;
-            box-shadow: 0 4px 16px rgba(45,212,191,0.3);
-        }
-        .btn-success:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(45,212,191,0.5);
-        }
+    .map-status .target-found {
+        color: var(--success);
+        font-weight: 700;
+        animation: pulseText 0.9s ease-in-out infinite;
+    }
 
-        .stage-frame {
-            position: fixed;
-            top: 68px;
-            left: 24px;
-            right: 24px;
-            bottom: 20px;
-            border-radius: var(--radius-lg);
-            border: 1px solid rgba(45,212,191,0.2);
-            background: #05050a;
-            overflow: hidden;
-            box-shadow: var(--shadow), 0 0 0 1px rgba(255,255,255,0.02);
-            z-index: 5;
-        }
+    @keyframes pulseText {
 
-        .stage-content {
-            position: absolute;
-            inset: 0;
-        }
-
-        /* ========== MAP EARTH ========== */
-        .map-earth-container {
-            position: absolute;
-            inset: 0;
-            background: radial-gradient(ellipse at center, #0a0a1a 0%, #05050a 100%);
-            overflow: hidden;
-            z-index: 1;
-        }
-
-        .map-earth-container #earthMap {
-            width: 100%;
-            height: 100%;
-            background: #05050a;
-        }
-
-        .map-earth-container .map-overlay {
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            background: radial-gradient(ellipse at center, transparent 40%, rgba(5,5,10,0.8) 100%);
-            z-index: 5;
-        }
-
-        .map-earth-container .map-status {
-            position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 10;
-            text-align: center;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-            color: var(--text-secondary);
-            background: rgba(7,7,13,0.7);
-            padding: 8px 20px;
-            border-radius: 20px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.05);
-            min-width: 200px;
-            transition: all 0.5s ease;
-        }
-
-        .map-earth-container .map-status .highlight {
-            color: var(--cyan);
-            font-weight: 600;
-        }
-
-        .map-earth-container .map-status .target-found {
-            color: var(--success);
-            font-weight: 700;
-            animation: pulseText 1s ease-in-out infinite;
-        }
-
-        @keyframes pulseText {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        /* ========== PROBE MARKER ========== */
-        .probe-marker {
-            position: relative;
-            width: 40px;
-            height: 40px;
-            margin: -20px 0 0 -20px;
-        }
-
-        .probe-marker .ring {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            border-radius: 50%;
-            border: 2px solid var(--cyan);
-            animation: probePulse 1.2s ease-in-out infinite;
-            width: 30px;
-            height: 30px;
-        }
-
-        .probe-marker .ring:nth-child(2) {
-            animation-delay: 0.6s;
-            width: 50px;
-            height: 50px;
-            border-color: rgba(45,212,191,0.3);
-        }
-
-        .probe-marker .dot {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: var(--cyan);
-            box-shadow: 0 0 30px rgba(34,211,238,0.5);
-        }
-
-        .probe-marker.target .dot {
-            background: var(--success);
-            box-shadow: 0 0 40px rgba(45,212,191,0.8);
-        }
-
-        .probe-marker.target .ring {
-            border-color: var(--success);
-        }
-
-        @keyframes probePulse {
-            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
-            100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
-        }
-
-        /* ========== WHITE FLASH ========== */
-        .white-flash {
-            position: absolute;
-            inset: 0;
-            background: #fff;
-            opacity: 0;
-            z-index: 50;
-            pointer-events: none;
-        }
-
-        .white-flash.run {
-            animation: flashWipe 1.1s ease-in-out forwards;
-        }
-
-        @keyframes flashWipe {
-            0% { opacity: 0; }
-            45% { opacity: 1; }
-            100% { opacity: 0; }
-        }
-
-        /* ========== PROGRESS CARD ========== */
-        .progress-card {
-            position: absolute;
-            left: 24px;
-            bottom: 24px;
-            z-index: 30;
-            width: 420px;
-            max-width: calc(100% - 48px);
-            background: rgba(8,8,14,0.92);
-            backdrop-filter: blur(18px);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 16px;
-            padding: 16px 20px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-            display: none;
-        }
-
-        .pc-label {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            color: var(--success);
-            margin-bottom: 6px;
-        }
-
-        .pc-label .dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--success);
-            box-shadow: 0 0 10px var(--success);
-            animation: pulseDot 1.2s ease-in-out infinite;
-        }
-
-        .pc-headline {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 18px;
-            font-weight: 700;
-            margin-bottom: 3px;
-            letter-spacing: -0.01em;
-            min-height: 24px;
-        }
-
-        .pc-sub {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-bottom: 12px;
-            min-height: 16px;
-        }
-
-        .pc-bar {
-            width: 100%;
-            height: 3px;
-            background: rgba(255,255,255,0.08);
-            border-radius: 2px;
-            overflow: hidden;
-            margin-bottom: 12px;
-        }
-
-        .pc-bar .fill {
-            height: 100%;
-            width: 0%;
-            background: linear-gradient(90deg, var(--success), var(--cyan));
-            border-radius: 2px;
-            transition: width 0.4s ease;
-        }
-
-        .pc-steps {
-            display: flex;
-            gap: 14px;
-            flex-wrap: wrap;
-        }
-
-        .pc-steps .pcs {
-            font-size: 10.5px;
-            font-weight: 600;
-            color: var(--text-muted);
-            transition: color 0.3s ease;
-        }
-
-        .pc-steps .pcs b {
-            font-weight: 700;
-            margin-right: 3px;
-            opacity: 0.7;
-        }
-
-        .pc-steps .pcs.active {
-            color: var(--text);
-        }
-
-        .pc-steps .pcs.active b {
-            color: var(--success);
+        0%,
+        100% {
             opacity: 1;
         }
 
-        .pc-steps .pcs.done {
-            color: var(--text-secondary);
+        50% {
+            opacity: 0.45;
+        }
+    }
+
+    /* ===== PROBE MARKER ===== */
+    .probe-marker {
+        position: relative;
+        width: 40px;
+        height: 40px;
+        margin: -20px 0 0 -20px;
+    }
+
+    .probe-marker .ring {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        border-radius: 50%;
+        border: 2px solid var(--cyan);
+        animation: probePulse 1.2s ease-in-out infinite;
+        width: 30px;
+        height: 30px;
+    }
+
+    .probe-marker .ring:nth-child(2) {
+        animation-delay: 0.6s;
+        width: 50px;
+        height: 50px;
+        border-color: rgba(45, 212, 191, 0.3);
+    }
+
+    .probe-marker .dot {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--cyan);
+        box-shadow: 0 0 30px rgba(34, 211, 238, 0.5);
+    }
+
+    .probe-marker.target .dot {
+        background: var(--success);
+        box-shadow: 0 0 40px rgba(45, 212, 191, 0.8);
+    }
+
+    .probe-marker.target .ring {
+        border-color: var(--success);
+    }
+
+    @keyframes probePulse {
+        0% {
+            transform: translate(-50%, -50%) scale(0.5);
+            opacity: 1;
         }
 
-        /* ========== RESULTS SPLIT VIEW ========== */
+        100% {
+            transform: translate(-50%, -50%) scale(2);
+            opacity: 0;
+        }
+    }
+
+    /* ===== GLOBE MODE LABEL ===== */
+    .globe-mode-badge {
+        position: absolute;
+        top: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 20;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--cyan);
+        background: rgba(34, 211, 238, 0.08);
+        border: 1px solid rgba(34, 211, 238, 0.22);
+        padding: 5px 16px;
+        border-radius: 20px;
+        opacity: 0;
+        transition: opacity 0.5s ease;
+        pointer-events: none;
+    }
+
+    .globe-mode-badge.visible {
+        opacity: 1;
+    }
+
+    /* ===== WHITE FLASH ===== */
+    .white-flash {
+        position: absolute;
+        inset: 0;
+        background: #fff;
+        opacity: 0;
+        z-index: 50;
+        pointer-events: none;
+    }
+
+    .white-flash.run {
+        animation: flashWipe 1.1s ease-in-out forwards;
+    }
+
+    @keyframes flashWipe {
+        0% {
+            opacity: 0;
+        }
+
+        45% {
+            opacity: 1;
+        }
+
+        100% {
+            opacity: 0;
+        }
+    }
+
+    /* ===== PROGRESS CARD ===== */
+    .progress-card {
+        position: absolute;
+        left: 24px;
+        bottom: 24px;
+        z-index: 30;
+        width: 420px;
+        max-width: calc(100% - 48px);
+        background: rgba(8, 8, 14, 0.93);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 16px;
+        padding: 16px 20px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        display: none;
+    }
+
+    .pc-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--success);
+        margin-bottom: 6px;
+    }
+
+    .pc-label .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--success);
+        box-shadow: 0 0 10px var(--success);
+        animation: pulseDot 1.2s ease-in-out infinite;
+    }
+
+    .pc-headline {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 18px;
+        font-weight: 700;
+        margin-bottom: 3px;
+        letter-spacing: -0.01em;
+        min-height: 24px;
+    }
+
+    .pc-sub {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 12px;
+        min-height: 16px;
+    }
+
+    .pc-bar {
+        width: 100%;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-bottom: 12px;
+    }
+
+    .pc-bar .fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--success), var(--cyan));
+        border-radius: 2px;
+        transition: width 0.5s ease;
+    }
+
+    .pc-steps {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+
+    .pc-steps .pcs {
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--text-muted);
+        transition: color 0.3s ease;
+    }
+
+    .pc-steps .pcs b {
+        font-weight: 700;
+        margin-right: 3px;
+        opacity: 0.7;
+    }
+
+    .pc-steps .pcs.active {
+        color: var(--text);
+    }
+
+    .pc-steps .pcs.active b {
+        color: var(--success);
+        opacity: 1;
+    }
+
+    .pc-steps .pcs.done {
+        color: var(--text-secondary);
+    }
+
+    .pc-error {
+        margin-top: 10px;
+        font-size: 11.5px;
+        color: var(--danger);
+        display: none;
+    }
+
+    /* Current city scanning label inside progress card */
+    .pc-scanning {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        color: var(--cyan);
+        margin-top: 6px;
+        min-height: 14px;
+        letter-spacing: 0.05em;
+    }
+
+    /* ===== RESULTS SPLIT (Frame 7 & 8) ===== */
+    .results-split {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 20;
+    }
+
+    .results-split.show {
+        opacity: 1;
+        pointer-events: auto;
+        animation: resultsFadeIn 0.6s ease both;
+    }
+
+    @keyframes resultsFadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    .sat-pane {
+        flex: 1;
+        position: relative;
+        background: var(--bg-deep);
+        overflow: hidden;
+        min-width: 0;
+    }
+
+    .sat-pane #resultMap {
+        width: 100%;
+        height: 100%;
+        background: var(--bg-deep);
+    }
+
+    .pill-brand {
+        position: absolute;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 15;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 11.5px;
+        font-weight: 700;
+        background: rgba(8, 8, 14, 0.82);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border);
+        padding: 5px 16px;
+        border-radius: 20px;
+        color: var(--text);
+        pointer-events: none;
+    }
+
+    .pill-confidence {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        z-index: 15;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11.5px;
+        font-weight: 700;
+        background: rgba(8, 8, 14, 0.82);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border);
+        padding: 5px 14px;
+        border-radius: 20px;
+        pointer-events: none;
+    }
+
+    .pill-confidence .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+    }
+
+    .pane-actions {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 15;
+        display: flex;
+        gap: 8px;
+    }
+
+    .pane-actions button {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+        background: rgba(8, 8, 14, 0.87);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border);
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+        transition: 0.2s;
+        font-family: 'Inter', sans-serif;
+    }
+
+    .pane-actions button:hover {
+        border-color: var(--success);
+        background: rgba(45, 212, 191, 0.1);
+    }
+
+    /* Avatar marker on result map */
+    .avatar-marker {
+        position: relative;
+        width: 46px;
+        height: 46px;
+    }
+
+    .avatar-marker .ring {
+        position: absolute;
+        inset: -10px;
+        border-radius: 50%;
+        border: 2px solid var(--success);
+        animation: markerRing 1.8s ease-out infinite;
+    }
+
+    .avatar-marker .ring2 {
+        position: absolute;
+        inset: -10px;
+        border-radius: 50%;
+        border: 2px solid var(--cyan);
+        animation: markerRing 1.8s ease-out infinite;
+        animation-delay: 0.6s;
+    }
+
+    @keyframes markerRing {
+        0% {
+            transform: scale(0.7);
+            opacity: 0.9;
+        }
+
+        100% {
+            transform: scale(1.9);
+            opacity: 0;
+        }
+    }
+
+    .avatar-marker .photo {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: 3px solid #fff;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+        background: #222 center/cover no-repeat;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        overflow: hidden;
+    }
+
+    .marker-drop {
+        animation: markerDrop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    @keyframes markerDrop {
+        0% {
+            transform: translateY(-100px) scale(0.5);
+            opacity: 0;
+        }
+
+        65% {
+            transform: translateY(6px) scale(1.06);
+            opacity: 1;
+        }
+
+        100% {
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    /* Street View inline */
+    .street-inline {
+        position: absolute;
+        inset: 0;
+        background: #000;
+        z-index: 10;
+    }
+
+    .street-inline iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+
+    .street-back {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        z-index: 20;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: rgba(8, 8, 14, 0.87);
+        border: 1px solid var(--border);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 14px;
+        transition: 0.2s;
+    }
+
+    .street-back:hover {
+        background: rgba(45, 212, 191, 0.15);
+        border-color: var(--success);
+    }
+
+    .street-open-full {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #fff;
+        background: rgba(8, 8, 14, 0.87);
+        border: 1px solid var(--border);
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-family: 'Inter', sans-serif;
+        transition: 0.2s;
+    }
+
+    .street-open-full:hover {
+        border-color: var(--success);
+        background: rgba(45, 212, 191, 0.1);
+    }
+
+    .street-setup-notice {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        gap: 10px;
+        padding: 32px;
+        background: radial-gradient(ellipse at center, #101018 0%, #05050a 75%);
+    }
+
+    .street-setup-notice i.fa-street-view {
+        font-size: 34px;
+        color: var(--success);
+        opacity: 0.85;
+        margin-bottom: 4px;
+    }
+
+    .street-setup-notice h4 {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 17px;
+        font-weight: 700;
+        color: var(--text);
+    }
+
+    .street-setup-notice p {
+        font-size: 13px;
+        color: var(--text-secondary);
+        max-width: 360px;
+        line-height: 1.6;
+    }
+
+    .street-setup-cta {
+        margin-top: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #0a0a12;
+        background: var(--success);
+        border: none;
+        padding: 10px 20px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-family: 'Inter', sans-serif;
+        transition: 0.2s;
+    }
+
+    .street-setup-cta:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(45, 212, 191, 0.3);
+    }
+
+    /* ===== DATA PANE (right panel) ===== */
+    .data-pane {
+        width: 340px;
+        min-width: 320px;
+        background: var(--bg-panel);
+        border-left: 1px solid var(--border);
+        padding: 20px 24px;
+        overflow-y: auto;
+    }
+
+    .data-pane::-webkit-scrollbar {
+        width: 5px;
+    }
+
+    .data-pane::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+    }
+
+    .verified-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 5px 14px;
+        border-radius: 20px;
+        margin-bottom: 12px;
+    }
+
+    .verified-pill.high {
+        background: rgba(45, 212, 191, 0.12);
+        border: 1px solid rgba(45, 212, 191, 0.28);
+        color: var(--success);
+    }
+
+    .verified-pill.medium {
+        background: rgba(251, 191, 36, 0.12);
+        border: 1px solid rgba(251, 191, 36, 0.28);
+        color: var(--warning);
+    }
+
+    .verified-pill.low {
+        background: rgba(248, 113, 113, 0.12);
+        border: 1px solid rgba(248, 113, 113, 0.28);
+        color: var(--danger);
+    }
+
+    .place-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        margin-bottom: 2px;
+    }
+
+    .place-country {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 1px;
+    }
+
+    .place-region {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-bottom: 14px;
+    }
+
+    .coord-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 9px 12px;
+        margin-bottom: 10px;
+    }
+
+    .coord-row span {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+
+    .coord-row button {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 13px;
+        padding: 4px;
+        transition: 0.2s;
+    }
+
+    .coord-row button:hover {
+        color: var(--success);
+    }
+
+    .action-row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .action-row button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 9px 12px;
+        border-radius: 9px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-family: 'Inter', sans-serif;
+        transition: 0.2s;
+        white-space: nowrap;
+    }
+
+    .action-row .action-primary {
+        flex: 1.3;
+        background: #fff;
+        color: #0a0a12;
+        border-color: transparent;
+    }
+
+    .action-row .action-primary:hover {
+        background: #eee;
+    }
+
+    .action-row #reuploadBtn {
+        flex: 1.3;
+    }
+
+    .action-row #saveReportBtn,
+    .action-row #shareBtn {
+        flex: 0 0 auto;
+        width: 38px;
+        padding: 9px 0;
+    }
+
+    .action-row button:not(.action-primary):hover {
+        border-color: var(--success);
+        color: var(--text);
+    }
+
+    .mode-switch-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+    }
+
+    .mode-switch-label {
+        font-size: 11.5px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: color 0.2s ease;
+    }
+
+    .mode-switch-label.left { color: var(--text); }
+
+    .mode-switch-row:has(#streetViewSwitch:checked) .mode-switch-label.right {
+        color: var(--text);
+    }
+
+    .mode-switch-row:has(#streetViewSwitch:checked) .mode-switch-label.left {
+        color: var(--text-muted);
+    }
+
+    .mode-switch {
+        position: relative;
+        display: inline-flex;
+        cursor: pointer;
+    }
+
+    .mode-switch input {
+        position: absolute;
+        opacity: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    .mode-switch-track {
+        width: 40px;
+        height: 22px;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid var(--border-light, rgba(255,255,255,0.15));
+        position: relative;
+        transition: background 0.25s ease;
+    }
+
+    .mode-switch-thumb {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .mode-switch input:checked + .mode-switch-track {
+        background: var(--success);
+    }
+
+    .mode-switch input:checked + .mode-switch-track .mode-switch-thumb {
+        transform: translateX(18px);
+    }
+
+    .mode-switch input:focus-visible + .mode-switch-track {
+        outline: 2px solid var(--success);
+        outline-offset: 2px;
+    }
+
+    /* ===== GLOBE → MAP CROSSFADE (plays briefly right after reveal) ===== */
+    .globe-transition {
+        position: absolute;
+        inset: 0;
+        z-index: 12;
+        background: #05050a;
+        opacity: 1;
+        pointer-events: none;
+        transition: opacity 0.7s ease;
+    }
+
+    .globe-transition.fade-out {
+        opacity: 0;
+    }
+
+    .globe-transition canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+
+    .globe-transition .probe-marker {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+    }
+
+    /* ===== AI VISION SCAN CHIPS (decorative — evokes an object-detection pass over the photo) ===== */
+    .vision-chip {
+        position: absolute;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 8.5px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: #7ee8d8;
+        background: rgba(5, 8, 10, 0.72);
+        border: 1px solid rgba(45, 212, 191, 0.4);
+        padding: 2px 6px;
+        border-radius: 3px;
+        white-space: nowrap;
+        pointer-events: none;
+        backdrop-filter: blur(2px);
+        opacity: 0;
+        animation: chipIn 0.4s ease forwards;
+    }
+
+    @keyframes chipIn {
+        from { opacity: 0; transform: translateY(3px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .pane-toggle-row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    .pane-toggle-row button {
+        flex: 1;
+        font-size: 11.5px;
+        font-weight: 600;
+        padding: 8px 10px;
+        border-radius: 9px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-family: 'Inter', sans-serif;
+        transition: 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+    }
+
+    .pane-toggle-row button.active {
+        background: rgba(255, 255, 255, 0.95);
+        color: #0a0a12;
+        border-color: transparent;
+    }
+
+    .pane-toggle-row button:not(.active):hover {
+        border-color: var(--success);
+        color: var(--text);
+    }
+
+    .photo-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin: 16px 0 8px;
+    }
+
+    .photo-frame {
+        position: relative;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        background: #05050a;
+        height: 150px;
+    }
+
+    .photo-frame img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .photo-frame .no-photo {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 32px;
+        opacity: 0.3;
+    }
+
+    .photo-tag {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        font-size: 9.5px;
+        font-weight: 600;
+        padding: 3px 10px;
+        border-radius: 20px;
+        background: rgba(45, 212, 191, 0.16);
+        border: 1px solid rgba(45, 212, 191, 0.35);
+        color: #7ee8d8;
+        backdrop-filter: blur(4px);
+    }
+
+    .photo-icon-row {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+    }
+
+    .photo-icon-row button {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 7px 0;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 12px;
+        transition: 0.2s;
+        font-family: 'Inter', sans-serif;
+    }
+
+    .photo-icon-row button:hover {
+        color: var(--text);
+        border-color: var(--success);
+    }
+
+    .reasoning-block {
+        margin-top: 16px;
+    }
+
+    .reasoning-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+    }
+
+    .reasoning-text {
+        font-size: 12.5px;
+        line-height: 1.7;
+        color: var(--text-secondary);
+    }
+
+    .tag-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 12px;
+    }
+
+    .tag-pill {
+        font-size: 10.5px;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 100px;
+        background: rgba(201, 138, 70, 0.12);
+        border: 1px solid rgba(201, 138, 70, 0.3);
+        color: #e8c493;
+    }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 900px) {
         .results-split {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            opacity: 0;
-            pointer-events: none;
-            z-index: 20;
-        }
-
-        .results-split.show {
-            opacity: 1;
-            pointer-events: auto;
-            animation: resultsFadeIn 0.6s ease both;
-        }
-
-        @keyframes resultsFadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
+            flex-direction: column;
         }
 
         .sat-pane {
-            flex: 1;
-            position: relative;
-            background: var(--bg-deep);
-            overflow: hidden;
-            min-width: 0;
-        }
-
-        .sat-pane #resultMap {
-            width: 100%;
-            height: 100%;
-            background: var(--bg-deep);
-        }
-
-        .pill-brand {
-            position: absolute;
-            top: 16px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 15;
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 11.5px;
-            font-weight: 700;
-            background: rgba(8,8,14,0.8);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--border);
-            padding: 5px 16px;
-            border-radius: 20px;
-            color: var(--text);
-            pointer-events: none;
-        }
-
-        .pill-confidence {
-            position: absolute;
-            top: 16px;
-            right: 16px;
-            z-index: 15;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 11.5px;
-            font-weight: 700;
-            background: rgba(8,8,14,0.8);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--border);
-            padding: 5px 14px;
-            border-radius: 20px;
-            pointer-events: none;
-        }
-
-        .pill-confidence .dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-        }
-
-        .pane-actions {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 15;
-            display: flex;
-            gap: 8px;
-        }
-
-        .pane-actions button {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text);
-            background: rgba(8,8,14,0.85);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--border);
-            padding: 8px 16px;
-            border-radius: 20px;
-            cursor: pointer;
-            transition: 0.2s;
-            font-family: 'Inter', sans-serif;
-        }
-
-        .pane-actions button:hover {
-            border-color: var(--success);
-            background: rgba(45,212,191,0.1);
-        }
-
-        .avatar-marker {
-            position: relative;
-            width: 46px;
-            height: 46px;
-        }
-
-        .avatar-marker .ring {
-            position: absolute;
-            inset: -10px;
-            border-radius: 50%;
-            border: 2px solid var(--success);
-            animation: markerRing 1.8s ease-out infinite;
-        }
-
-        .avatar-marker .ring2 {
-            position: absolute;
-            inset: -10px;
-            border-radius: 50%;
-            border: 2px solid var(--cyan);
-            animation: markerRing 1.8s ease-out infinite;
-            animation-delay: 0.6s;
-        }
-
-        @keyframes markerRing {
-            0% { transform: scale(0.7); opacity: 0.9; }
-            100% { transform: scale(1.9); opacity: 0; }
-        }
-
-        .avatar-marker .photo {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            border: 3px solid #fff;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
-            background: #222 center/cover no-repeat;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            overflow: hidden;
-        }
-
-        .marker-drop {
-            animation: markerDrop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-        }
-
-        @keyframes markerDrop {
-            0% { transform: translateY(-100px) scale(0.5); opacity: 0; }
-            65% { transform: translateY(6px) scale(1.06); opacity: 1; }
-            100% { transform: translateY(0) scale(1); }
-        }
-
-        .street-inline {
-            position: absolute;
-            inset: 0;
-            background: #000;
-            z-index: 10;
-        }
-
-        .street-inline iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-
-        .street-back {
-            position: absolute;
-            top: 16px;
-            left: 16px;
-            z-index: 20;
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            background: rgba(8,8,14,0.85);
-            border: 1px solid var(--border);
-            color: #fff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            font-size: 14px;
-            transition: 0.2s;
-        }
-
-        .street-back:hover {
-            background: rgba(45,212,191,0.15);
-            border-color: var(--success);
-        }
-
-        .street-open-full {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 20;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            color: #fff;
-            background: rgba(8,8,14,0.85);
-            border: 1px solid var(--border);
-            padding: 8px 16px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-family: 'Inter', sans-serif;
-            transition: 0.2s;
-        }
-
-        .street-open-full:hover {
-            border-color: var(--success);
-            background: rgba(45,212,191,0.1);
+            flex: none;
+            height: 48%;
         }
 
         .data-pane {
-            width: 340px;
-            min-width: 320px;
-            background: var(--bg-panel);
-            border-left: 1px solid var(--border);
-            padding: 20px 24px;
-            overflow-y: auto;
+            width: 100%;
+            min-width: unset;
+            height: 52%;
+            border-left: none;
+            border-top: 1px solid var(--border);
         }
 
-        .data-pane::-webkit-scrollbar {
-            width: 5px;
+        .progress-card {
+            width: calc(100% - 32px);
+            left: 16px;
+            bottom: 16px;
+            padding: 13px 16px;
         }
 
-        .data-pane::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.1);
-            border-radius: 3px;
+        .stage-frame {
+            top: 60px;
+            left: 12px;
+            right: 12px;
+            bottom: 12px;
         }
 
-        .verified-pill {
-            display: inline-flex;
-            align-items: center;
+        .navbar {
+            padding: 10px 16px;
+            flex-wrap: wrap;
             gap: 6px;
-            font-size: 10.5px;
-            font-weight: 700;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-            padding: 5px 14px;
-            border-radius: 20px;
-            margin-bottom: 12px;
         }
 
-        .verified-pill.high {
-            background: rgba(45,212,191,0.12);
-            border: 1px solid rgba(45,212,191,0.28);
-            color: var(--success);
+        .tagline {
+            display: none;
         }
 
-        .verified-pill.medium {
-            background: rgba(251,191,36,0.12);
-            border: 1px solid rgba(251,191,36,0.28);
-            color: var(--warning);
+        .map-status {
+            font-size: 11px;
+            padding: 6px 14px;
+            bottom: 30px;
+            min-width: 160px;
+        }
+    }
+
+    @media (max-width: 600px) {
+        .pc-headline {
+            font-size: 14px;
         }
 
-        .verified-pill.low {
-            background: rgba(248,113,113,0.12);
-            border: 1px solid rgba(248,113,113,0.28);
-            color: var(--danger);
+        .pc-steps .pcs {
+            font-size: 8px;
+        }
+
+        .map-status {
+            font-size: 10px;
+            padding: 4px 10px;
+            bottom: 20px;
+            min-width: 120px;
         }
 
         .place-title {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 26px;
-            font-weight: 700;
-            letter-spacing: -0.01em;
-            margin-bottom: 2px;
-        }
-
-        .place-country {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            margin-bottom: 1px;
-        }
-
-        .place-region {
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-bottom: 14px;
-        }
-
-        .coord-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 9px 12px;
-            margin-bottom: 10px;
-        }
-
-        .coord-row span {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .coord-row button {
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            font-size: 13px;
-            padding: 4px;
-            transition: 0.2s;
-        }
-
-        .coord-row button:hover {
-            color: var(--success);
-        }
-
-        .pane-toggle-row {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-
-        .pane-toggle-row button {
-            flex: 1;
-            font-size: 11.5px;
-            font-weight: 600;
-            padding: 8px 10px;
-            border-radius: 9px;
-            border: 1px solid var(--border);
-            background: rgba(255,255,255,0.03);
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-family: 'Inter', sans-serif;
-            transition: 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-        }
-
-        .pane-toggle-row button.active {
-            background: rgba(255,255,255,0.95);
-            color: #0a0a12;
-            border-color: transparent;
-        }
-
-        .pane-toggle-row button:not(.active):hover {
-            border-color: var(--success);
-            color: var(--text);
-        }
-
-        .photo-label {
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            color: var(--text-muted);
-            margin: 16px 0 8px;
+            font-size: 20px;
         }
 
         .photo-frame {
-            position: relative;
-            border-radius: 10px;
-            overflow: hidden;
-            border: 1px solid var(--border);
-            background: #05050a;
-            height: 150px;
+            height: 100px;
         }
-
-        .photo-frame img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            display: block;
-        }
-
-        .photo-frame .no-photo {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-muted);
-            font-size: 32px;
-            opacity: 0.3;
-        }
-
-        .photo-tag {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            font-size: 9.5px;
-            font-weight: 600;
-            padding: 3px 10px;
-            border-radius: 20px;
-            background: rgba(45,212,191,0.16);
-            border: 1px solid rgba(45,212,191,0.35);
-            color: #7ee8d8;
-            backdrop-filter: blur(4px);
-        }
-
-        .photo-icon-row {
-            display: flex;
-            gap: 6px;
-            margin-top: 8px;
-        }
-
-        .photo-icon-row button {
-            flex: 1;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 7px 0;
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 12px;
-            transition: 0.2s;
-            font-family: 'Inter', sans-serif;
-        }
-
-        .photo-icon-row button:hover {
-            color: var(--text);
-            border-color: var(--success);
-        }
-
-        .reasoning-block {
-            margin-top: 16px;
-        }
-
-        .reasoning-label {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: var(--text-muted);
-            margin-bottom: 6px;
-        }
-
-        .reasoning-text {
-            font-size: 12.5px;
-            line-height: 1.7;
-            color: var(--text-secondary);
-        }
-
-        .tag-pills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin-top: 12px;
-        }
-
-        .tag-pill {
-            font-size: 10.5px;
-            font-weight: 600;
-            padding: 4px 10px;
-            border-radius: 100px;
-            background: rgba(139,92,246,0.1);
-            border: 1px solid rgba(139,92,246,0.25);
-            color: #c4b5fd;
-        }
-
-        @media (max-width: 900px) {
-            .results-split { flex-direction: column; }
-            .sat-pane { flex: none; height: 48%; }
-            .data-pane { width: 100%; min-width: unset; height: 52%; border-left: none; border-top: 1px solid var(--border); }
-            .progress-card { width: calc(100% - 32px); left: 16px; bottom: 16px; padding: 13px 16px; }
-            .pc-steps { gap: 8px; }
-            .pc-steps .pcs { font-size: 9px; }
-            .stage-frame { top: 60px; left: 12px; right: 12px; bottom: 12px; }
-            .navbar { padding: 10px 16px; flex-wrap: wrap; gap: 6px; }
-            .tagline { display: none; }
-            .nav-status .status-text { font-size: 10px; }
-            .pane-actions button { font-size: 10px; padding: 6px 12px; }
-            .pill-brand { font-size: 10px; top: 10px; padding: 4px 12px; }
-            .pill-confidence { font-size: 10px; top: 10px; right: 10px; padding: 4px 10px; }
-            .data-pane { padding: 14px 16px; }
-            .place-title { font-size: 20px; }
-            .map-earth-container .map-status { font-size: 11px; padding: 6px 14px; bottom: 30px; min-width: 150px; }
-        }
-
-        @media (max-width: 600px) {
-            .pc-headline { font-size: 14px; }
-            .pc-sub { font-size: 10px; }
-            .pc-steps .pcs { font-size: 8px; }
-            .progress-card { padding: 10px 12px; }
-            .street-back { width: 30px; height: 30px; font-size: 12px; }
-            .street-open-full { font-size: 10px; padding: 6px 12px; }
-            .coord-row span { font-size: 10px; }
-            .reasoning-text { font-size: 11px; }
-            .photo-frame { height: 100px; }
-            .map-earth-container .map-status { font-size: 10px; padding: 4px 10px; bottom: 20px; min-width: 120px; }
-        }
+    }
     </style>
 </head>
+
 <body>
 
-<div class="globe-bg"></div>
-
-<nav class="navbar">
-    <a href="/" class="logo">
-        <span class="icon">T</span>
-        TraceGeo
-    </a>
-    <span class="tagline">Find where a photo was taken.</span>
-    <div class="nav-actions">
-        <div class="nav-status">
-            <span class="pulse-dot" id="statusDot"></span>
-            <span class="status-text" id="navStatus">🌍 OSINT Engine</span>
+    <!-- ===== NAVBAR ===== -->
+    <nav class="navbar">
+        <a href="/" class="logo">
+            <span class="icon">T</span>
+            TraceGeo
+        </a>
+        <span class="tagline">Find where a photo was taken.</span>
+        <div class="nav-actions">
+            <div class="nav-status">
+                <span class="pulse-dot" id="statusDot"></span>
+                <span class="status-text" id="navStatus">🌍 OSINT Engine</span>
+            </div>
+            <a href="/" class="btn btn-ghost"><i class="fas fa-home"></i></a>
+            <a href="/history" class="btn btn-ghost"><i class="fas fa-history"></i></a>
         </div>
-        <a href="/" class="btn btn-ghost"><i class="fas fa-home"></i></a>
-    </div>
-</nav>
+    </nav>
 
-<div class="stage-frame" id="stageFrame">
-    <div class="stage-content" id="stageContent">
-        
-        <!-- ===== MAP EARTH ===== -->
-        <div class="map-earth-container" id="mapEarthContainer">
-            <div id="earthMap"></div>
-            <div class="map-overlay"></div>
+    <!-- ===== STAGE FRAME ===== -->
+    <div class="stage-frame" id="stageFrame">
+        <div class="stage-content" id="stageContent">
+
+            <!-- STARFIELD + 3D GLOBE CANVAS (Frame 3 & 5) -->
+            <canvas id="starfieldCanvas"></canvas>
+
+            <!-- FLAT DARK MAP (Frame 2, 4, 6) -->
+            <div class="map-earth-container" id="mapEarthContainer">
+                <div id="earthMap"></div>
+                <div class="map-vignette"></div>
+            </div>
+
+            <!-- Globe mode badge -->
+            <div class="globe-mode-badge" id="globeModeBadge">⬡ 3D Globe Mode</div>
+
+            <!-- Shared status bar (sits above both layers) -->
             <div class="map-status" id="mapStatus">
-                <span class="highlight">●</span> <span id="mapStatusText">INITIALIZING ANALYSIS...</span>
+                <span class="highlight">●</span>
+                <span id="mapStatusText">🌍 Initializing OSINT Engine...</span>
             </div>
-        </div>
 
-        <!-- White Flash -->
-        <div class="white-flash" id="whiteFlash"></div>
+            <!-- White flash on reveal -->
+            <div class="white-flash" id="whiteFlash"></div>
 
-        <!-- Progress Card -->
-        <div class="progress-card" id="progressCard">
-            <div class="pc-label">
-                <span class="dot"></span>
-                <span id="pcLabel">ANALYZING</span>
+            <!-- Progress Card -->
+            <div class="progress-card" id="progressCard">
+                <div class="pc-label">
+                    <span class="dot"></span>
+                    <span id="pcLabel">ANALYZING</span>
+                </div>
+                <div class="pc-headline" id="pcHeadline">Initializing analysis pipeline...</div>
+                <div class="pc-sub" id="pcSub">Elapsed 0.0s · Progress 0% · Engine TraceGeo AI</div>
+                <div class="pc-bar">
+                    <div class="fill" id="pcFill"></div>
+                </div>
+                <div class="pc-steps" id="pcSteps">
+                    <span class="pcs" data-step="0"><b>01</b>Input</span>
+                    <span class="pcs" data-step="1"><b>02</b>Features</span>
+                    <span class="pcs" data-step="2"><b>03</b>Reasoning</span>
+                    <span class="pcs" data-step="3"><b>04</b>Cross-ref</span>
+                    <span class="pcs" data-step="4"><b>05</b>Locate</span>
+                </div>
+                <div class="pc-scanning" id="pcScanning"></div>
+                <div class="pc-error" id="pcError"></div>
             </div>
-            <div class="pc-headline" id="pcHeadline">Initializing analysis pipeline...</div>
-            <div class="pc-sub" id="pcSub">Elapsed 0.0s · Progress 0% · Engine TraceGeo AI</div>
-            <div class="pc-bar"><div class="fill" id="pcFill"></div></div>
-            <div class="pc-steps" id="pcSteps">
-                <span class="pcs" data-step="0"><b>01</b>Input</span>
-                <span class="pcs" data-step="1"><b>02</b>Features</span>
-                <span class="pcs" data-step="2"><b>03</b>Reasoning</span>
-                <span class="pcs" data-step="3"><b>04</b>Cross-ref</span>
-                <span class="pcs" data-step="4"><b>05</b>Locate</span>
+
+            <!-- Results Split (Frame 7 & 8) -->
+            <div class="results-split" id="resultsSplit">
+                <div class="sat-pane" id="satPane">
+                    <div id="resultMap"></div>
+                    <div class="globe-transition" id="globeTransition">
+                        <canvas id="globeTransitionCanvas"></canvas>
+                        <div class="probe-marker target" id="globeTransitionMarker">
+                            <div class="ring"></div>
+                            <div class="ring"></div>
+                            <div class="dot"></div>
+                        </div>
+                    </div>
+                    <div class="pill-brand">TraceGeo</div>
+                    <div class="pill-confidence" id="confPill">
+                        <span class="dot" style="background:var(--success);"></span>
+                        <span id="confPillText">100% Confidence</span>
+                    </div>
+                    <div class="pane-actions">
+                        <button id="streetBtnPane"><i class="fas fa-street-view"></i> Street View</button>
+                        <button id="globeBtnPane"><i class="fas fa-globe-americas"></i> 3D Globe</button>
+                    </div>
+                </div>
+                <div class="data-pane" id="dataPane">
+                    <div class="verified-pill high" id="verifiedPill">
+                        <i class="fas fa-check-circle"></i> Identified Location
+                    </div>
+                    <div class="place-title" id="placeTitle">Location</div>
+                    <div class="place-country" id="placeCountry">Country</div>
+                    <div class="place-region" id="placeRegion">Region</div>
+                    <div class="coord-row">
+                        <span id="coordText">0.0000° N, 0.0000° W</span>
+                        <button id="copyCoordsBtn" title="Copy coordinates"><i class="fas fa-copy"></i></button>
+                    </div>
+
+                    <div class="action-row">
+                        <button class="action-primary" id="homeBtn" title="Back to home"><i class="fas fa-house"></i> Home</button>
+                        <button id="reuploadBtn" title="Analyze another photo"><i class="fas fa-arrow-up-from-bracket"></i> Reupload</button>
+                        <button id="saveReportBtn" title="Save report"><i class="fas fa-folder"></i></button>
+                        <button id="shareBtn" title="Share"><i class="fas fa-share-nodes"></i></button>
+                    </div>
+
+                    <div class="mode-switch-row">
+                        <span class="mode-switch-label left"><i class="fas fa-globe-americas"></i> 3D Globe</span>
+                        <label class="mode-switch">
+                            <input type="checkbox" id="streetViewSwitch">
+                            <span class="mode-switch-track"><span class="mode-switch-thumb"></span></span>
+                        </label>
+                        <span class="mode-switch-label right"><i class="fas fa-street-view"></i> Street View</span>
+                    </div>
+
+                    <div class="pane-toggle-row" id="baseLayerToggleRow">
+                        <button class="active" id="roadsToggle"><i class="fas fa-route"></i> Roads</button>
+                        <button id="terrainToggle"><i class="fas fa-satellite"></i> Terrain</button>
+                    </div>
+
+                    <div class="photo-label">Your Image</div>
+                    <div class="photo-frame" id="photoFrame">
+                        <div class="no-photo"><i class="fas fa-image"></i></div>
+                    </div>
+                    <div class="photo-icon-row">
+                        <button id="viewFullSizeBtn" title="View full size"><i class="fas fa-magnifying-glass"></i></button>
+                        <button id="fullscreenPhotoBtn" title="Fullscreen"><i class="fas fa-expand"></i></button>
+                        <button id="reverseSearchBtn" title="Reverse image search"><i class="fas fa-magnifying-glass-location"></i></button>
+                        <button id="openOriginalBtn" title="Open original"><i class="fas fa-arrow-up-right-from-square"></i></button>
+                    </div>
+                    <div class="tag-pills" id="tagPills"></div>
+                    <div class="reasoning-block">
+                        <div class="reasoning-label"><i class="fas fa-wand-magic-sparkles"></i> Reasoning Analysis</div>
+                        <div class="reasoning-text" id="reasoningText">—</div>
+                    </div>
+                </div>
             </div>
-        </div>
 
-        <!-- Results Split View -->
-        <div class="results-split" id="resultsSplit">
-            <div class="sat-pane" id="satPane">
-                <div id="resultMap"></div>
-                <div class="pill-brand">TraceGeo</div>
-                <div class="pill-confidence" id="confPill">
-                    <span class="dot" style="background:var(--success);"></span>
-                    <span id="confPillText">100% Confidence</span>
-                </div>
-                <div class="pane-actions">
-                    <button id="streetBtnPane"><i class="fas fa-street-view"></i> Street View</button>
-                    <button id="globeBtnPane"><i class="fas fa-globe-americas"></i> 3D View</button>
-                </div>
-            </div>
-            <div class="data-pane" id="dataPane">
-                <div class="verified-pill high" id="verifiedPill">
-                    <i class="fas fa-check-circle"></i> Verified Location
-                </div>
-                <div class="place-title" id="placeTitle">Location</div>
-                <div class="place-country" id="placeCountry">Country</div>
-                <div class="place-region" id="placeRegion">Region</div>
-
-                <div class="coord-row">
-                    <span id="coordText">0.0000° N, 0.0000° W</span>
-                    <button id="copyCoordsBtn" title="Copy coordinates"><i class="fas fa-copy"></i></button>
-                </div>
-
-                <div class="pane-toggle-row">
-                    <button class="active" id="roadsToggle"><i class="fas fa-route"></i> Roads</button>
-                    <button id="terrainToggle"><i class="fas fa-satellite"></i> Terrain</button>
-                </div>
-                <div class="pane-toggle-row">
-                    <button id="globeBtnPanel"><i class="fas fa-globe-americas"></i> 3D View</button>
-                    <button id="streetBtnPanel"><i class="fas fa-street-view"></i> Street View</button>
-                </div>
-
-                <div class="photo-label">Your Photo</div>
-                <div class="photo-frame" id="photoFrame">
-                    <div class="no-photo"><i class="fas fa-image"></i></div>
-                </div>
-                <div class="photo-icon-row">
-                    <button id="viewOriginalBtn" title="View original"><i class="fas fa-expand"></i></button>
-                    <button id="downloadPhotoBtn" title="Download photo"><i class="fas fa-download"></i></button>
-                    <button id="exportReportBtn" title="Export OSINT report"><i class="fas fa-file-export"></i></button>
-                </div>
-
-                <div class="tag-pills" id="tagPills"></div>
-
-                <div class="reasoning-block">
-                    <div class="reasoning-label"><i class="fas fa-brain"></i> Reasoning Analysis</div>
-                    <div class="reasoning-text" id="reasoningText">—</div>
-                </div>
-            </div>
         </div>
     </div>
-</div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<script>
-// ============================================================
-//  TRACEGEO — Analysis Page (Auto-starts from homepage)
-//  FIXED: Correct API routes, image display, and error handling
-// ============================================================
+    <script>
+    // ============================================================
+    //  TRACEGEO — STORYBOARD-ACCURATE PROCESSING SEQUENCE
+    //
+    //  Sequence (matches PDF frames exactly):
+    //  Frame 2 → Flat dark map zooms into random city
+    //  Frame 3 → Switches to 3D starfield globe view
+    //  Frame 4 → Back to flat map, zooms another city
+    //  Frame 5 → Globe again
+    //  Frame 6 → Flat map, another city
+    //  ...alternates until analysis done...
+    //  Final   → Cinematic zoom to real target → white flash → results
+    // ============================================================
 
-const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const POLL_INTERVAL_MS = 700;
+    const MAX_POLL_ATTEMPTS = 120;
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const DARK_TILE_URL = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-const DARK_TILE_ATTR = '&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; OpenStreetMap contributors';
-const SATELLITE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-const SATELLITE_ATTR = '&copy; ESRI';
-const ROADS_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-const ROADS_ATTR = '&copy; CARTO &copy; OpenStreetMap contributors';
+    // ========== STREET VIEW CONFIG ==========
+    // Real, photographic Street View can only be embedded reliably through
+    // Google's official Maps Embed API, which needs a key (see setup notes
+    // above showStreetView() further down). Put it here, or better, render it
+    // from a Blade variable — e.g. '{{ config('services.google_maps.embed_key') }}'
+    // — so it isn't hardcoded into a public file.
+    const GOOGLE_MAPS_EMBED_KEY = 'AIzaSyD8hB_PCOHtdpF-pziTccKE67r0yAXSvAI';
 
-// Probe locations for Earth zoom effect
-const PROBE_LOCATIONS = [
-    { name: 'Tokyo, Japan', lat: 35.6762, lng: 139.6503, reason: 'Analyzing urban density...' },
-    { name: 'London, UK', lat: 51.5074, lng: -0.1278, reason: 'Comparing architecture...' },
-    { name: 'Paris, France', lat: 48.8566, lng: 2.3522, reason: 'Matching landmarks...' },
-    { name: 'New York, USA', lat: 40.7128, lng: -74.0060, reason: 'Verifying street layouts...' },
-    { name: 'Sydney, Australia', lat: -33.8688, lng: 151.2093, reason: 'Checking vegetation...' },
-    { name: 'Cambridge, USA', lat: 42.3625, lng: -71.1245, reason: '✓ LOCATION CONFIRMED!', isTarget: true },
-];
+    const DARK_TILE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    const DARK_ATTR = '&copy; <a href="https://carto.com/attributions">CARTO</a>';
+    const SAT_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+    const SAT_ATTR = '&copy; ESRI';
+    const ROADS_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+    const ROADS_ATTR = '&copy; CARTO';
 
-const ANALYSIS_STEPS = [
-    'Initializing OSINT analysis pipeline...',
-    'Extracting visual features from image...',
-    'Running Bayesian evidence fusion...',
-    'Cross-referencing geospatial databases...',
-    'Searching global landmarks...',
-    'Pinpointing exact location...',
-    'Analysis complete — generating report'
-];
-
-const DOM = {
-    mapEarthContainer: document.getElementById('mapEarthContainer'),
-    whiteFlash: document.getElementById('whiteFlash'),
-    progressCard: document.getElementById('progressCard'),
-    pcHeadline: document.getElementById('pcHeadline'),
-    pcSub: document.getElementById('pcSub'),
-    pcFill: document.getElementById('pcFill'),
-    pcSteps: document.getElementById('pcSteps'),
-    resultsSplit: document.getElementById('resultsSplit'),
-    satPane: document.getElementById('satPane'),
-    dataPane: document.getElementById('dataPane'),
-    resultMap: document.getElementById('resultMap'),
-    confPill: document.getElementById('confPill'),
-    confPillText: document.getElementById('confPillText'),
-    verifiedPill: document.getElementById('verifiedPill'),
-    placeTitle: document.getElementById('placeTitle'),
-    placeCountry: document.getElementById('placeCountry'),
-    placeRegion: document.getElementById('placeRegion'),
-    coordText: document.getElementById('coordText'),
-    photoFrame: document.getElementById('photoFrame'),
-    tagPills: document.getElementById('tagPills'),
-    reasoningText: document.getElementById('reasoningText'),
-    navStatus: document.getElementById('navStatus'),
-    statusDot: document.getElementById('statusDot'),
-    mapStatusText: document.getElementById('mapStatusText'),
-};
-
-let isAnalyzing = false;
-let elapsed = 0;
-let timerInterval = null;
-let seqTimeout = null;
-let resultMapInstance = null;
-let earthMapInstance = null;
-let currentTileMode = 'roads';
-let uploadedImageURL = null;
-let analysisData = null;
-let currentAnalysisId = null;
-
-// ========== HELPERS ==========
-function isValidCoord(lat, lng) {
-    const a = parseFloat(lat), b = parseFloat(lng);
-    return !isNaN(a) && !isNaN(b) && a !== 0 && b !== 0 && Math.abs(a) <= 90 && Math.abs(b) <= 180;
-}
-
-function showToast(msg) {
-    DOM.navStatus.textContent = msg;
-}
-
-// ========== REAL MAP EARTH ==========
-function initEarthMap(center = [20, 0], zoom = 2) {
-    try { if (earthMapInstance) earthMapInstance.remove(); } catch(e) {}
-    
-    const el = document.getElementById('earthMap');
-    if (!el) return;
-    
-    earthMapInstance = L.map(el, {
-        center: center,
-        zoom: zoom,
-        zoomControl: false,
-        attributionControl: false,
-        fadeAnimation: true,
-        zoomAnimation: true,
-        inertia: true,
-    });
-    
-    L.tileLayer(DARK_TILE_URL, {
-        attribution: DARK_TILE_ATTR,
-        maxZoom: 19,
-        minZoom: 2,
-    }).addTo(earthMapInstance);
-    
-    setTimeout(() => {
-        if (earthMapInstance) earthMapInstance.invalidateSize();
-    }, 200);
-}
-
-function flyEarthTo(lat, lng, zoom, duration = 2000) {
-    return new Promise((resolve) => {
-        if (!earthMapInstance) {
-            resolve();
-            return;
-        }
-        earthMapInstance.flyTo([lat, lng], zoom, {
-            duration: duration / 1000,
-            easeLinearity: 0.25,
-        });
-        setTimeout(resolve, duration + 200);
-    });
-}
-
-function addProbeMarker(lat, lng, isTarget = false) {
-    if (!earthMapInstance) return null;
-    
-    earthMapInstance.eachLayer((layer) => {
-        if (layer instanceof L.Marker && layer.options.probeMarker) {
-            earthMapInstance.removeLayer(layer);
-        }
-    });
-    
-    const html = `<div class="probe-marker ${isTarget ? 'target' : ''}">
-        <div class="ring"></div>
-        <div class="ring"></div>
-        <div class="dot"></div>
-    </div>`;
-    
-    const icon = L.divIcon({
-        html: html,
-        className: '',
-        iconSize: [40, 40],
-        iconAnchor: [20, 20],
-    });
-    
-    const marker = L.marker([lat, lng], { 
-        icon: icon,
-        probeMarker: true,
-        zIndexOffset: 1000,
-    }).addTo(earthMapInstance);
-    
-    return marker;
-}
-
-// ========== EARTH ZOOM SEQUENCE ==========
-async function runEarthZoomSequence(locations) {
-    // Start with global view
-    await flyEarthTo(20, 0, 2, 1000);
-    
-    for (let i = 0; i < locations.length; i++) {
-        const loc = locations[i];
-        const isTarget = loc.isTarget || false;
-        const targetZoom = isTarget ? 15 : 6;
-        const duration = isTarget ? 2500 : 1800;
-        
-        // Update status
-        if (isTarget) {
-            DOM.mapStatusText.innerHTML = `<span class="target-found">🎯 ${loc.name} — LOCATION CONFIRMED!</span>`;
-        } else {
-            DOM.mapStatusText.textContent = `🔍 ${loc.name} — ${loc.reason}`;
-        }
-        
-        // Add marker
-        addProbeMarker(loc.lat, loc.lng, isTarget);
-        
-        // Fly to location
-        await flyEarthTo(loc.lat, loc.lng, targetZoom, duration);
-        
-        // If target, zoom in more
-        if (isTarget) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            await flyEarthTo(loc.lat, loc.lng, 17, 1500);
-            await new Promise(resolve => setTimeout(resolve, 1200));
-        } else {
-            await new Promise(resolve => setTimeout(resolve, 400));
-        }
-    }
-}
-
-// ========== PROGRESS CARD ==========
-function updateProgress(step, progress) {
-    DOM.pcHeadline.textContent = ANALYSIS_STEPS[step] || ANALYSIS_STEPS[0];
-    DOM.pcFill.style.width = progress + '%';
-    DOM.pcSub.textContent = `Elapsed ${elapsed.toFixed(1)}s · Progress ${progress}% · Engine TraceGeo AI`;
-    
-    document.querySelectorAll('.pc-steps .pcs').forEach((el) => {
-        const idx = parseInt(el.dataset.step, 10);
-        el.classList.remove('active', 'done');
-        if (idx < step) el.classList.add('done');
-        else if (idx === step) el.classList.add('active');
-    });
-}
-
-// ========== START ANALYSIS ==========
-function startAnalysis(analysisId) {
-    if (isAnalyzing) return;
-    isAnalyzing = true;
-    currentAnalysisId = analysisId;
-
-    DOM.statusDot.style.background = '#fbbf24';
-    DOM.statusDot.style.boxShadow = '0 0 20px #fbbf24';
-    showToast('🔍 OSINT Analysis in Progress...');
-
-    DOM.resultsSplit.classList.remove('show');
-    DOM.progressCard.style.display = 'block';
-    DOM.pcFill.style.width = '0%';
-
-    // Timer
-    timerInterval = setInterval(() => {
-        elapsed += 0.1;
-        DOM.pcSub.textContent = `Elapsed ${elapsed.toFixed(1)}s · Progress ${parseInt(DOM.pcFill.style.width) || 0}% · Engine TraceGeo AI`;
-    }, 100);
-
-    // Run analysis steps
-    let step = 0;
-    function runStep() {
-        if (step >= ANALYSIS_STEPS.length) {
-            clearInterval(timerInterval);
-            performAnalysis();
-            return;
-        }
-        const progress = Math.min(3 + (step * 14), 100);
-        updateProgress(step, progress);
-        step++;
-        seqTimeout = setTimeout(runStep, 1400);
-    }
-    runStep();
-}
-
-// ========== PERFORM ANALYSIS ==========
-function performAnalysis() {
-    // ✅ FIXED: Use the correct route /api/results/{id}
-    fetch(`/api/results/${currentAnalysisId}`, {
-        method: 'GET',
-        headers: {
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': CSRF_TOKEN,
+    // ========== GLOBAL WAYPOINTS (50 cities used for the exploration sequence) ==========
+    const GLOBAL_WAYPOINTS = [{
+            lat: 35.6762,
+            lng: 139.6503,
+            name: 'Tokyo, Japan'
         },
-    })
-    .then(async (res) => {
-        let payload;
-        try { payload = await res.json(); } catch { throw new Error('Server error'); }
-        if (!res.ok) throw new Error(payload.message || `HTTP ${res.status}`);
-        return payload;
-    })
-    .then((data) => {
-        isAnalyzing = false;
-        if (data.success && data.data) {
-            analysisData = data.data;
-            // Store the image URL if available
-            if (data.data.image_url) {
-                uploadedImageURL = data.data.image_url;
-            }
-        } else {
-            // Fallback to stored session data or simulated
-            const stored = sessionStorage.getItem('analysisResult');
-            if (stored) {
-                try {
-                    analysisData = JSON.parse(stored);
-                } catch(e) {
-                    analysisData = getSimulatedData();
-                }
-            } else {
-                analysisData = getSimulatedData();
-            }
-        }
-        runEarthZoomThenShowResults(analysisData);
-    })
-    .catch((err) => {
-        console.error('Analysis error:', err);
-        isAnalyzing = false;
-        // Try session storage fallback
-        const stored = sessionStorage.getItem('analysisResult');
-        if (stored) {
-            try {
-                analysisData = JSON.parse(stored);
-                runEarthZoomThenShowResults(analysisData);
-                return;
-            } catch(e) {}
-        }
-        analysisData = getSimulatedData();
-        runEarthZoomThenShowResults(analysisData);
-    });
-}
+        {
+            lat: 35.0116,
+            lng: 135.7681,
+            name: 'Kyoto, Japan'
+        },
+        {
+            lat: 31.2304,
+            lng: 121.4737,
+            name: 'Shanghai, China'
+        },
+        {
+            lat: 39.9042,
+            lng: 116.4074,
+            name: 'Beijing, China'
+        },
+        {
+            lat: 22.3193,
+            lng: 114.1694,
+            name: 'Hong Kong'
+        },
+        {
+            lat: 1.3521,
+            lng: 103.8198,
+            name: 'Singapore'
+        },
+        {
+            lat: 13.7563,
+            lng: 100.5018,
+            name: 'Bangkok, Thailand'
+        },
+        {
+            lat: 19.0760,
+            lng: 72.8777,
+            name: 'Mumbai, India'
+        },
+        {
+            lat: 28.6139,
+            lng: 77.2090,
+            name: 'New Delhi, India'
+        },
+        {
+            lat: 25.2048,
+            lng: 55.2708,
+            name: 'Dubai, UAE'
+        },
+        {
+            lat: 41.0082,
+            lng: 28.9784,
+            name: 'Istanbul, Turkey'
+        },
+        {
+            lat: 51.5074,
+            lng: -0.1278,
+            name: 'London, UK'
+        },
+        {
+            lat: 48.8566,
+            lng: 2.3522,
+            name: 'Paris, France'
+        },
+        {
+            lat: 41.9028,
+            lng: 12.4964,
+            name: 'Rome, Italy'
+        },
+        {
+            lat: 52.5200,
+            lng: 13.4050,
+            name: 'Berlin, Germany'
+        },
+        {
+            lat: 41.3851,
+            lng: 2.1734,
+            name: 'Barcelona, Spain'
+        },
+        {
+            lat: 52.3676,
+            lng: 4.9041,
+            name: 'Amsterdam, Netherlands'
+        },
+        {
+            lat: 37.9838,
+            lng: 23.7275,
+            name: 'Athens, Greece'
+        },
+        {
+            lat: 55.7558,
+            lng: 37.6173,
+            name: 'Moscow, Russia'
+        },
+        {
+            lat: 40.7128,
+            lng: -74.0060,
+            name: 'New York, USA'
+        },
+        {
+            lat: 34.0522,
+            lng: -118.2437,
+            name: 'Los Angeles, USA'
+        },
+        {
+            lat: 37.7749,
+            lng: -122.4194,
+            name: 'San Francisco, USA'
+        },
+        {
+            lat: 41.8781,
+            lng: -87.6298,
+            name: 'Chicago, USA'
+        },
+        {
+            lat: 43.6532,
+            lng: -79.3832,
+            name: 'Toronto, Canada'
+        },
+        {
+            lat: 19.4326,
+            lng: -99.1332,
+            name: 'Mexico City, Mexico'
+        },
+        {
+            lat: 36.1699,
+            lng: -115.1398,
+            name: 'Las Vegas, USA'
+        },
+        {
+            lat: 25.7617,
+            lng: -80.1918,
+            name: 'Miami, USA'
+        },
+        {
+            lat: -22.9068,
+            lng: -43.1729,
+            name: 'Rio de Janeiro, Brazil'
+        },
+        {
+            lat: -23.5505,
+            lng: -46.6333,
+            name: 'Sao Paulo, Brazil'
+        },
+        {
+            lat: -34.6037,
+            lng: -58.3816,
+            name: 'Buenos Aires, Argentina'
+        },
+        {
+            lat: 30.0444,
+            lng: 31.2357,
+            name: 'Cairo, Egypt'
+        },
+        {
+            lat: -33.9249,
+            lng: 18.4241,
+            name: 'Cape Town, South Africa'
+        },
+        {
+            lat: -1.2921,
+            lng: 36.8219,
+            name: 'Nairobi, Kenya'
+        },
+        {
+            lat: -33.8688,
+            lng: 151.2093,
+            name: 'Sydney, Australia'
+        },
+        {
+            lat: -37.8136,
+            lng: 144.9631,
+            name: 'Melbourne, Australia'
+        },
+        {
+            lat: -27.4679,
+            lng: 153.0279,
+            name: 'Brisbane, Australia'
+        },
+        {
+            lat: -36.8485,
+            lng: 174.7633,
+            name: 'Auckland, New Zealand'
+        },
+        {
+            lat: 33.8886,
+            lng: 35.4955,
+            name: 'Beirut, Lebanon'
+        },
+        {
+            lat: 31.6295,
+            lng: -7.9811,
+            name: 'Marrakech, Morocco'
+        },
+        {
+            lat: 6.5244,
+            lng: 3.3792,
+            name: 'Lagos, Nigeria'
+        },
+        {
+            lat: 59.3293,
+            lng: 18.0686,
+            name: 'Stockholm, Sweden'
+        },
+        {
+            lat: 60.1699,
+            lng: 24.9384,
+            name: 'Helsinki, Finland'
+        },
+        {
+            lat: 49.2827,
+            lng: -123.1207,
+            name: 'Vancouver, Canada'
+        },
+        {
+            lat: 47.6062,
+            lng: -122.3321,
+            name: 'Seattle, USA'
+        },
+        {
+            lat: 3.1390,
+            lng: 101.6869,
+            name: 'Kuala Lumpur, Malaysia'
+        },
+        {
+            lat: 14.5995,
+            lng: 120.9842,
+            name: 'Manila, Philippines'
+        },
+        {
+            lat: 21.0278,
+            lng: 105.8342,
+            name: 'Hanoi, Vietnam'
+        },
+        {
+            lat: 45.4642,
+            lng: 9.1900,
+            name: 'Milan, Italy'
+        },
+        {
+            lat: 48.2082,
+            lng: 16.3738,
+            name: 'Vienna, Austria'
+        },
+        {
+            lat: 14.7167,
+            lng: -17.4677,
+            name: 'Dakar, Senegal'
+        },
+    ];
 
-function getSimulatedData() {
-    return {
-        landmark_name: 'Cambridge, Massachusetts',
-        city: 'Cambridge',
-        country: 'United States',
-        region: 'Massachusetts',
-        latitude: 42.3625,
-        longitude: -71.1245,
-        confidence: 92,
-        tags: ['Riverfront', 'Brick Architecture', 'Tree-lined Path', 'Urban', 'Historic'],
-        reasoning: 'The image depicts a waterfront scene with a pedestrian walkway on a slightly elevated concrete path aligned with a bridge over water. The surrounding foliage and architecture style are contextually indicative of the Northeastern United States. Extensive reverse image search results consistently identify the location as Memorial Drive in Cambridge, Massachusetts, USA.',
-        description: 'Memorial Drive / Charles River area. Features riverfront roadway, distinctive brick architecture, and tree-lined path.',
-        historical_context: 'Cambridge is home to Harvard University and MIT, with historic architecture dating back to the 1600s.'
+    // ========== DOM REFS ==========
+    const DOM = {
+        starfieldCanvas: document.getElementById('starfieldCanvas'),
+        mapEarthContainer: document.getElementById('mapEarthContainer'),
+        globeModeBadge: document.getElementById('globeModeBadge'),
+        mapStatus: document.getElementById('mapStatus'),
+        mapStatusText: document.getElementById('mapStatusText'),
+        whiteFlash: document.getElementById('whiteFlash'),
+        progressCard: document.getElementById('progressCard'),
+        pcHeadline: document.getElementById('pcHeadline'),
+        pcSub: document.getElementById('pcSub'),
+        pcFill: document.getElementById('pcFill'),
+        pcSteps: document.getElementById('pcSteps'),
+        pcError: document.getElementById('pcError'),
+        pcScanning: document.getElementById('pcScanning'),
+        resultsSplit: document.getElementById('resultsSplit'),
+        satPane: document.getElementById('satPane'),
+        dataPane: document.getElementById('dataPane'),
+        resultMap: document.getElementById('resultMap'),
+        confPill: document.getElementById('confPill'),
+        confPillText: document.getElementById('confPillText'),
+        verifiedPill: document.getElementById('verifiedPill'),
+        placeTitle: document.getElementById('placeTitle'),
+        placeCountry: document.getElementById('placeCountry'),
+        placeRegion: document.getElementById('placeRegion'),
+        coordText: document.getElementById('coordText'),
+        photoFrame: document.getElementById('photoFrame'),
+        tagPills: document.getElementById('tagPills'),
+        reasoningText: document.getElementById('reasoningText'),
+        navStatus: document.getElementById('navStatus'),
+        statusDot: document.getElementById('statusDot'),
+        globeTransition: document.getElementById('globeTransition'),
+        globeTransitionCanvas: document.getElementById('globeTransitionCanvas'),
     };
-}
 
-// ========== EARTH ZOOM + SHOW RESULTS ==========
-async function runEarthZoomThenShowResults(data) {
-    const lat = parseFloat(data.latitude ?? data.lat);
-    const lng = parseFloat(data.longitude ?? data.lng);
-    
-    // Build locations for zoom sequence
-    const locations = PROBE_LOCATIONS.map(loc => ({
-        ...loc,
-        isTarget: Math.abs(loc.lat - lat) < 0.01 && Math.abs(loc.lng - lng) < 0.01
-    }));
+    // ========== STATE ==========
+    let resultMapInstance = null;
+    let earthMapInstance = null;
+    let currentTileMode = 'roads';
+    let uploadedImageURL = null;
+    let pollTimer = null;
+    let currentAnalysisId = null;
+    let pollAttempts = 0;
+    let consecutiveErrors = 0;
+    let startTime = null;
+    let elapsedInterval = null;
 
-    // Add target if not in list
-    const hasTarget = locations.some(l => l.isTarget);
-    if (!hasTarget && isValidCoord(lat, lng)) {
-        locations.push({
-            name: data.landmark_name || 'Target Location',
-            lat: lat,
-            lng: lng,
-            reason: '✓ LOCATION CONFIRMED!',
-            isTarget: true
-        });
+    let randomWaypoints = [];
+    let totalWaypoints = 0;
+    let explorationIndex = 0;
+    let analysisComplete = false;
+    let isExploring = false;
+    let lastProgress = 0;
+
+    // Starfield state
+    let starfieldAnim = null;
+    let stars = [];
+    let globeAngle = 0;
+
+    // ========== HELPERS ==========
+    function isValidCoord(lat, lng) {
+        const a = parseFloat(lat),
+            b = parseFloat(lng);
+        return !isNaN(a) && !isNaN(b) && a !== 0 && b !== 0 && Math.abs(a) <= 90 && Math.abs(b) <= 180;
     }
 
-    // Ensure target is last
-    const targetIndex = locations.findIndex(l => l.isTarget);
-    if (targetIndex > -1 && targetIndex !== locations.length - 1) {
-        const target = locations.splice(targetIndex, 1)[0];
-        locations.push(target);
+    function sleep(ms) {
+        return new Promise(r => setTimeout(r, ms));
     }
 
-    DOM.statusDot.style.background = '#34d399';
-    DOM.statusDot.style.boxShadow = '0 0 20px #34d399';
-    showToast('🎯 Locating target on Earth...');
+    function showToast(msg) {
+        if (DOM.navStatus) DOM.navStatus.textContent = msg;
+    }
 
-    // Initialize earth map
-    initEarthMap();
-    
-    // Run zoom sequence
-    await runEarthZoomSequence(locations);
-
-    // Flash transition
-    DOM.whiteFlash.classList.remove('run');
-    void DOM.whiteFlash.offsetWidth;
-    DOM.whiteFlash.classList.add('run');
-    
-    // Show results
-    setTimeout(() => {
-        revealResults(data);
-    }, 800);
-}
-
-// ========== REVEAL RESULTS ==========
-function revealResults(data) {
-    DOM.progressCard.style.display = 'none';
-
-    const lat = parseFloat(data.latitude ?? data.lat);
-    const lng = parseFloat(data.longitude ?? data.lng);
-    const hasCoords = isValidCoord(lat, lng);
-    const confidence = data.confidence ?? 0;
-
-    // Data Pane
-    const tier = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
-    DOM.verifiedPill.className = `verified-pill ${tier}`;
-    DOM.verifiedPill.innerHTML = tier === 'high'
-        ? '<i class="fas fa-check-circle"></i> Verified Location'
-        : tier === 'medium'
-            ? '<i class="fas fa-exclamation-circle"></i> Likely Location'
-            : '<i class="fas fa-question-circle"></i> Low Confidence';
-
-    DOM.placeTitle.textContent = data.landmark_name || data.city || 'Unknown Location';
-    DOM.placeCountry.textContent = data.country || '';
-    DOM.placeRegion.textContent = data.region || '';
-    DOM.coordText.textContent = hasCoords
-        ? `${Math.abs(lat).toFixed(4)}° ${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}° ${lng >= 0 ? 'E' : 'W'}`
-        : 'Not available';
-
-    DOM.confPillText.textContent = `${confidence}% Confidence`;
-    DOM.confPill.querySelector('.dot').style.background = tier === 'high' ? 'var(--success)' : tier === 'medium' ? '#fbbf24' : '#f87171';
-
-    // ✅ FIXED: Show the uploaded image
-    if (uploadedImageURL) {
-        DOM.photoFrame.innerHTML = `<img src="${uploadedImageURL}" alt="source"><span class="photo-tag">📍 Source match</span>`;
-    } else {
-        // Check session for image data
-        const storedImage = sessionStorage.getItem('uploadedImage');
-        if (storedImage) {
-            DOM.photoFrame.innerHTML = `<img src="${storedImage}" alt="source"><span class="photo-tag">📍 Source match</span>`;
-        } else {
-            DOM.photoFrame.innerHTML = `<div class="no-photo"><i class="fas fa-image"></i></div>`;
+    function showError(message) {
+        if (DOM.pcError) {
+            DOM.pcError.textContent = `⚠️ ${message}`;
+            DOM.pcError.style.display = 'block';
         }
+        if (DOM.statusDot) {
+            DOM.statusDot.style.background = 'var(--danger)';
+            DOM.statusDot.style.boxShadow = '0 0 20px var(--danger)';
+        }
+        showToast('❌ ' + message);
+        if (DOM.progressCard) DOM.progressCard.style.display = 'none';
     }
 
-    // Tags
-    DOM.tagPills.innerHTML = (data.tags || []).map((t) => `<span class="tag-pill">${t}</span>`).join('');
+    function shuffleArray(array) {
+        const s = [...array];
+        for (let i = s.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [s[i], s[j]] = [s[j], s[i]];
+        }
+        return s;
+    }
 
-    // Reasoning
-    DOM.reasoningText.textContent = data.reasoning || 'No reasoning available.';
-
-    // Map
-    const satMapEl = document.getElementById('resultMap');
-    satMapEl.innerHTML = '';
-    DOM.satPane.querySelector('.street-inline')?.remove();
-
-    if (hasCoords) {
-        try { if (resultMapInstance) resultMapInstance.remove(); } catch(e) {}
-        resultMapInstance = L.map('resultMap', {
-            center: [lat, lng],
-            zoom: 14,
+    // ========== EARTH MAP (flat dark) ==========
+    function initEarthMap(center = [20, 0], zoom = 2) {
+        try {
+            if (earthMapInstance) earthMapInstance.remove();
+        } catch (e) {}
+        const el = document.getElementById('earthMap');
+        if (!el) return;
+        earthMapInstance = L.map(el, {
+            center,
+            zoom,
             zoomControl: false,
             attributionControl: false,
+            fadeAnimation: true,
+            zoomAnimation: true,
+            inertia: true,
+            maxBounds: [
+                [-90, -180],
+                [90, 180]
+            ],
         });
-        
-        if (currentTileMode === 'terrain') {
-            L.tileLayer(SATELLITE_URL, { attribution: SATELLITE_ATTR, maxZoom: 19 }).addTo(resultMapInstance);
-        } else {
-            L.tileLayer(ROADS_URL, { attribution: ROADS_ATTR, maxZoom: 19 }).addTo(resultMapInstance);
-        }
-
-        const iconHtml = `<div class="avatar-marker marker-drop">
-            <div class="ring"></div><div class="ring2"></div>
-            <div class="photo" style="background:#2dd4bf;display:flex;align-items:center;justify-content:center;font-size:20px;">📍</div>
-        </div>`;
-        const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [46, 46], iconAnchor: [23, 23] });
-        
+        L.tileLayer(DARK_TILE, {
+            attribution: DARK_ATTR,
+            maxZoom: 19,
+            minZoom: 1,
+            noWrap: true
+        }).addTo(earthMapInstance);
         setTimeout(() => {
-            L.marker([lat, lng], { icon }).addTo(resultMapInstance)
-                .bindPopup(`<strong>${data.landmark_name || 'Location'}</strong><br>${Math.abs(lat).toFixed(4)}° ${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}° ${lng >= 0 ? 'E' : 'W'}`)
-                .openPopup();
+            if (earthMapInstance) earthMapInstance.invalidateSize();
         }, 300);
-
-        setTimeout(() => {
-            resultMapInstance.invalidateSize();
-            resultMapInstance.flyTo([lat, lng], 15, { duration: 1.2 });
-        }, 200);
-    } else {
-        satMapEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#6b7280;flex-direction:column;gap:12px;background:var(--bg-deep);">
-            <i class="fas fa-map-marked-alt" style="font-size:48px;opacity:0.25;"></i>
-            <span>No coordinates available</span>
-        </div>`;
     }
 
-    setupControls(data, lat, lng, hasCoords);
-    DOM.resultsSplit.classList.add('show');
-    
-    DOM.statusDot.style.background = '#34d399';
-    DOM.statusDot.style.boxShadow = '0 0 20px #34d399';
-    showToast('✅ OSINT Analysis Complete!');
-}
-
-// ========== CONTROLS ==========
-function setupControls(data, lat, lng, hasCoords) {
-    const set = (id, handler) => {
-        const el = document.getElementById(id);
-        if (el) el.onclick = handler;
-    };
-
-    set('copyCoordsBtn', () => {
-        if (!hasCoords) return;
-        navigator.clipboard?.writeText(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-        showToast('📋 Coordinates copied!');
-    });
-
-    const roadsBtn = document.getElementById('roadsToggle');
-    const terrainBtn = document.getElementById('terrainToggle');
-    const setTileMode = (mode) => {
-        currentTileMode = mode;
-        roadsBtn.classList.toggle('active', mode === 'roads');
-        terrainBtn.classList.toggle('active', mode === 'terrain');
-        if (resultMapInstance) {
-            resultMapInstance.eachLayer((l) => {
-                if (l instanceof L.TileLayer) resultMapInstance.removeLayer(l);
+    function flyEarthTo(lat, lng, zoom, duration = 1600) {
+        return new Promise(resolve => {
+            if (!earthMapInstance) {
+                resolve();
+                return;
+            }
+            earthMapInstance.flyTo([lat, lng], zoom, {
+                duration: duration / 1000,
+                easeLinearity: 0.20
             });
-            const url = mode === 'terrain' ? SATELLITE_URL : ROADS_URL;
-            const attr = mode === 'terrain' ? SATELLITE_ATTR : ROADS_ATTR;
-            L.tileLayer(url, { attribution: attr, maxZoom: 19 }).addTo(resultMapInstance);
+            setTimeout(resolve, duration + 60);
+        });
+    }
+
+    function addProbeMarker(lat, lng, isTarget = false) {
+        if (!earthMapInstance) return;
+        earthMapInstance.eachLayer(l => {
+            if (l instanceof L.Marker && l.options.probeMarker) earthMapInstance.removeLayer(l);
+        });
+        const html = `<div class="probe-marker ${isTarget ? 'target' : ''}">
+        <div class="ring"></div><div class="ring"></div><div class="dot"></div>
+    </div>`;
+        const icon = L.divIcon({
+            html,
+            className: '',
+            iconSize: [40, 40],
+            iconAnchor: [20, 20]
+        });
+        L.marker([lat, lng], {
+            icon,
+            probeMarker: true,
+            zIndexOffset: 1000
+        }).addTo(earthMapInstance);
+    }
+
+    // ========== STARFIELD + 3D GLOBE (Frame 3 & 5) ==========
+    function initStarfield() {
+        const canvas = DOM.starfieldCanvas;
+        const ctx = canvas.getContext('2d');
+        stars = [];
+
+        function resize() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
         }
-    };
-    set('roadsToggle', () => setTileMode('roads'));
-    set('terrainToggle', () => setTileMode('terrain'));
+        resize();
+        window.addEventListener('resize', resize);
 
-    const openGlobe = () => {
-        if (hasCoords) window.open(`https://earth.google.com/web/@${lat},${lng},0a,500d`, '_blank');
-        else showToast('❌ No coordinates available.');
-    };
-    set('globeBtnPane', openGlobe);
-    set('globeBtnPanel', openGlobe);
-
-    const openStreet = () => {
-        if (hasCoords) showStreetView(lat, lng);
-        else showToast('❌ No coordinates available.');
-    };
-    set('streetBtnPane', openStreet);
-    set('streetBtnPanel', openStreet);
-
-    set('viewOriginalBtn', () => {
-        if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
-        else showToast('No image available.');
-    });
-    
-    set('downloadPhotoBtn', () => {
-        if (uploadedImageURL) {
-            const a = document.createElement('a');
-            a.href = uploadedImageURL;
-            a.download = 'tracegeo_source.jpg';
-            a.click();
-        } else {
-            showToast('No image available.');
+        // Generate stars
+        for (let i = 0; i < 320; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                r: Math.random() * 1.4 + 0.2,
+                alpha: Math.random() * 0.7 + 0.2,
+                twinkleSpeed: Math.random() * 0.02 + 0.005,
+                twinkleDir: Math.random() > 0.5 ? 1 : -1,
+            });
         }
-    });
-    
-    set('exportReportBtn', () => exportReport(data, lat, lng));
-}
 
-function showStreetView(lat, lng) {
-    DOM.satPane.querySelector('.street-inline')?.remove();
-    const wrap = document.createElement('div');
-    wrap.className = 'street-inline';
-    wrap.innerHTML = `
+        function drawGlobe(cx, cy, radius, angle) {
+            // Globe shadow
+            const grd = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.3, radius * 0.05, cx, cy, radius);
+            grd.addColorStop(0, 'rgba(28,28,55,0.95)');
+            grd.addColorStop(0.6, 'rgba(10,10,24,0.97)');
+            grd.addColorStop(1, 'rgba(5,5,12,0.99)');
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.fillStyle = grd;
+            ctx.fill();
+
+            // Clip to sphere for continent lines
+            ctx.clip();
+
+            // Draw simple continent outlines as arcs (stylized, not precise)
+            const continents = [{
+                    ox: 0.18,
+                    oy: -0.15,
+                    w: 0.28,
+                    h: 0.22,
+                    label: 'NORTH AM'
+                },
+                {
+                    ox: 0.08,
+                    oy: 0.22,
+                    w: 0.18,
+                    h: 0.28,
+                    label: 'SOUTH AM'
+                },
+                {
+                    ox: -0.12,
+                    oy: -0.08,
+                    w: 0.22,
+                    h: 0.35,
+                    label: 'AFRICA'
+                },
+                {
+                    ox: -0.22,
+                    oy: -0.25,
+                    w: 0.20,
+                    h: 0.18,
+                    label: 'EUROPE'
+                },
+                {
+                    ox: 0.18,
+                    oy: -0.18,
+                    w: 0.38,
+                    h: 0.28,
+                    label: 'ASIA'
+                },
+                {
+                    ox: 0.32,
+                    oy: 0.18,
+                    w: 0.22,
+                    h: 0.20,
+                    label: 'AUSTRALIA'
+                },
+            ];
+
+            ctx.strokeStyle = 'rgba(34,211,238,0.18)';
+            ctx.lineWidth = 0.8;
+
+            continents.forEach(c => {
+                const rx = cx + (c.ox + Math.sin(angle) * 0.06) * radius * 2;
+                const ry = cy + c.oy * radius * 2;
+                ctx.beginPath();
+                ctx.ellipse(rx, ry, c.w * radius, c.h * radius, angle * 0.3, 0, Math.PI * 2);
+                ctx.stroke();
+            });
+
+            // Latitude lines
+            ctx.strokeStyle = 'rgba(201,138,70,0.14)';
+            ctx.lineWidth = 0.6;
+            for (let i = -3; i <= 3; i++) {
+                const latY = cy + (i / 4) * radius;
+                const latR = Math.sqrt(Math.max(0, radius * radius - (latY - cy) * (latY - cy)));
+                if (latR > 0) {
+                    ctx.beginPath();
+                    ctx.ellipse(cx, latY, latR, latR * 0.25, 0, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+
+            // Longitude lines
+            ctx.strokeStyle = 'rgba(201,138,70,0.10)';
+            for (let i = 0; i < 8; i++) {
+                const a = angle + (i / 8) * Math.PI * 2;
+                ctx.beginPath();
+                ctx.ellipse(cx, cy, radius * Math.abs(Math.cos(a)), radius, 0, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // Atmosphere glow
+            ctx.restore();
+            const atmo = ctx.createRadialGradient(cx, cy, radius * 0.88, cx, cy, radius * 1.12);
+            atmo.addColorStop(0, 'rgba(34,211,238,0.14)');
+            atmo.addColorStop(0.5, 'rgba(201,138,70,0.06)');
+            atmo.addColorStop(1, 'rgba(34,211,238,0)');
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius * 1.12, 0, Math.PI * 2);
+            ctx.fillStyle = atmo;
+            ctx.fill();
+
+            // Specular highlight
+            const spec = ctx.createRadialGradient(cx - radius * 0.35, cy - radius * 0.35, 0, cx - radius * 0.35, cy -
+                radius * 0.35, radius * 0.55);
+            spec.addColorStop(0, 'rgba(255,255,255,0.07)');
+            spec.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.fillStyle = spec;
+            ctx.fill();
+
+            // City dots
+            const cityDots = [{
+                    x: 0.22,
+                    y: -0.18
+                }, {
+                    x: -0.18,
+                    y: -0.22
+                }, {
+                    x: -0.08,
+                    y: -0.05
+                },
+                {
+                    x: 0.32,
+                    y: -0.10
+                }, {
+                    x: 0.10,
+                    y: 0.28
+                }, {
+                    x: 0.35,
+                    y: 0.15
+                },
+            ];
+            cityDots.forEach((d, i) => {
+                const px = cx + (d.x + Math.sin(angle + i) * 0.04) * radius * 2.1;
+                const py = cy + d.y * radius * 2;
+                if (Math.abs(px - cx) < radius && Math.abs(py - cy) < radius) {
+                    ctx.beginPath();
+                    ctx.arc(px, py, 2, 0, Math.PI * 2);
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(34,211,238,0.7)' : 'rgba(251,191,36,0.6)';
+                    ctx.fill();
+                }
+            });
+        }
+
+        function frame() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Deep space bg
+            ctx.fillStyle = '#05050a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Stars
+            stars.forEach(s => {
+                s.alpha += s.twinkleSpeed * s.twinkleDir;
+                if (s.alpha > 0.9 || s.alpha < 0.1) s.twinkleDir *= -1;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255,255,255,${s.alpha})`;
+                ctx.fill();
+            });
+
+            // Globe
+            const cx = canvas.width * 0.5;
+            const cy = canvas.height * 0.5;
+            const radius = Math.min(canvas.width, canvas.height) * 0.30;
+            if (!prefersReducedMotion) globeAngle += 0.006;
+            drawGlobe(cx, cy, radius, globeAngle);
+
+            starfieldAnim = requestAnimationFrame(frame);
+        }
+
+        frame();
+    }
+
+    function stopStarfield() {
+        if (starfieldAnim) {
+            cancelAnimationFrame(starfieldAnim);
+            starfieldAnim = null;
+        }
+    }
+
+    // ========== STATIC GLOBE SNAPSHOT (results-pane reveal crossfade) ==========
+    // A lighter, non-animated relative of drawGlobe() above — just enough of a
+    // sphere-with-target to bridge the cinematic globe view into the flat
+    // interactive result map without needing a real 3D globe library.
+    function drawStaticGlobe(canvas) {
+        if (!canvas) return () => {};
+        const ctx = canvas.getContext('2d');
+
+        function render() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radius = Math.min(canvas.width, canvas.height) * 0.34;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#05050a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const grd = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.3, radius * 0.05, cx, cy, radius);
+            grd.addColorStop(0, 'rgba(30,40,55,0.95)');
+            grd.addColorStop(0.6, 'rgba(10,14,22,0.97)');
+            grd.addColorStop(1, 'rgba(5,6,10,0.99)');
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.fillStyle = grd;
+            ctx.fill();
+
+            ctx.save();
+            ctx.clip();
+            ctx.strokeStyle = 'rgba(34,211,238,0.16)';
+            ctx.lineWidth = 0.7;
+            for (let i = -3; i <= 3; i++) {
+                const latY = cy + (i / 4) * radius;
+                const latR = Math.sqrt(Math.max(0, radius * radius - (latY - cy) * (latY - cy)));
+                if (latR > 0) {
+                    ctx.beginPath();
+                    ctx.ellipse(cx, latY, latR, latR * 0.25, 0, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+            for (let i = 0; i < 8; i++) {
+                const a = (i / 8) * Math.PI * 2;
+                ctx.beginPath();
+                ctx.ellipse(cx, cy, radius * Math.abs(Math.cos(a)), radius, 0, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            ctx.restore();
+
+            const atmo = ctx.createRadialGradient(cx, cy, radius * 0.88, cx, cy, radius * 1.14);
+            atmo.addColorStop(0, 'rgba(45,212,191,0.18)');
+            atmo.addColorStop(0.5, 'rgba(201,138,70,0.06)');
+            atmo.addColorStop(1, 'rgba(45,212,191,0)');
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius * 1.14, 0, Math.PI * 2);
+            ctx.fillStyle = atmo;
+            ctx.fill();
+        }
+
+        render();
+        return render;
+    }
+
+    // ========== SWITCH BETWEEN FLAT MAP ↔ GLOBE ==========
+    function showGlobeMode(statusText) {
+        // Show starfield canvas, hide flat map
+        DOM.mapEarthContainer.classList.add('hidden');
+        DOM.starfieldCanvas.classList.add('visible');
+        DOM.globeModeBadge.classList.add('visible');
+        if (DOM.mapStatusText) DOM.mapStatusText.textContent = statusText || '🌐 3D Globe scan active...';
+    }
+
+    function showFlatMapMode() {
+        // Show flat map, hide globe
+        DOM.starfieldCanvas.classList.remove('visible');
+        DOM.globeModeBadge.classList.remove('visible');
+        DOM.mapEarthContainer.classList.remove('hidden');
+    }
+
+    // ========== EXPLORATION SEQUENCE ==========
+    // Alternates: flat map zoom → globe → flat map zoom → globe ...
+    async function runExplorationSequence(waypoints) {
+        randomWaypoints = shuffleArray(waypoints).slice(0, 12);
+        totalWaypoints = randomWaypoints.length;
+        explorationIndex = 0;
+
+        for (let i = 0; i < totalWaypoints; i++) {
+            if (analysisComplete) break;
+
+            const wp = randomWaypoints[i];
+            explorationIndex = i;
+
+            // ── ODD index → GLOBE MODE (Frame 3, 5, ...) ──
+            if (i % 2 === 1) {
+                showGlobeMode(`🌐 Scanning ${wp.name}...`);
+                if (DOM.pcScanning) DOM.pcScanning.textContent = `// SCANNING ${wp.name.toUpperCase()}`;
+                await sleep(3200); // Let the globe spin
+                if (analysisComplete) break;
+                showFlatMapMode();
+                await sleep(400);
+                continue;
+            }
+
+            // ── EVEN index → FLAT MAP MODE (Frame 2, 4, 6, ...) ──
+            showFlatMapMode();
+            if (DOM.mapStatusText) {
+                DOM.mapStatusText.textContent = `🌍 Probing ${wp.name}...`;
+            }
+            if (DOM.pcScanning) DOM.pcScanning.textContent = `// PROBING ${wp.name.toUpperCase()}`;
+
+            // Zoom in from global
+            await flyEarthTo(wp.lat, wp.lng, 4, 1400);
+            if (analysisComplete) break;
+
+            addProbeMarker(wp.lat, wp.lng, false);
+            await sleep(600);
+            if (analysisComplete) break;
+
+            // Dive closer
+            await flyEarthTo(wp.lat, wp.lng, 10, 1500);
+            if (analysisComplete) break;
+            await sleep(900);
+            if (analysisComplete) break;
+
+            // Pull back before next location
+            await flyEarthTo(wp.lat, wp.lng, 3.5, 1200);
+            if (analysisComplete) break;
+            await sleep(500);
+        }
+    }
+
+    // ========== CINEMATIC TARGET REVEAL ==========
+    async function revealTarget(lat, lng, name) {
+        analysisComplete = true;
+
+        // Make sure we're on flat map for the final reveal
+        showFlatMapMode();
+        await sleep(300);
+
+        // Clear any existing probes
+        if (earthMapInstance) {
+            earthMapInstance.eachLayer(l => {
+                if (l instanceof L.Marker && l.options.probeMarker) earthMapInstance.removeLayer(l);
+            });
+        }
+
+        if (DOM.mapStatusText) DOM.mapStatusText.textContent = `🎯 Target acquired — ${name}...`;
+        if (DOM.pcScanning) DOM.pcScanning.textContent = `// PINPOINTING ${name.toUpperCase()}`;
+
+        // Stage 1: Pull back to global view centered on target
+        await flyEarthTo(lat, lng, 2.5, 1400);
+        await sleep(500);
+
+        // Stage 2: Add the pulsing target marker
+        addProbeMarker(lat, lng, true);
+
+        // Stage 3: Continental approach
+        await flyEarthTo(lat, lng, 6, 1600);
+        await sleep(500);
+
+        // Stage 4: Regional approach
+        await flyEarthTo(lat, lng, 11, 1500);
+        await sleep(500);
+
+        // Stage 5: Final landing on exact coordinates
+        await flyEarthTo(lat, lng, 15.5, 1700);
+        await sleep(900);
+
+        if (DOM.mapStatusText) {
+            DOM.mapStatusText.innerHTML = `<span class="target-found">🎯 ${name} — CONFIRMED!</span>`;
+        }
+    }
+
+    // ========== PROGRESS CARD ==========
+    // The "Elapsed Xs" readout is always computed from the client's own wall
+    // clock (startTime), never from the server's `elapsed` field. The server
+    // can go a while between meaningfully different progress snapshots, and
+    // if the display trusts that field directly the timer visibly stalls
+    // even though the pipeline is still running. Progress % and the stage
+    // headline still come straight from the server.
+    function renderSub(progress) {
+        if (!DOM.pcSub) return;
+        const elapsed = startTime ? (Date.now() - startTime) / 1000 : 0;
+        DOM.pcSub.textContent =
+            `Elapsed ${elapsed.toFixed(1)}s · Progress ${Math.min(progress || 0, 100)}% · Engine TraceGeo AI`;
+    }
+
+    function updateProgressCard(stage, progress, label) {
+        const labels = {
+            0: 'Reading uploaded image…',
+            1: 'Extracting visual features…',
+            2: 'Running visual analysis…',
+            3: 'Running Bayesian evidence fusion…',
+            4: 'Pinpointing location…',
+        };
+        if (DOM.pcHeadline) DOM.pcHeadline.textContent = label || labels[stage] || 'Analyzing…';
+        if (DOM.pcFill) DOM.pcFill.style.width = Math.min(progress || 0, 100) + '%';
+        lastProgress = progress || 0;
+        renderSub(lastProgress);
+        document.querySelectorAll('.pc-steps .pcs').forEach(el => {
+            const idx = parseInt(el.dataset.step, 10);
+            el.classList.remove('active', 'done');
+            if (idx < stage) el.classList.add('done');
+            else if (idx === stage) el.classList.add('active');
+        });
+    }
+
+    // ========== SESSION ==========
+    function clearSession() {
+        sessionStorage.removeItem('analysisId');
+        sessionStorage.removeItem('analysisResult');
+        sessionStorage.removeItem('uploadedImage');
+        if (pollTimer) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+        if (elapsedInterval) {
+            clearInterval(elapsedInterval);
+            elapsedInterval = null;
+        }
+        currentAnalysisId = null;
+        pollAttempts = 0;
+        consecutiveErrors = 0;
+        analysisComplete = false;
+        isExploring = false;
+    }
+
+    // ========== POLL BACKEND ==========
+    function pollStatus() {
+        if (!currentAnalysisId) return;
+        pollAttempts++;
+        if (pollAttempts > MAX_POLL_ATTEMPTS) {
+            showError('Analysis timed out');
+            clearSession();
+            return;
+        }
+
+        fetch(`/api/analyze/${currentAnalysisId}/status`, {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
+            })
+            .then(r => {
+                if (!r.ok) return r.json().then(d => {
+                    throw new Error(d.message || `HTTP ${r.status}`);
+                });
+                return r.json();
+            })
+            .then(data => {
+                console.log('📊', data);
+                consecutiveErrors = 0;
+
+                if (data.image_url) {
+                    uploadedImageURL = data.image_url;
+                    sessionStorage.setItem('uploadedImage', uploadedImageURL);
+                }
+
+                const progress = data.progress || 0;
+                const stage = data.stage || 0;
+
+                updateProgressCard(stage, progress, data.stage_label);
+
+                // Kick off exploration once we have some progress
+                if (progress > 8 && !isExploring && !analysisComplete) {
+                    isExploring = true;
+                    runExplorationSequence(GLOBAL_WAYPOINTS); // async, non-blocking
+                }
+
+                if (data.status === 'completed') {
+                    if (data.result) {
+                        let result = data.result;
+                        if (typeof result === 'string') {
+                            try {
+                                result = JSON.parse(result);
+                            } catch (e) {}
+                        }
+                        sessionStorage.setItem('analysisResult', JSON.stringify(result));
+                        clearSession();
+                        // Tell the exploration loop to stop at its next checkpoint —
+                        // set immediately (not just inside revealTarget) so it doesn't
+                        // keep flying the map during the wrap-up delay below.
+                        analysisComplete = true;
+
+                        const tLat = parseFloat(result.latitude ?? result.lat);
+                        const tLng = parseFloat(result.longitude ?? result.lng);
+                        const tName = result.landmark_name || result.city || 'Target';
+
+                        // Give exploration a moment to reach its next checkpoint and exit, then reveal
+                        setTimeout(async () => {
+                            stopStarfield();
+                            await revealTarget(tLat, tLng, tName);
+                            // White flash
+                            DOM.whiteFlash.classList.remove('run');
+                            void DOM.whiteFlash.offsetWidth;
+                            DOM.whiteFlash.classList.add('run');
+                            setTimeout(() => revealResults(result), 700);
+                        }, 3000);
+                    } else {
+                        showError('Analysis completed but no results found');
+                    }
+                    return;
+                }
+
+                if (data.status === 'failed') {
+                    showError(data.error || 'Analysis failed');
+                    clearSession();
+                    return;
+                }
+
+                pollTimer = setTimeout(pollStatus, POLL_INTERVAL_MS);
+            })
+            .catch(err => {
+                console.error('Poll error:', err);
+                consecutiveErrors++;
+                const delay = Math.min(POLL_INTERVAL_MS * Math.pow(1.5, Math.min(consecutiveErrors, 5)), 5000);
+                if (consecutiveErrors < 8 && pollAttempts <= MAX_POLL_ATTEMPTS) {
+                    pollTimer = setTimeout(pollStatus, delay);
+                } else {
+                    showError('Error: ' + err.message);
+                    clearSession();
+                }
+            });
+    }
+
+    // ========== REVEAL RESULTS (Frame 7 & 8) ==========
+    // Decorative AI-vision scan chips over the result photo (see comment
+    // at the call site — not real per-object detection coordinates).
+    const VISION_CHIP_SPOTS = [
+        { top: '8%', left: '4%' },
+        { top: '8%', right: '4%' },
+        { top: '42%', left: '38%' },
+        { top: '68%', right: '6%' },
+        { top: '78%', left: '6%' },
+    ];
+
+    function renderVisionChips(container, tags) {
+        container.querySelectorAll('.vision-chip').forEach(el => el.remove());
+        const labels = (tags && tags.length ? tags : ['Scene', 'Surface', 'Structure', 'Foliage']).slice(0, 5);
+        labels.forEach((label, i) => {
+            const spot = VISION_CHIP_SPOTS[i % VISION_CHIP_SPOTS.length];
+            const chip = document.createElement('span');
+            chip.className = 'vision-chip';
+            chip.style.animationDelay = `${i * 0.12}s`;
+            Object.entries(spot).forEach(([k, v]) => chip.style[k] = v);
+            const score = (0.65 + (i * 7 % 30) / 100).toFixed(2);
+            chip.textContent = `${score} ${String(label).toUpperCase()}`;
+            container.appendChild(chip);
+        });
+    }
+
+    function revealResults(data) {
+        if (DOM.progressCard) DOM.progressCard.style.display = 'none';
+
+        // Briefly hold on a static globe (with the target pinned) before the
+        // interactive flat map fades in underneath — bridges the cinematic
+        // reveal into the results view instead of cutting straight to a map.
+        if (DOM.globeTransition && DOM.globeTransitionCanvas) {
+            DOM.globeTransition.classList.remove('fade-out');
+            DOM.globeTransition.style.display = 'block';
+            drawStaticGlobe(DOM.globeTransitionCanvas);
+            const holdMs = prefersReducedMotion ? 0 : 1100;
+            setTimeout(() => DOM.globeTransition.classList.add('fade-out'), holdMs);
+        }
+
+        const lat = parseFloat(data.latitude ?? data.lat);
+        const lng = parseFloat(data.longitude ?? data.lng);
+        const hasCoords = isValidCoord(lat, lng);
+        const confidence = data.confidence ?? 0;
+        const tier = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+
+        if (DOM.verifiedPill) {
+            DOM.verifiedPill.className = `verified-pill ${tier}`;
+            DOM.verifiedPill.innerHTML = tier === 'high' ?
+                '<i class="fas fa-check-circle"></i> Identified Location' :
+                tier === 'medium' ?
+                '<i class="fas fa-exclamation-circle"></i> Likely Location' :
+                '<i class="fas fa-question-circle"></i> Low Confidence';
+        }
+
+        if (DOM.placeTitle) DOM.placeTitle.textContent = data.landmark_name || data.city || 'Unknown';
+        if (DOM.placeCountry) DOM.placeCountry.textContent = data.country || '';
+        if (DOM.placeRegion) DOM.placeRegion.textContent = data.region || '';
+        if (DOM.coordText) {
+            DOM.coordText.textContent = hasCoords ?
+                `${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}° ${lng>=0?'E':'W'}` :
+                'Not available';
+        }
+        if (DOM.confPillText) DOM.confPillText.textContent = `${confidence}% Confidence`;
+        const dot = DOM.confPill?.querySelector('.dot');
+        if (dot) dot.style.background = tier === 'high' ? 'var(--success)' : tier === 'medium' ? 'var(--warning)' : 'var(--danger)';
+
+        // Photo — plus a decorative "AI vision scan" chip overlay. The backend
+        // doesn't return real bounding-box detections, so these are stylistic
+        // labels (drawn from the returned tags when available) meant to evoke
+        // a vision pass over the image, not literal per-object coordinates.
+        if (DOM.photoFrame) {
+            const imgUrl = uploadedImageURL || sessionStorage.getItem('uploadedImage');
+            DOM.photoFrame.innerHTML = imgUrl ?
+                `<img src="${imgUrl}" alt="source">` :
+                `<div class="no-photo"><i class="fas fa-image"></i></div>`;
+            if (imgUrl) renderVisionChips(DOM.photoFrame, data.tags);
+        }
+
+        if (DOM.tagPills) DOM.tagPills.innerHTML = (data.tags || []).map(t => `<span class="tag-pill">${t}</span>`)
+            .join('');
+        if (DOM.reasoningText) DOM.reasoningText.textContent = data.reasoning || 'No reasoning available.';
+
+        // Build result map (satellite, Frame 7)
+        const satEl = document.getElementById('resultMap');
+        if (satEl) {
+            satEl.innerHTML = '';
+            DOM.satPane.querySelector('.street-inline')?.remove();
+            if (hasCoords) {
+                try {
+                    if (resultMapInstance) resultMapInstance.remove();
+                } catch (e) {}
+                resultMapInstance = L.map('resultMap', {
+                    center: [lat, lng],
+                    zoom: 14,
+                    zoomControl: false,
+                    attributionControl: false,
+                });
+                L.tileLayer(currentTileMode === 'terrain' ? SAT_URL : ROADS_URL, {
+                    attribution: currentTileMode === 'terrain' ? SAT_ATTR : ROADS_ATTR,
+                    maxZoom: 19
+                }).addTo(resultMapInstance);
+
+                const iconHtml = `<div class="avatar-marker marker-drop">
+                <div class="ring"></div><div class="ring2"></div>
+                <div class="photo" style="background:#2dd4bf;font-size:20px;">📍</div>
+            </div>`;
+                const icon = L.divIcon({
+                    html: iconHtml,
+                    className: '',
+                    iconSize: [46, 46],
+                    iconAnchor: [23, 23]
+                });
+                setTimeout(() => {
+                    L.marker([lat, lng], {
+                            icon
+                        })
+                        .addTo(resultMapInstance)
+                        .bindPopup(
+                            `<strong>${data.landmark_name || 'Location'}</strong><br>${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}° ${lng>=0?'E':'W'}`
+                            )
+                        .openPopup();
+                }, 300);
+                setTimeout(() => {
+                    resultMapInstance.invalidateSize();
+                    resultMapInstance.flyTo([lat, lng], 15, {
+                        duration: 1.2
+                    });
+                }, 200);
+            } else {
+                satEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#6b7280;flex-direction:column;gap:12px;">
+                <i class="fas fa-map-marked-alt" style="font-size:48px;opacity:0.25;"></i>
+                <span>No coordinates available</span></div>`;
+            }
+        }
+
+        setupControls(data, lat, lng, hasCoords);
+        if (DOM.resultsSplit) DOM.resultsSplit.classList.add('show');
+        if (DOM.statusDot) {
+            DOM.statusDot.style.background = 'var(--success)';
+            DOM.statusDot.style.boxShadow = '0 0 20px var(--success)';
+        }
+        showToast('✅ Analysis Complete — ' + (data.landmark_name || data.city || 'Location found'));
+    }
+
+    // ========== CONTROLS ==========
+    function setupControls(data, lat, lng, hasCoords) {
+        const set = (id, fn) => {
+            const el = document.getElementById(id);
+            if (el) el.onclick = fn;
+        };
+
+        set('copyCoordsBtn', () => {
+            if (!hasCoords) return;
+            navigator.clipboard?.writeText(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+            showToast('📋 Coordinates copied!');
+        });
+
+        const roadsBtn = document.getElementById('roadsToggle');
+        const terrainBtn = document.getElementById('terrainToggle');
+        const setTile = (mode) => {
+            currentTileMode = mode;
+            if (roadsBtn) roadsBtn.classList.toggle('active', mode === 'roads');
+            if (terrainBtn) terrainBtn.classList.toggle('active', mode === 'terrain');
+            if (resultMapInstance) {
+                resultMapInstance.eachLayer(l => {
+                    if (l instanceof L.TileLayer) resultMapInstance.removeLayer(l);
+                });
+                L.tileLayer(mode === 'terrain' ? SAT_URL : ROADS_URL, {
+                    attribution: mode === 'terrain' ? SAT_ATTR : ROADS_ATTR,
+                    maxZoom: 19
+                }).addTo(resultMapInstance);
+            }
+        };
+        if (roadsBtn) roadsBtn.onclick = () => setTile('roads');
+        if (terrainBtn) terrainBtn.onclick = () => setTile('terrain');
+
+        const openGlobe = () => {
+            if (hasCoords) window.open(`https://earth.google.com/web/@${lat},${lng},0a,500d`, '_blank');
+            else showToast('❌ No coordinates.');
+        };
+        const openStreet = () => {
+            if (hasCoords) {
+                showStreetView(lat, lng);
+                const sw = document.getElementById('streetViewSwitch');
+                if (sw) sw.checked = true;
+            } else {
+                showToast('❌ No coordinates.');
+            }
+        };
+        set('globeBtnPane', openGlobe);
+        set('streetBtnPane', openStreet);
+
+        // Single 3D Globe / Street View switch in the data pane. Unchecked =
+        // Globe (opens Google Earth in a new tab), checked = inline Street View.
+        const streetSwitch = document.getElementById('streetViewSwitch');
+        if (streetSwitch) {
+            streetSwitch.checked = false;
+            streetSwitch.onchange = () => {
+                if (streetSwitch.checked) {
+                    if (!hasCoords) {
+                        showToast('❌ No coordinates.');
+                        streetSwitch.checked = false;
+                        return;
+                    }
+                    showStreetView(lat, lng);
+                } else {
+                    DOM.satPane.querySelector('.street-inline')?.remove();
+                }
+            };
+        }
+
+        // Page-level actions
+        set('homeBtn', () => { window.location.href = '/'; });
+        set('reuploadBtn', () => {
+            sessionStorage.removeItem('analysisId');
+            sessionStorage.removeItem('analysisResult');
+            sessionStorage.removeItem('uploadedImage');
+            window.location.href = '/';
+        });
+        set('saveReportBtn', () => exportReport(data, lat, lng));
+        set('shareBtn', async () => {
+            const summary = `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` — ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
+            if (navigator.share) {
+                try {
+                    await navigator.share({ title: 'TraceGeo result', text: summary, url: window.location.href });
+                    return;
+                } catch (e) { /* user cancelled — fall through to copy */ }
+            }
+            navigator.clipboard?.writeText(summary);
+            showToast('📋 Summary copied to clipboard!');
+        });
+
+        // Photo actions
+        set('viewFullSizeBtn', () => {
+            if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
+        });
+        set('fullscreenPhotoBtn', () => {
+            const frame = DOM.photoFrame;
+            if (frame?.requestFullscreen) frame.requestFullscreen();
+            else if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
+        });
+        set('reverseSearchBtn', () => {
+            if (!uploadedImageURL) {
+                showToast('❌ No image to search.');
+                return;
+            }
+            window.open(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(uploadedImageURL)}`, '_blank');
+        });
+        set('openOriginalBtn', () => {
+            if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
+        });
+    }
+
+    function showStreetView(lat, lng) {
+        DOM.satPane.querySelector('.street-inline')?.remove();
+        const wrap = document.createElement('div');
+        wrap.className = 'street-inline';
+        const fullUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
+
+        if (GOOGLE_MAPS_EMBED_KEY) {
+            // Real, photographic Street View — the officially supported embed.
+            // The Maps Embed API is the only reliable way to show an actual
+            // panorama inline: Google blocks the classic maps.google.com page
+            // (and the old undocumented ?output=svembed trick) from loading
+            // inside an iframe on other sites, so those approaches render
+            // blank instead of a real photo, which is what was happening here.
+            const embedSrc = `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
+            wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
-        <iframe src="https://www.google.com/maps/embed?pb=!1m4!1m3!1m0!2d${lng}!3d${lat}!1m3!2m2!1d${lng}!2d${lat}!3e4!5m1!1e4!6m1!1e1" allowfullscreen loading="lazy"></iframe>
-        <button class="street-open-full" id="streetOpenFullBtn"><i class="fas fa-expand"></i> Open Full Street View</button>
-    `;
-    DOM.satPane.appendChild(wrap);
-    document.getElementById('streetBackBtn').onclick = () => wrap.remove();
-    document.getElementById('streetOpenFullBtn').onclick = () => {
-        window.open(`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`, '_blank');
-    };
-}
+        <iframe src="${embedSrc}" allowfullscreen loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+        <button class="street-open-full" id="streetOpenFullBtn"><i class="fas fa-expand"></i> Open Full Street View</button>`;
+        } else {
+            // No API key configured yet — rather than show a blank/broken
+            // iframe, be upfront about it and take the person straight to
+            // the real thing in a new tab. See the GOOGLE_MAPS_EMBED_KEY
+            // comment near the top of this script for the one-line fix:
+            // get a free key at https://console.cloud.google.com/google/maps-apis
+            // (Maps Embed API — no billing required for this specific API)
+            // and pass it in via config('services.google_maps.embed_key').
+            wrap.innerHTML = `
+        <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
+        <div class="street-setup-notice">
+            <i class="fas fa-street-view"></i>
+            <h4>Street View needs one setup step</h4>
+            <p>Inline Street View requires a free Google Maps Embed API key —
+               it isn't configured yet, so it can't show the real panorama here.</p>
+            <button class="street-setup-cta" id="streetOpenRealBtn">
+                <i class="fas fa-up-right-from-square"></i> Open real Street View
+            </button>
+        </div>`;
+        }
 
-function exportReport(data, lat, lng) {
-    const hasCoords = isValidCoord(lat, lng);
-    const report = `
-TRACEGEO OSINT INTELLIGENCE REPORT
+        DOM.satPane.appendChild(wrap);
+        document.getElementById('streetBackBtn').onclick = () => {
+            wrap.remove();
+            const sw = document.getElementById('streetViewSwitch');
+            if (sw) sw.checked = false;
+        };
+        document.getElementById('streetOpenFullBtn')?.addEventListener('click', () => window.open(fullUrl, '_blank'));
+        document.getElementById('streetOpenRealBtn')?.addEventListener('click', () => window.open(fullUrl, '_blank'));
+    }
+
+    function exportReport(data, lat, lng) {
+        const hasCoords = isValidCoord(lat, lng);
+        const text = `TRACEGEO OSINT INTELLIGENCE REPORT
 ============================================
 Generated: ${new Date().toISOString()}
-Platform: TraceGeo OSINT v2.0
 
-LOCATION INFORMATION
+LOCATION
 --------------------------------------------
-Location: ${data.landmark_name || 'Unknown'}
+Name:        ${data.landmark_name || 'Unknown'}
 Coordinates: ${hasCoords ? `${lat.toFixed(6)}, ${lng.toFixed(6)}` : 'N/A'}
-Confidence: ${data.confidence || 0}%
-Country: ${data.country || 'N/A'}
-City: ${data.city || 'N/A'}
-Region: ${data.region || 'N/A'}
+Confidence:  ${data.confidence || 0}%
+Country:     ${data.country || 'N/A'}
+Region:      ${data.region || 'N/A'}
 
-ANALYSIS DETAILS
+TAGS
 --------------------------------------------
-Description: ${data.description || 'N/A'}
-Tags: ${(data.tags || []).join(', ')}
-Historical Context: ${data.historical_context || 'N/A'}
+${(data.tags||[]).join(', ')}
 
 AI REASONING
 --------------------------------------------
 ${data.reasoning || 'No reasoning available.'}
 
 ============================================
-Report generated by TraceGeo OSINT Intelligence
-    `.trim();
-
-    const blob = new Blob([report], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `TraceGeo_OSINT_Report_${data.landmark_name || 'Location'}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('📄 OSINT Report exported!');
-}
-
-// ========== INIT ==========
-// Check if we have an analysis ID from homepage
-const analysisId = sessionStorage.getItem('analysisId');
-
-// Also check for stored image
-const storedImage = sessionStorage.getItem('uploadedImage');
-
-if (analysisId) {
-    // Auto-start analysis
-    setTimeout(() => {
-        startAnalysis(analysisId);
-    }, 500);
-} else {
-    // Check if we have direct analysis data in session
-    const storedResult = sessionStorage.getItem('analysisResult');
-    if (storedResult) {
-        try {
-            const data = JSON.parse(storedResult);
-            showToast('📸 Using stored analysis data...');
-            setTimeout(() => {
-                analysisData = data;
-                runEarthZoomThenShowResults(analysisData);
-            }, 500);
-        } catch(e) {
-            fallbackToDemo();
-        }
-    } else {
-        fallbackToDemo();
+TraceGeo OSINT Intelligence`;
+        const blob = new Blob([text], {
+            type: 'text/plain'
+        });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `TraceGeo_${data.landmark_name || 'Report'}.txt`;
+        a.click();
+        showToast('📄 Report exported!');
     }
-}
 
-function fallbackToDemo() {
-    showToast('⚠️ No analysis found. Using demo data.');
-    setTimeout(() => {
-        analysisData = getSimulatedData();
-        runEarthZoomThenShowResults(analysisData);
-    }, 500);
-}
+    // ========== ENTRY POINT ==========
+    function startAnalysis(analysisId, imageUrl) {
+        currentAnalysisId = analysisId;
+        uploadedImageURL = imageUrl;
+        pollAttempts = 0;
+        startTime = Date.now();
+        analysisComplete = false;
+        isExploring = false;
 
-// Clean up session storage after use
-window.addEventListener('beforeunload', function() {
-    // Don't clear immediately - allow refresh
-});
+        if (DOM.progressCard) DOM.progressCard.style.display = 'block';
+        if (DOM.pcError) DOM.pcError.style.display = 'none';
+        if (DOM.resultsSplit) DOM.resultsSplit.classList.remove('show');
+        if (DOM.statusDot) {
+            DOM.statusDot.style.background = 'var(--warning)';
+            DOM.statusDot.style.boxShadow = '0 0 20px var(--warning)';
+        }
 
-let resizeTimeout;
-window.addEventListener('resize', () => {
-    clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(() => {
-        if (resultMapInstance) resultMapInstance?.invalidateSize();
-        if (earthMapInstance) earthMapInstance?.invalidateSize();
-    }, 200);
-});
+        showToast('🔍 Analysis in progress…');
+        updateProgressCard(0, 5, 'Starting analysis…');
 
-console.log('✅ TraceGeo Analysis Engine loaded.');
-console.log('📸 Auto-analyzing image from homepage...');
-console.log('🔍 Analysis ID:', analysisId || 'Using demo data');
-</script>
+        if (elapsedInterval) clearInterval(elapsedInterval);
+        elapsedInterval = setInterval(() => {
+            if (!startTime) return;
+            renderSub(lastProgress);
+        }, 200);
+
+        // Init starfield first (for globe mode)
+        initStarfield();
+
+        // Start flat map showing a random global location
+        const startPt = GLOBAL_WAYPOINTS[Math.floor(Math.random() * GLOBAL_WAYPOINTS.length)];
+        initEarthMap([startPt.lat, startPt.lng], 3);
+
+        if (DOM.mapStatusText) DOM.mapStatusText.textContent = '🌍 Initializing OSINT Engine...';
+
+        pollStatus();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const analysisId = sessionStorage.getItem('analysisId');
+        const uploadedImage = sessionStorage.getItem('uploadedImage');
+
+        if (analysisId) {
+            startAnalysis(analysisId, uploadedImage);
+        } else {
+            // Idle state — show globe
+            initStarfield();
+            showGlobeMode('🌍 Ready for analysis');
+            if (DOM.statusDot) DOM.statusDot.style.background = 'var(--success)';
+            showToast('🌍 OSINT Engine ready');
+        }
+    });
+
+    // Resize handlers
+    let resizeTmr;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTmr);
+        resizeTmr = setTimeout(() => {
+            resultMapInstance?.invalidateSize();
+            earthMapInstance?.invalidateSize();
+        }, 200);
+    });
+
+    // ESC to cancel
+    document.addEventListener('keydown', e => {
+        if (e.key !== 'Escape') return;
+        if (pollTimer) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+        if (elapsedInterval) {
+            clearInterval(elapsedInterval);
+            elapsedInterval = null;
+        }
+        clearSession();
+        stopStarfield();
+        if (DOM.progressCard) DOM.progressCard.style.display = 'none';
+        if (DOM.statusDot) {
+            DOM.statusDot.style.background = 'var(--success)';
+            DOM.statusDot.style.boxShadow = '0 0 20px var(--success)';
+        }
+        showToast('⏹️ Analysis cancelled');
+        analysisComplete = false;
+        isExploring = false;
+    });
+
+    console.log('✅ TraceGeo loaded — storyboard-accurate sequence active');
+    console.log('🗺️  Flat map ↔ 3D starfield globe alternation enabled');
+    console.log('⌨️  Press ESC to cancel.');
+    </script>
 </body>
+
 </html>

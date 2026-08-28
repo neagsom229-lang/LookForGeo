@@ -64,6 +64,9 @@ return [
         'maps_key' => env('GOOGLE_MAPS_KEY'),
         'places_key' => env('GOOGLE_MAPS_KEY'),
     ],
+    'google_maps' => [
+    'embed_key' => env('GOOGLE_MAPS_EMBED_KEY'),
+],
 
     /*
     |--------------------------------------------------------------------------

@@ -143,4 +143,87 @@ class GeoAnalysisController extends Controller
             'street_view_url' => "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint={$lat},{$lng}",
         ]);
     }
+    /**
+ * New async entry point: uploads to Cloudinary, creates a GeoAnalysis
+ * row, dispatches the background job, and returns immediately.
+ */
+public function store(Request $request)
+{
+    if (!auth()->check()) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Please login to upload images.'
+        ], 401);
+    }
+
+    $request->validate([
+        'image' => 'required|file|mimes:jpeg,png,jpg,gif,webp|max:20480',
+    ]);
+
+    try {
+        $file = $request->file('image');
+        $filename = time() . '_' . $file->getClientOriginalName();
+
+        Configuration::instance([
+            'cloud' => [
+                'cloud_name' => 'hyv3laps',
+                'api_key'    => '189951824121921',
+                'api_secret' => env('CLOUDINARY_API_SECRET'),
+            ],
+            'url' => ['secure' => true],
+        ]);
+
+        $uploadApi = new UploadApi();
+        $result = $uploadApi->upload($file->getRealPath(), [
+            'folder' => 'tracegeo/analyses',
+            'public_id' => pathinfo($filename, PATHINFO_FILENAME),
+        ]);
+
+        $imageUrl = $result['secure_url'];
+
+        $analysis = GeoAnalysis::create([
+            'status'    => 'processing',
+            'stage'     => 0,
+            'stage_label' => 'Input',
+            'progress'  => 0,
+            'image_url' => $imageUrl,
+        ]);
+
+        AnalyzeImageJob::dispatch($analysis->id);
+
+        return response()->json([
+            'success' => true,
+            'id' => $analysis->id,
+        ]);
+
+    } catch (\Exception $e) {
+        \Log::error('Analysis store error: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Error starting analysis: ' . $e->getMessage()
+        ], 500);
+    }
+}
+
+/**
+ * Polled by the frontend every 700ms. Reports real job progress.
+ */
+public function status($id)
+{
+    $analysis = GeoAnalysis::find($id);
+
+    if (!$analysis) {
+        return response()->json(['success' => false, 'message' => 'Not found'], 404);
+    }
+
+    return response()->json([
+        'status'      => $analysis->status,
+        'stage'       => $analysis->stage,
+        'stage_label' => $analysis->stage_label,
+        'progress'    => $analysis->progress,
+        'elapsed'     => $analysis->elapsedSeconds(),
+        'result'      => $analysis->result,
+        'error'       => $analysis->error,
+    ]);
+}
 }

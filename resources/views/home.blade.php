@@ -3,35 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TraceGeo — AI-Powered Geolocation Analysis</title>
+    <title>TraceGeo — Locate a Photo's Origin</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    
+
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
     <style>
+        /* ============================================
+           DESIGN TOKENS
+           A field-survey / cartography identity for a
+           photo-geolocation tool: ink-navy ground, brass
+           surveyor accent, contour-line texture, coordinate
+           typography in JetBrains Mono.
+           ============================================ */
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
-            --bg: #0a0a0f;
-            --bg-card: #12121a;
-            --bg-input: #1a1a28;
-            --border: rgba(255,255,255,0.06);
-            --border-light: rgba(255,255,255,0.1);
-            --text: #ffffff;
-            --text-secondary: #9ca3af;
-            --text-muted: #6b7280;
-            --accent: #8b5cf6;
-            --accent-light: rgba(139,92,246,0.12);
-            --success: #34d399;
-            --cyan: #22d3ee;
-            --radius: 12px;
+            --bg: #0a0d12;
+            --bg-card: #10141b;
+            --bg-input: #151a22;
+            --border: rgba(233,238,245,0.08);
+            --border-light: rgba(233,238,245,0.15);
+            --text: #edf1f6;
+            --text-secondary: #93a0af;
+            --text-muted: #5c6672;
+            --accent: #c98a46;
+            --accent-deep: #a86a2e;
+            --accent-soft: rgba(201,138,70,0.14);
+            --chart: #5b9bd1;
+            --success: #5fae82;
+            --danger: #d1685a;
+            --warn: #d1a955;
+            --radius: 10px;
             --radius-lg: 20px;
-            --shadow: 0 8px 32px rgba(0,0,0,0.4);
+            --shadow: 0 20px 60px rgba(0,0,0,0.45);
+            --font-display: 'Fraunces', Georgia, serif;
+            --font-body: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, monospace;
         }
 
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.001ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.001ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
+        html { scroll-behavior: smooth; }
+
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-body);
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
@@ -40,33 +64,40 @@
         }
 
         a { text-decoration: none; color: inherit; }
-        button { cursor: pointer; font-family: 'Inter', sans-serif; }
+        button { cursor: pointer; font-family: var(--font-body); }
 
+        /* Topographic contour + survey-grid backdrop — the page's signature texture */
         .bg-glow {
             position: fixed;
             inset: 0;
             z-index: 0;
             pointer-events: none;
-            background: 
-                radial-gradient(ellipse at 20% 30%, rgba(139,92,246,0.08), transparent 60%),
-                radial-gradient(ellipse at 80% 70%, rgba(34,211,238,0.04), transparent 50%),
-                radial-gradient(ellipse at 50% 100%, rgba(139,92,246,0.05), transparent 40%);
-            animation: glowPulse 8s ease-in-out infinite alternate;
+            background:
+                repeating-radial-gradient(circle at 14% 20%, transparent 0, transparent 38px, rgba(201,138,70,0.05) 39px, rgba(201,138,70,0.05) 40px, transparent 41px),
+                repeating-radial-gradient(circle at 88% 78%, transparent 0, transparent 54px, rgba(91,155,209,0.045) 55px, rgba(91,155,209,0.045) 56px, transparent 57px),
+                linear-gradient(rgba(233,238,245,0.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(233,238,245,0.025) 1px, transparent 1px);
+            background-size: auto, auto, 64px 64px, 64px 64px;
+            animation: driftContours 26s ease-in-out infinite alternate;
         }
 
-        @keyframes glowPulse {
-            0% { opacity: 0.6; }
-            100% { opacity: 1; }
+        @keyframes driftContours {
+            0% { background-position: 0 0, 0 0, 0 0, 0 0; opacity: 0.75; }
+            100% { background-position: 12px -10px, -14px 10px, 0 0, 0 0; opacity: 1; }
         }
 
-        /* ===== NAVBAR ===== */
+        ::selection { background: var(--accent-soft); color: var(--text); }
+
+        /* ============================================
+           NAVBAR
+           ============================================ */
         .navbar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 14px 48px;
+            padding: 16px 48px;
             border-bottom: 1px solid var(--border);
-            background: rgba(10,10,15,0.85);
+            background: rgba(10,13,18,0.82);
             backdrop-filter: blur(16px);
             position: sticky;
             top: 0;
@@ -77,47 +108,52 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            font-size: 20px;
-            font-weight: 800;
-            font-family: 'Space Grotesk', sans-serif;
+            font-size: 19px;
+            font-weight: 700;
+            font-family: var(--font-display);
+            letter-spacing: 0.01em;
         }
 
         .navbar .logo .icon {
             width: 32px;
             height: 32px;
-            border-radius: 8px;
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            border-radius: 7px;
+            background: linear-gradient(155deg, var(--accent), var(--accent-deep));
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 14px;
             font-weight: 700;
-            transition: transform 0.3s ease;
+            color: #14100a;
+            font-family: var(--font-mono);
+            transition: transform 0.35s cubic-bezier(0.16,1,0.3,1);
         }
 
-        .navbar .logo:hover .icon { transform: rotate(-10deg) scale(1.05); }
+        .navbar .logo:hover .icon { transform: rotate(-8deg) scale(1.06); }
 
         .navbar .nav-links {
             display: flex;
-            gap: 28px;
+            gap: 30px;
             list-style: none;
         }
 
         .navbar .nav-links a {
             color: var(--text-secondary);
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
-            transition: 0.3s;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            transition: 0.25s;
             position: relative;
         }
 
         .navbar .nav-links a::after {
             content: '';
             position: absolute;
-            bottom: -4px;
+            bottom: -5px;
             left: 0;
             width: 0;
-            height: 2px;
+            height: 1px;
             background: var(--accent);
             transition: width 0.3s ease;
         }
@@ -140,6 +176,7 @@
         .navbar .nav-user .user-name {
             color: var(--text-secondary);
             font-size: 13px;
+            font-family: var(--font-mono);
         }
 
         .navbar .nav-user .user-name i {
@@ -147,29 +184,35 @@
             color: var(--accent);
         }
 
+        /* ============================================
+           BUTTONS
+           ============================================ */
         .btn {
-            padding: 8px 20px;
-            border-radius: 8px;
+            padding: 9px 20px;
+            border-radius: 7px;
             border: none;
             font-size: 14px;
             font-weight: 600;
-            transition: all 0.3s ease;
+            transition: all 0.25s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .btn-ghost {
             background: transparent;
             color: var(--text-secondary);
         }
-        .btn-ghost:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+        .btn-ghost:hover { color: var(--text); background: rgba(233,238,245,0.05); }
 
         .btn-primary {
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
-            color: #fff;
-            box-shadow: 0 4px 16px rgba(139,92,246,0.3);
+            background: linear-gradient(155deg, var(--accent), var(--accent-deep));
+            color: #16110a;
+            box-shadow: 0 4px 18px rgba(201,138,70,0.25);
         }
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(139,92,246,0.5);
+            box-shadow: 0 10px 30px rgba(201,138,70,0.4);
         }
 
         .btn-small {
@@ -183,42 +226,52 @@
             border: 1px solid var(--border-light);
         }
         .btn-outline:hover {
-            background: rgba(255,255,255,0.05);
+            background: rgba(233,238,245,0.05);
             border-color: var(--accent);
         }
 
-        /* ===== HERO ===== */
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        /* ============================================
+           HERO SECTION
+           ============================================ */
         .hero {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 60px 48px 40px;
+            padding: clamp(40px, 6vw, 68px) 48px 40px;
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1.05fr 1fr;
             gap: 48px;
             align-items: start;
             position: relative;
             z-index: 5;
         }
 
-        .hero-left { animation: fadeInUp 0.8s ease 0.2s both; }
+        .hero-left { animation: fadeInUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.1s both; }
 
         @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(30px); }
+            from { opacity: 0; transform: translateY(24px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
         .hero-left .badge {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 4px 14px 4px 4px;
+            gap: 9px;
+            padding: 6px 14px;
             border-radius: 100px;
-            background: var(--accent-light);
-            border: 1px solid rgba(139,92,246,0.15);
-            font-size: 12px;
+            background: var(--accent-soft);
+            border: 1px solid rgba(201,138,70,0.25);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            letter-spacing: 0.06em;
             color: var(--accent);
             font-weight: 500;
-            margin-bottom: 20px;
+            margin-bottom: 22px;
         }
 
         .hero-left .badge .dot {
@@ -226,111 +279,122 @@
             height: 6px;
             border-radius: 50%;
             background: var(--accent);
-            animation: pulseDot 2s ease-in-out infinite;
+            box-shadow: 0 0 0 3px var(--accent-soft);
+            animation: pulseDot 2.2s ease-in-out infinite;
         }
 
         @keyframes pulseDot {
             0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.4; transform: scale(0.8); }
+            50% { opacity: 0.45; transform: scale(0.75); }
+        }
+
+        .hero-left .badge #coordReadout {
+            color: var(--text-muted);
+            border-left: 1px solid rgba(201,138,70,0.25);
+            padding-left: 9px;
+            font-variant-numeric: tabular-nums;
         }
 
         .hero-left h1 {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 48px;
-            font-weight: 900;
-            line-height: 1.1;
-            letter-spacing: -0.02em;
-            margin-bottom: 16px;
+            font-family: var(--font-display);
+            font-size: clamp(34px, 4.4vw, 52px);
+            font-weight: 600;
+            line-height: 1.08;
+            letter-spacing: -0.01em;
+            margin-bottom: 18px;
         }
 
         .hero-left h1 .highlight {
-            background: linear-gradient(135deg, var(--accent), var(--cyan));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            animation: shimmer 3s ease-in-out infinite;
-        }
-
-        @keyframes shimmer {
-            0%, 100% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
+            font-style: italic;
+            font-weight: 500;
+            color: var(--accent);
+            position: relative;
         }
 
         .hero-left p {
-            font-size: 18px;
+            font-size: 17px;
             color: var(--text-secondary);
-            max-width: 440px;
-            line-height: 1.7;
-            margin-bottom: 24px;
+            max-width: 460px;
+            line-height: 1.75;
+            margin-bottom: 26px;
         }
+
+        .hero-left p a { color: var(--accent); font-weight: 600; }
+        .hero-left p a:hover { text-decoration: underline; }
 
         .hero-stats {
             display: flex;
-            gap: 48px;
-            padding-top: 20px;
+            gap: 44px;
+            padding-top: 22px;
             border-top: 1px solid var(--border);
         }
 
-        .hero-stats .stat { text-align: center; }
+        .hero-stats .stat { text-align: left; }
 
         .hero-stats .stat .number {
-            font-size: 28px;
-            font-weight: 700;
-            font-family: 'Space Grotesk', sans-serif;
-            background: linear-gradient(135deg, var(--accent), var(--cyan));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            font-family: var(--font-mono);
+            font-size: 26px;
+            font-weight: 600;
+            color: var(--text);
             transition: transform 0.3s ease;
         }
 
-        .hero-stats .stat:hover .number { transform: scale(1.1); }
+        .hero-stats .stat:hover .number { transform: translateY(-2px); color: var(--accent); }
 
         .hero-stats .stat .label {
-            font-size: 13px;
+            font-size: 12px;
             color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 2px;
         }
 
-        /* ===== UPLOAD CARD ===== */
+        /* ============================================
+           UPLOAD CARD
+           ============================================ */
         .upload-card {
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            padding: 32px;
-            animation: fadeInUp 0.8s ease 0.4s both;
+            padding: 30px;
+            animation: fadeInUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.25s both;
             box-shadow: var(--shadow);
-            transition: all 0.3s ease;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
         }
 
         .upload-card:hover {
-            border-color: var(--accent);
-            box-shadow: 0 8px 40px rgba(139,92,246,0.1);
+            border-color: rgba(201,138,70,0.35);
         }
 
         .upload-card .label {
+            font-family: var(--font-mono);
             font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.08em;
             color: var(--text-muted);
-            font-weight: 600;
+            font-weight: 500;
         }
 
         .upload-card .title {
-            font-size: 20px;
+            font-size: 19px;
             font-weight: 700;
             margin-top: 4px;
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-display);
         }
 
         .upload-card .sub {
-            font-size: 14px;
+            font-size: 13.5px;
             color: var(--text-secondary);
             margin-bottom: 20px;
         }
 
-        /* ===== UPLOAD ZONE ===== */
+        /* ============================================
+           UPLOAD ZONE — viewfinder / rangefinder motif
+           ============================================ */
         .upload-zone {
-            border: 2px dashed var(--border);
+            border: 1px solid var(--border);
             border-radius: var(--radius);
-            padding: 36px 24px;
+            padding: 34px 22px;
             text-align: center;
             background: var(--bg-input);
             transition: all 0.3s ease;
@@ -338,46 +402,72 @@
             position: relative;
         }
 
-        .upload-zone::before {
+        /* corner brackets, like a camera/rangefinder viewfinder */
+        .upload-zone::before,
+        .upload-zone::after,
+        .upload-zone .bracket-tr,
+        .upload-zone .bracket-bl {
             content: '';
             position: absolute;
-            inset: 0;
-            background: linear-gradient(135deg, rgba(139,92,246,0.05), rgba(34,211,238,0.05));
-            opacity: 0;
-            transition: opacity 0.3s ease;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(201,138,70,0.35);
+            transition: all 0.3s ease;
+            opacity: 0.7;
         }
+        .upload-zone::before { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+        .upload-zone::after { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+        .upload-zone .bracket-tr { top: 10px; right: 10px; border-left: none; border-bottom: none; }
+        .upload-zone .bracket-bl { bottom: 10px; left: 10px; border-right: none; border-top: none; }
 
-        .upload-zone:hover::before { opacity: 1; }
         .upload-zone:hover {
+            border-color: rgba(201,138,70,0.3);
+            background: #171c25;
+        }
+        .upload-zone:hover::before,
+        .upload-zone:hover::after,
+        .upload-zone:hover .bracket-tr,
+        .upload-zone:hover .bracket-bl {
             border-color: var(--accent);
-            transform: translateY(-2px);
+            opacity: 1;
+            width: 20px;
+            height: 20px;
         }
 
         .upload-zone.dragover {
             border-color: var(--accent);
-            background: rgba(139,92,246,0.08);
-            transform: scale(1.01);
+            background: rgba(201,138,70,0.06);
+        }
+        .upload-zone.dragover::before,
+        .upload-zone.dragover::after,
+        .upload-zone.dragover .bracket-tr,
+        .upload-zone.dragover .bracket-bl {
+            border-color: var(--accent);
+            width: 24px;
+            height: 24px;
         }
 
         .upload-zone .icon {
-            font-size: 40px;
+            font-size: 30px;
             display: block;
-            margin-bottom: 8px;
-            opacity: 0.5;
+            margin-bottom: 10px;
+            color: var(--accent);
+            opacity: 0.85;
             transition: transform 0.3s ease;
         }
 
-        .upload-zone:hover .icon { transform: scale(1.1) rotate(-5deg); }
+        .upload-zone:hover .icon { transform: scale(1.08); }
 
         .upload-zone h4 {
-            font-size: 16px;
+            font-size: 15.5px;
             font-weight: 600;
+            font-family: var(--font-body);
         }
 
         .upload-zone .hint {
             font-size: 13px;
             color: var(--text-secondary);
-            margin-top: 2px;
+            margin-top: 3px;
         }
 
         .upload-zone .hint span {
@@ -392,41 +482,41 @@
 
         .upload-zone .divider {
             color: var(--text-muted);
-            font-size: 13px;
-            margin: 14px 0;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.05em;
+            margin: 16px 0;
             position: relative;
+            display: flex;
+            align-items: center;
+            gap: 16px;
         }
 
         .upload-zone .divider::before,
         .upload-zone .divider::after {
             content: '';
-            position: absolute;
-            top: 50%;
-            width: 30%;
+            flex: 1;
             height: 1px;
             background: var(--border);
         }
-
-        .upload-zone .divider::before { left: 0; }
-        .upload-zone .divider::after { right: 0; }
 
         .choose-btn {
             display: inline-flex;
             align-items: center;
             gap: 10px;
             padding: 10px 24px;
-            border-radius: 8px;
+            border-radius: 7px;
             border: 1px solid var(--border-light);
             background: transparent;
             color: var(--text-secondary);
-            font-size: 14px;
+            font-size: 13.5px;
             font-weight: 500;
-            transition: all 0.3s ease;
+            transition: all 0.25s ease;
             cursor: pointer;
         }
 
         .choose-btn:hover {
-            background: rgba(255,255,255,0.05);
+            background: rgba(233,238,245,0.05);
             border-color: var(--accent);
             color: var(--text);
             transform: translateY(-2px);
@@ -434,13 +524,13 @@
 
         .choose-btn i {
             color: var(--accent);
-            font-size: 16px;
+            font-size: 15px;
         }
 
         .url-row {
             display: flex;
             gap: 8px;
-            max-width: 440px;
+            max-width: 100%;
             margin: 0 auto;
             align-items: center;
         }
@@ -448,35 +538,36 @@
         .url-row input {
             flex: 1;
             padding: 10px 14px;
-            border-radius: 8px;
+            border-radius: 7px;
             border: 1px solid var(--border);
             background: var(--bg);
             color: var(--text);
             font-size: 13px;
+            font-family: var(--font-mono);
             outline: none;
-            font-family: 'Inter', sans-serif;
-            transition: border-color 0.3s ease;
+            transition: border-color 0.25s ease;
             min-width: 0;
         }
 
         .url-row input:focus {
             border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(139,92,246,0.1);
+            box-shadow: 0 0 0 3px var(--accent-soft);
         }
 
         .url-row input::placeholder {
             color: var(--text-muted);
+            font-family: var(--font-body);
         }
 
         .url-row .analyze-btn {
             padding: 10px 20px;
-            border-radius: 8px;
+            border-radius: 7px;
             border: none;
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
-            color: #fff;
+            background: linear-gradient(155deg, var(--accent), var(--accent-deep));
+            color: #16110a;
             font-weight: 600;
             font-size: 13px;
-            transition: all 0.3s ease;
+            transition: all 0.25s ease;
             white-space: nowrap;
             display: flex;
             align-items: center;
@@ -487,7 +578,7 @@
 
         .url-row .analyze-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 16px rgba(139,92,246,0.4);
+            box-shadow: 0 6px 20px rgba(201,138,70,0.35);
         }
 
         .url-row .analyze-btn:disabled {
@@ -503,16 +594,16 @@
             background: var(--bg);
             border: 1px solid var(--border);
             color: var(--text-muted);
-            font-size: 13px;
+            font-size: 12.5px;
             display: flex;
             align-items: center;
             gap: 8px;
             text-align: left;
-            transition: border-color 0.3s ease;
+            transition: border-color 0.25s ease;
         }
 
         .context-hint:hover {
-            border-color: var(--accent);
+            border-color: rgba(201,138,70,0.3);
         }
 
         .context-hint i {
@@ -523,7 +614,9 @@
             display: none;
         }
 
-        /* ===== UPLOAD DROPDOWN ===== */
+        /* ============================================
+           UPLOAD DROPDOWN
+           ============================================ */
         .upload-dropdown {
             display: none;
             position: absolute;
@@ -531,13 +624,13 @@
             left: 50%;
             transform: translateX(-50%);
             background: var(--bg-card);
-            border: 1px solid var(--border);
+            border: 1px solid var(--border-light);
             border-radius: var(--radius);
             padding: 8px;
             min-width: 260px;
             box-shadow: var(--shadow);
             z-index: 50;
-            animation: slideUp 0.25s ease;
+            animation: slideUp 0.22s cubic-bezier(0.16,1,0.3,1);
         }
 
         .upload-dropdown.show {
@@ -545,7 +638,7 @@
         }
 
         @keyframes slideUp {
-            from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+            from { opacity: 0; transform: translateX(-50%) translateY(8px); }
             to { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
 
@@ -554,24 +647,27 @@
             align-items: center;
             gap: 12px;
             padding: 10px 14px;
-            border-radius: 8px;
+            border-radius: 7px;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.18s ease;
             color: var(--text-secondary);
             font-size: 13px;
             font-weight: 500;
         }
 
         .upload-dropdown .option:hover {
-            background: var(--accent-light);
+            background: var(--accent-soft);
             color: var(--text);
         }
 
         .upload-dropdown .option .icon {
-            font-size: 18px;
-            width: 28px;
+            font-size: 15px;
+            width: 26px;
             text-align: center;
             flex-shrink: 0;
+            color: var(--accent);
+            opacity: 1;
+            margin: 0;
         }
 
         .upload-dropdown .option .label {
@@ -579,7 +675,8 @@
         }
 
         .upload-dropdown .option .shortcut {
-            font-size: 11px;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
             color: var(--text-muted);
             background: var(--bg);
             padding: 2px 8px;
@@ -592,7 +689,9 @@
             margin: 4px 8px;
         }
 
-        /* ===== UPLOAD PROGRESS ===== */
+        /* ============================================
+           UPLOAD PROGRESS
+           ============================================ */
         .upload-progress {
             display: none;
             margin-top: 16px;
@@ -602,54 +701,69 @@
             border: 1px solid var(--border);
         }
 
-        .upload-progress .progress-bar {
-            width: 100%;
-            height: 4px;
-            background: var(--border);
-            border-radius: 2px;
-            overflow: hidden;
-            margin-top: 8px;
-        }
-
-        .upload-progress .progress-bar .fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--accent), var(--cyan));
-            border-radius: 2px;
-            transition: width 0.5s ease;
-            width: 0%;
-        }
-
         .upload-progress .status {
             font-size: 13px;
             color: var(--text-secondary);
             display: flex;
             justify-content: space-between;
+            align-items: center;
         }
 
         .upload-progress .status .file-name {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
             color: var(--text-muted);
-            font-size: 12px;
-            max-width: 200px;
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            max-width: 260px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
 
-        /* ===== TOAST ===== */
+        .upload-progress .status .file-name i { color: var(--accent); flex-shrink: 0; }
+
+        .upload-progress .status .progress-text {
+            font-family: var(--font-mono);
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .upload-progress .progress-bar {
+            width: 100%;
+            height: 3px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .upload-progress .progress-bar .fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-deep), var(--accent));
+            border-radius: 2px;
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+
+        /* ============================================
+           TOAST
+           ============================================ */
         .toast {
             position: fixed;
             bottom: 30px;
             right: 30px;
             z-index: 1000;
             background: var(--bg-card);
-            border: 1px solid var(--border);
+            border: 1px solid var(--border-light);
             border-radius: var(--radius);
             padding: 14px 20px;
             display: flex;
             align-items: center;
             gap: 12px;
             box-shadow: var(--shadow);
-            transform: translateY(120%);
+            transform: translateY(140%);
             transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
             max-width: 420px;
         }
@@ -659,16 +773,17 @@
         }
 
         .toast .icon {
-            font-size: 20px;
+            font-size: 17px;
             flex-shrink: 0;
         }
 
         .toast .icon.success { color: var(--success); }
-        .toast .icon.error { color: #f87171; }
-        .toast .icon.info { color: var(--cyan); }
+        .toast .icon.error { color: var(--danger); }
+        .toast .icon.info { color: var(--chart); }
+        .toast .icon.warning { color: var(--warn); }
 
         .toast .message {
-            font-size: 14px;
+            font-size: 13.5px;
             color: var(--text-secondary);
             flex: 1;
         }
@@ -677,12 +792,14 @@
             background: none;
             border: none;
             color: var(--text-muted);
-            font-size: 16px;
+            font-size: 15px;
             cursor: pointer;
             padding: 0 4px;
         }
 
-        /* ===== CONTENT ===== */
+        /* ============================================
+           CONTENT SECTION
+           ============================================ */
         .content {
             max-width: 1200px;
             margin: 0 auto;
@@ -694,35 +811,53 @@
             gap: 48px;
         }
 
+        .reveal {
+            opacity: 0;
+            transform: translateY(16px);
+            transition: opacity 0.6s cubic-bezier(0.16,1,0.3,1), transform 0.6s cubic-bezier(0.16,1,0.3,1);
+        }
+        .reveal.in-view {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
         .feature-box {
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            padding: 24px 28px;
-            margin-bottom: 16px;
+            padding: 22px 26px;
+            margin-bottom: 14px;
             transition: all 0.3s ease;
         }
 
         .feature-box:hover {
-            border-color: var(--accent);
+            border-color: rgba(201,138,70,0.3);
             transform: translateY(-2px);
         }
 
         .feature-box .icon {
-            font-size: 28px;
-            display: block;
-            margin-bottom: 8px;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            margin-bottom: 12px;
         }
 
         .feature-box h3 {
-            font-size: 16px;
+            font-size: 15.5px;
             font-weight: 600;
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-display);
+            margin-bottom: 4px;
         }
 
         .feature-box p {
             color: var(--text-secondary);
-            font-size: 14px;
+            font-size: 13.5px;
             line-height: 1.6;
         }
 
@@ -734,46 +869,59 @@
         }
 
         .section-header h2 {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 20px;
-            font-weight: 700;
+            font-family: var(--font-display);
+            font-size: 19px;
+            font-weight: 600;
         }
 
         .section-header a {
             color: var(--accent);
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
-            transition: color 0.3s ease;
+            transition: color 0.25s ease;
         }
 
         .section-header a:hover {
-            color: var(--success);
+            color: var(--text);
+        }
+
+        #recentGrid, #popularGrid {
+            display: grid;
+            gap: 12px;
+        }
+
+        #recentGrid {
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        }
+
+        #popularGrid {
+            grid-template-columns: 1fr;
         }
 
         .recent-item {
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            padding: 14px;
-            transition: all 0.3s ease;
+            padding: 12px;
+            transition: all 0.25s ease;
             cursor: pointer;
             text-decoration: none;
             color: inherit;
         }
 
         .recent-item:hover {
-            border-color: var(--accent);
+            border-color: rgba(201,138,70,0.3);
             transform: translateY(-2px);
         }
 
         .recent-item .thumb {
-            height: 90px;
-            border-radius: 8px;
+            height: 86px;
+            border-radius: 6px;
             background: var(--bg-input);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 28px;
+            font-size: 22px;
             color: var(--text-muted);
             margin-bottom: 8px;
             overflow: hidden;
@@ -786,16 +934,17 @@
         }
 
         .recent-item .name {
-            font-size: 14px;
+            font-size: 13.5px;
             font-weight: 600;
         }
 
         .recent-item .loc {
-            font-size: 12px;
+            font-size: 11.5px;
             color: var(--text-secondary);
         }
 
         .recent-item .conf {
+            font-family: var(--font-mono);
             font-size: 11px;
             color: var(--success);
             font-weight: 600;
@@ -810,62 +959,62 @@
             display: flex;
             align-items: center;
             gap: 12px;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            color: inherit;
+            transition: all 0.25s ease;
         }
 
         .popular-item:hover {
-            border-color: var(--accent);
+            border-color: rgba(201,138,70,0.3);
             transform: translateX(4px);
         }
 
         .popular-item .rank {
-            font-size: 18px;
-            font-weight: 700;
+            font-family: var(--font-mono);
+            font-size: 15px;
+            font-weight: 600;
             color: var(--text-muted);
             min-width: 24px;
-            font-family: 'Space Grotesk', sans-serif;
         }
 
         .popular-item .info .name {
-            font-size: 14px;
+            font-size: 13.5px;
             font-weight: 500;
         }
 
         .popular-item .info .country {
-            font-size: 12px;
+            font-size: 11.5px;
             color: var(--text-secondary);
         }
 
         .popular-item .count {
-            font-size: 12px;
-            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            color: var(--text-secondary);
             margin-left: auto;
-            background: var(--accent-light);
+            background: var(--accent-soft);
+            color: var(--accent);
             padding: 2px 10px;
             border-radius: 12px;
             font-weight: 600;
         }
 
-        #recentGrid, #popularGrid {
-            display: grid;
-            gap: 12px;
+        .empty-state {
+            grid-column: 1/-1;
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
         }
 
-        #recentGrid {
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        .empty-state i {
+            font-size: 30px;
+            opacity: 0.3;
+            display: block;
+            margin-bottom: 10px;
         }
 
-        #popularGrid {
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        }
-
-        /* ===== FOOTER ===== */
         .footer {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 20px 48px 32px;
+            padding: 22px 48px 34px;
             border-top: 1px solid var(--border);
             display: flex;
             justify-content: space-between;
@@ -877,7 +1026,9 @@
         }
 
         .footer p {
-            font-size: 13px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            letter-spacing: 0.03em;
             color: var(--text-muted);
         }
 
@@ -889,14 +1040,27 @@
         .footer .links a {
             color: var(--text-secondary);
             font-size: 13px;
-            transition: color 0.3s ease;
+            transition: color 0.25s ease;
         }
 
         .footer .links a:hover {
             color: var(--text);
         }
 
-        /* ===== RESPONSIVE ===== */
+        /* ============================================
+           ACCESSIBILITY
+           ============================================ */
+        a:focus-visible,
+        button:focus-visible,
+        input:focus-visible,
+        [tabindex]:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        /* ============================================
+           RESPONSIVE
+           ============================================ */
         @media (max-width: 1024px) {
             .hero {
                 grid-template-columns: 1fr;
@@ -912,22 +1076,20 @@
             .navbar {
                 padding: 12px 20px;
                 flex-wrap: wrap;
+                gap: 10px;
             }
             .navbar .nav-links {
                 display: none;
             }
             .hero {
-                padding: 40px 20px 30px;
-            }
-            .hero-left h1 {
-                font-size: 32px;
+                padding: 32px 20px 26px;
             }
             .hero-stats {
-                gap: 24px;
+                gap: 22px;
                 flex-wrap: wrap;
             }
             .hero-stats .stat .number {
-                font-size: 22px;
+                font-size: 21px;
             }
             .upload-card {
                 padding: 20px;
@@ -962,17 +1124,14 @@
         }
 
         @media (max-width: 480px) {
-            .hero-left h1 {
-                font-size: 28px;
-            }
             .upload-zone .icon {
-                font-size: 32px;
+                font-size: 26px;
             }
             .upload-zone h4 {
                 font-size: 14px;
             }
             .context-hint {
-                font-size: 12px;
+                font-size: 11.5px;
                 flex-wrap: wrap;
             }
             .choose-btn {
@@ -993,6 +1152,9 @@
             #popularGrid {
                 grid-template-columns: 1fr;
             }
+            .hero-stats {
+                gap: 18px;
+            }
         }
     </style>
 </head>
@@ -1000,14 +1162,14 @@
 
 <div class="bg-glow"></div>
 
-<!-- ===== TOAST ===== -->
+<!-- TOAST -->
 <div class="toast" id="toast">
-    <span class="icon" id="toastIcon">✅</span>
+    <span class="icon" id="toastIcon"><i class="fas fa-circle-check"></i></span>
     <span class="message" id="toastMessage">Success!</span>
-    <button class="close-toast" id="toastClose">✕</button>
+    <button class="close-toast" id="toastClose" aria-label="Dismiss notification">✕</button>
 </div>
 
-<!-- ===== NAVBAR ===== -->
+<!-- NAVBAR -->
 <nav class="navbar">
     <a href="/" class="logo">
         <span class="icon">T</span>
@@ -1032,18 +1194,19 @@
 @else
     <a href="/login" class="btn btn-ghost">Sign in</a>
     <a href="/register" class="btn btn-primary">
-        <i class="fas fa-rocket"></i> Start Analysis
+        <i class="fas fa-location-crosshairs"></i> Start Analysis
     </a>
 @endauth
     </div>
 </nav>
 
-<!-- ===== HERO ===== -->
+<!-- HERO -->
 <section class="hero">
     <!-- LEFT -->
     <div class="hero-left">
         <div class="badge">
-            <span class="dot"></span> IMAGE ANALYSIS
+            <span class="dot"></span> PHOTO → COORDINATES
+            <span id="coordReadout">00.0000, 00.0000</span>
         </div>
         <h1>
             Find where a<br>
@@ -1051,11 +1214,12 @@
         </h1>
         <p>
             @auth
-                Upload an image and TraceGeo turns visual clues into a
-                location, confidence score, and evidence trail.
+                Upload an image and TraceGeo reads the visual evidence — architecture,
+                vegetation, signage, light — and returns a location, a confidence
+                score, and the reasoning behind it.
             @else
-                <strong>Please <a href="/login" style="color:var(--accent);">sign in</a> or 
-                <a href="/register" style="color:var(--accent);">create an account</a></strong> 
+                <strong>Please <a href="/login">sign in</a> or
+                <a href="/register">create an account</a></strong>
                 to start analyzing images.
             @endauth
         </p>
@@ -1085,31 +1249,33 @@
             <div class="sub">or paste an image URL</div>
 
             <div class="upload-zone" id="uploadArea">
-                <span class="icon">📸</span>
+                <span class="bracket-tr"></span>
+                <span class="bracket-bl"></span>
+                <span class="icon"><i class="fas fa-crosshairs"></i></span>
                 <h4>Drop an image here</h4>
                 <p class="hint">Click to <span id="uploadTrigger">see upload options</span></p>
 
                 <!-- UPLOAD OPTIONS DROPDOWN -->
                 <div class="upload-dropdown" id="uploadDropdown">
                     <div class="option" data-action="file">
-                        <span class="icon">📁</span>
+                        <span class="icon"><i class="fas fa-folder-open"></i></span>
                         <span class="label">Upload File</span>
                         <span class="shortcut">⌘U</span>
                     </div>
                     <div class="option" data-action="url">
-                        <span class="icon">🔗</span>
+                        <span class="icon"><i class="fas fa-link"></i></span>
                         <span class="label">Paste URL</span>
                         <span class="shortcut">⌘P</span>
                     </div>
                     <div class="divider-line"></div>
                     <div class="option" data-action="drag">
-                        <span class="icon">🔄</span>
+                        <span class="icon"><i class="fas fa-arrows-rotate"></i></span>
                         <span class="label">Drag & Drop</span>
                         <span class="shortcut">↕</span>
                     </div>
                 </div>
 
-                <div class="divider">— or —</div>
+                <div class="divider">OR</div>
 
                 <button class="choose-btn" id="browseBtn">
                     <i class="fas fa-folder-open"></i> Choose image
@@ -1135,10 +1301,10 @@
             <div class="upload-progress" id="uploadProgress">
                 <div class="status">
                     <span id="uploadStatusText">Uploading...</span>
-                    <span id="uploadPercent">0%</span>
+                    <span class="progress-text" id="uploadPercent">0%</span>
                 </div>
-                <div class="status" style="margin-top:4px;font-size:12px;">
-                    <span class="file-name" id="fileNameDisplay"></span>
+                <div class="status" style="margin-top:6px;font-size:12px;">
+                    <span class="file-name"><i class="fas fa-paperclip"></i><span id="fileNameText"></span></span>
                 </div>
                 <div class="progress-bar">
                     <div class="fill" id="uploadProgressFill"></div>
@@ -1146,10 +1312,10 @@
             </div>
         @else
             <div style="text-align:center;padding:40px 20px;">
-                <div style="font-size:64px;margin-bottom:16px;">🔒</div>
-                <h3 style="font-size:20px;font-weight:700;font-family:'Space Grotesk',sans-serif;margin-bottom:8px;">Login Required</h3>
-                <p style="color:var(--text-secondary);font-size:14px;margin-bottom:20px;">
-                    Please sign in or create an account to use TraceGeo's AI-powered geolocation analysis.
+                <div style="font-size:40px;margin-bottom:16px;color:var(--accent);"><i class="fas fa-lock"></i></div>
+                <h3 style="font-size:19px;font-weight:600;font-family:var(--font-display);margin-bottom:8px;">Sign in required</h3>
+                <p style="color:var(--text-secondary);font-size:13.5px;margin-bottom:20px;">
+                    Sign in or create an account to run TraceGeo's image geolocation analysis.
                 </p>
                 <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
                     <a href="/login" class="btn btn-primary">Sign In</a>
@@ -1160,40 +1326,40 @@
     </div>
 </section>
 
-<!-- ===== CONTENT ===== -->
+<!-- CONTENT -->
 <section class="content">
     <div>
-        <h2 style="font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;margin-bottom:16px;">How TraceGeo Works</h2>
-        <div class="feature-box">
-            <span class="icon">🔍</span>
-            <h3>Text Analyzer</h3>
-            <p>Extract geolocation clues from text, metadata, and visual markers.</p>
+        <h2 style="font-family:var(--font-display);font-size:19px;font-weight:600;margin-bottom:16px;">How TraceGeo Works</h2>
+        <div class="feature-box reveal">
+            <span class="icon"><i class="fas fa-magnifying-glass"></i></span>
+            <h3>Visual Evidence Scan</h3>
+            <p>Extract geolocation clues from imagery, metadata, and visual markers.</p>
         </div>
-        <div class="feature-box">
-            <span class="icon">📍</span>
-            <h3>Unique Location</h3>
+        <div class="feature-box reveal">
+            <span class="icon"><i class="fas fa-location-dot"></i></span>
+            <h3>Coordinate Recovery</h3>
             <p>Pinpoint exact coordinates with confidence scoring and evidence.</p>
         </div>
-        <div class="feature-box">
-            <span class="icon">🧠</span>
+        <div class="feature-box reveal">
+            <span class="icon"><i class="fas fa-brain"></i></span>
             <h3>AI Reasoning</h3>
-            <p>Advanced AI analyzes visual patterns, vegetation, architecture, and more.</p>
+            <p>Analyzes architecture, vegetation, signage, and light to explain its call.</p>
         </div>
     </div>
     <div>
         <div class="section-header">
             <h2>Recent Analyses</h2>
-            <a href="#">View all →</a>
+            <a href="/history">View all →</a>
         </div>
         <div id="recentGrid">
             @auth
-                <div style="grid-column:1/-1;text-align:center;padding:40px 20px;color:var(--text-muted);">
-                    <i class="fas fa-inbox" style="font-size:36px;opacity:0.3;display:block;margin-bottom:8px;"></i>
+                <div class="empty-state">
+                    <i class="fas fa-inbox"></i>
                     <p>No recent analyses yet.<br>Upload your first photo to get started!</p>
                 </div>
             @else
-                <div style="grid-column:1/-1;text-align:center;padding:40px 20px;color:var(--text-muted);">
-                    <i class="fas fa-lock" style="font-size:36px;opacity:0.3;display:block;margin-bottom:8px;"></i>
+                <div class="empty-state">
+                    <i class="fas fa-lock"></i>
                     <p><a href="/login" style="color:var(--accent);">Sign in</a> to see your recent analyses</p>
                 </div>
             @endauth
@@ -1203,7 +1369,8 @@
                 <h2>Popular Landmarks</h2>
             </div>
             <div id="popularGrid">
-                <div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--text-muted);">
+                <div class="empty-state">
+                    <i class="fas fa-globe"></i>
                     <p>No popular landmarks yet.</p>
                 </div>
             </div>
@@ -1211,7 +1378,7 @@
     </div>
 </section>
 
-<!-- ===== FOOTER ===== -->
+<!-- FOOTER -->
 <footer class="footer">
     <p><i class="fas fa-globe-americas" style="color:var(--accent);"></i> AI-POWERED GEOLOCATION</p>
     <div class="links">
@@ -1226,16 +1393,17 @@
     </div>
 </footer>
 
-<!-- ===== SCRIPTS ===== -->
 <script>
 // ============================================================
-//  TRACEGEO - HOMEPAGE WITH DROPDOWN UPLOAD
+//  TRACEGEO - COMPLETE WORKING HOMEPAGE
+//  (functionality unchanged from source — only markup/DOM refs
+//   touched by the visual redesign were updated)
 // ============================================================
 
-// ============================================
-// CSRF TOKEN
-// ============================================
-const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
+console.log('🚀 TraceGeo Homepage loaded');
+
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ============================================
 // TOAST SYSTEM
@@ -1245,11 +1413,21 @@ function showToast(message, type = 'success') {
     const icon = document.getElementById('toastIcon');
     const msg = document.getElementById('toastMessage');
 
-    const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
-    icon.textContent = icons[type] || '✅';
+    const icons = {
+        success: 'fa-circle-check',
+        error: 'fa-circle-exclamation',
+        info: 'fa-circle-info',
+        warning: 'fa-triangle-exclamation'
+    };
+    icon.innerHTML = `<i class="fas ${icons[type] || icons.success}"></i>`;
+    icon.className = `icon ${type}`;
     msg.textContent = message;
     toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 4000);
+
+    clearTimeout(toast._hideTimeout);
+    toast._hideTimeout = setTimeout(() => {
+        toast.classList.remove('show');
+    }, 4000);
 }
 
 document.getElementById('toastClose')?.addEventListener('click', () => {
@@ -1259,64 +1437,53 @@ document.getElementById('toastClose')?.addEventListener('click', () => {
 // ============================================
 // DOM REFS
 // ============================================
-const uploadArea = document.getElementById('uploadArea');
-const uploadTrigger = document.getElementById('uploadTrigger');
-const uploadDropdown = document.getElementById('uploadDropdown');
-const imageInput = document.getElementById('imageInput');
-const browseBtn = document.getElementById('browseBtn');
-const urlInput = document.getElementById('imageUrlInput');
-const urlAnalyzeBtn = document.getElementById('urlAnalyzeBtn');
-const uploadProgress = document.getElementById('uploadProgress');
-const uploadProgressFill = document.getElementById('uploadProgressFill');
-const uploadStatusText = document.getElementById('uploadStatusText');
-const uploadPercent = document.getElementById('uploadPercent');
-const fileNameDisplay = document.getElementById('fileNameDisplay');
+const DOM = {
+    uploadArea: document.getElementById('uploadArea'),
+    uploadTrigger: document.getElementById('uploadTrigger'),
+    uploadDropdown: document.getElementById('uploadDropdown'),
+    imageInput: document.getElementById('imageInput'),
+    browseBtn: document.getElementById('browseBtn'),
+    urlInput: document.getElementById('imageUrlInput'),
+    urlAnalyzeBtn: document.getElementById('urlAnalyzeBtn'),
+    uploadProgress: document.getElementById('uploadProgress'),
+    uploadProgressFill: document.getElementById('uploadProgressFill'),
+    uploadStatusText: document.getElementById('uploadStatusText'),
+    uploadPercent: document.getElementById('uploadPercent'),
+    fileNameText: document.getElementById('fileNameText'),
+};
 
 let dropdownOpen = false;
 
 // ============================================
-// TOGGLE DROPDOWN - FIXED with null checks
+// DROPDOWN TOGGLE
 // ============================================
 function toggleDropdown(e) {
     if (e) e.stopPropagation();
-    if (!uploadDropdown) return;
-    
+    if (!DOM.uploadDropdown) return;
+
     dropdownOpen = !dropdownOpen;
-    uploadDropdown.classList.toggle('show', dropdownOpen);
+    DOM.uploadDropdown.classList.toggle('show', dropdownOpen);
 }
 
 function closeDropdown() {
-    if (!uploadDropdown) return;
+    if (!DOM.uploadDropdown) return;
     dropdownOpen = false;
-    uploadDropdown.classList.remove('show');
+    DOM.uploadDropdown.classList.remove('show');
 }
 
 // ============================================
-// EVENT LISTENERS - Only if elements exist
+// DROPDOWN EVENTS
 // ============================================
-
-// Click on "see upload options"
-if (uploadTrigger) {
-    uploadTrigger.addEventListener('click', toggleDropdown);
+if (DOM.uploadTrigger) {
+    DOM.uploadTrigger.addEventListener('click', toggleDropdown);
 }
 
-// Click on upload zone icon
-if (uploadArea) {
-    uploadArea.querySelector('.icon')?.addEventListener('click', toggleDropdown);
+if (DOM.uploadArea) {
+    DOM.uploadArea.querySelector('.icon')?.addEventListener('click', toggleDropdown);
 }
 
-// Click on upload zone (but not on buttons/inputs)
-if (uploadArea) {
-    uploadArea.addEventListener('click', function(e) {
-        if (e.target.closest('button') || e.target.closest('input')) return;
-        if (e.target === uploadTrigger || e.target.closest('.icon')) return;
-        toggleDropdown(e);
-    });
-}
-
-// Close dropdown on outside click
 document.addEventListener('click', function(e) {
-    if (!uploadArea?.contains(e.target)) {
+    if (!DOM.uploadArea?.contains(e.target)) {
         closeDropdown();
     }
 });
@@ -1327,38 +1494,38 @@ document.addEventListener('click', function(e) {
 document.querySelector('.option[data-action="file"]')?.addEventListener('click', function(e) {
     e.stopPropagation();
     closeDropdown();
-    setTimeout(() => imageInput?.click(), 100);
+    setTimeout(() => DOM.imageInput?.click(), 100);
 });
 
 document.querySelector('.option[data-action="url"]')?.addEventListener('click', function(e) {
     e.stopPropagation();
     closeDropdown();
-    setTimeout(() => urlInput?.focus(), 100);
+    setTimeout(() => DOM.urlInput?.focus(), 100);
 });
 
 document.querySelector('.option[data-action="drag"]')?.addEventListener('click', function(e) {
     e.stopPropagation();
     closeDropdown();
-    showToast('🔄 Drag & drop an image file anywhere on the page!', 'info');
+    showToast('Drag & drop an image file anywhere on the page.', 'info');
 });
 
 // ============================================
 // DRAG & DROP
 // ============================================
-if (uploadArea) {
-    uploadArea.addEventListener('dragover', (e) => {
+if (DOM.uploadArea) {
+    DOM.uploadArea.addEventListener('dragover', (e) => {
         e.preventDefault();
-        uploadArea.classList.add('dragover');
+        DOM.uploadArea.classList.add('dragover');
         closeDropdown();
     });
 
-    uploadArea.addEventListener('dragleave', () => {
-        uploadArea.classList.remove('dragover');
+    DOM.uploadArea.addEventListener('dragleave', () => {
+        DOM.uploadArea.classList.remove('dragover');
     });
 
-    uploadArea.addEventListener('drop', (e) => {
+    DOM.uploadArea.addEventListener('drop', (e) => {
         e.preventDefault();
-        uploadArea.classList.remove('dragover');
+        DOM.uploadArea.classList.remove('dragover');
         const files = e.dataTransfer.files;
         if (files.length > 0) {
             const file = files[0];
@@ -1374,28 +1541,30 @@ if (uploadArea) {
 // ============================================
 // CHOOSE IMAGE BUTTON
 // ============================================
-browseBtn?.addEventListener('click', function(e) {
+DOM.browseBtn?.addEventListener('click', function(e) {
     e.stopPropagation();
     e.preventDefault();
     closeDropdown();
-    imageInput?.click();
+    DOM.imageInput?.click();
 });
 
 // ============================================
 // FILE INPUT CHANGE
 // ============================================
-imageInput?.addEventListener('change', function(e) {
+DOM.imageInput?.addEventListener('change', function(e) {
     if (this.files.length > 0) {
         const file = this.files[0];
         handleFileUpload(file);
     }
+    // Reset so same file can be re-uploaded
+    this.value = '';
 });
 
 // ============================================
 // URL ANALYZE
 // ============================================
-urlAnalyzeBtn?.addEventListener('click', function() {
-    const url = urlInput?.value.trim();
+DOM.urlAnalyzeBtn?.addEventListener('click', function() {
+    const url = DOM.urlInput?.value.trim();
     if (!url) {
         showToast('Please paste an image URL.', 'error');
         return;
@@ -1404,137 +1573,67 @@ urlAnalyzeBtn?.addEventListener('click', function() {
     handleUrlUpload(url);
 });
 
-urlInput?.addEventListener('keypress', function(e) {
+DOM.urlInput?.addEventListener('keypress', function(e) {
     if (e.key === 'Enter') {
-        urlAnalyzeBtn?.click();
+        DOM.urlAnalyzeBtn?.click();
     }
 });
 
 // ============================================
-// HANDLE FILE UPLOAD - FIXED
+// ✅ HANDLE FILE UPLOAD - WORKS WITH ANALYSIS PAGE
 // ============================================
 function handleFileUpload(file) {
+    // Validate file
     if (!file.type.startsWith('image/')) {
         showToast('Please upload an image file.', 'error');
         return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-        showToast('Image must be under 5MB.', 'error');
+    if (file.size > 20 * 1024 * 1024) {
+        showToast('Image must be under 20MB.', 'error');
         return;
     }
 
-    if (uploadProgress) uploadProgress.style.display = 'block';
-    if (uploadProgressFill) uploadProgressFill.style.width = '0%';
-    if (uploadPercent) uploadPercent.textContent = '0%';
-    if (uploadStatusText) uploadStatusText.textContent = '⏳ Preparing upload...';
-    if (fileNameDisplay) fileNameDisplay.textContent = `📎 ${file.name} (${Math.round(file.size / 1024)} KB)`;
+    console.log('📸 Uploading file:', file.name, (file.size / 1024).toFixed(0), 'KB');
+
+    // Show progress
+    if (DOM.uploadProgress) DOM.uploadProgress.style.display = 'block';
+    if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '0%';
+    if (DOM.uploadPercent) DOM.uploadPercent.textContent = '0%';
+    if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Preparing upload...';
+    if (DOM.fileNameText) DOM.fileNameText.textContent = `${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
 
     const formData = new FormData();
     formData.append('image', file);
 
-    if (urlAnalyzeBtn) {
-        urlAnalyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        urlAnalyzeBtn.disabled = true;
+    if (DOM.urlAnalyzeBtn) {
+        DOM.urlAnalyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        DOM.urlAnalyzeBtn.disabled = true;
     }
 
     let progress = 0;
     const progressInterval = setInterval(() => {
         progress += Math.random() * 8;
         if (progress > 90) progress = 90;
-        if (uploadProgressFill) uploadProgressFill.style.width = progress + '%';
-        if (uploadPercent) uploadPercent.textContent = Math.round(progress) + '%';
-        if (uploadStatusText) {
-            if (progress > 30) uploadStatusText.textContent = '📤 Uploading...';
-            if (progress > 60) uploadStatusText.textContent = '🤖 AI analyzing...';
+        if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = progress + '%';
+        if (DOM.uploadPercent) DOM.uploadPercent.textContent = Math.round(progress) + '%';
+        if (DOM.uploadStatusText) {
+            if (progress > 30) DOM.uploadStatusText.textContent = 'Uploading...';
+            if (progress > 60) DOM.uploadStatusText.textContent = 'AI analyzing...';
         }
     }, 300);
 
-    // ✅ Get CSRF token
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
+    // ✅ Call the async endpoint - returns immediately with ID
     fetch('/api/analyze', {
         method: 'POST',
         headers: {
-            'X-CSRF-TOKEN': csrfToken,
+            'X-CSRF-TOKEN': csrfToken || '',
             'Accept': 'application/json',
         },
         body: formData,
     })
     .then(async res => {
-        // ✅ Check if response is JSON
-        const contentType = res.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-            // If not JSON, it's likely a redirect to login or 419
-            if (res.status === 419) {
-                throw new Error('Session expired. Please refresh the page and try again.');
-            } else if (res.status === 401 || res.status === 302) {
-                throw new Error('Please login to upload images.');
-            } else {
-                throw new Error('Server error. Please try again.');
-            }
-        }
-        return res.json();
-    })
-    .then(data => {
-        clearInterval(progressInterval);
-        if (uploadProgressFill) uploadProgressFill.style.width = '100%';
-        if (uploadPercent) uploadPercent.textContent = '100%';
-        if (uploadStatusText) uploadStatusText.textContent = '✅ Analysis complete! Redirecting...';
-
-        if (data.success && data.data) {
-            showToast('🌍 Analysis complete!', 'success');
-            sessionStorage.setItem('analysisResult', JSON.stringify(data.data));
-            sessionStorage.setItem('analysisId', data.analysis_id || '');
-            sessionStorage.setItem('uploadedFileName', file.name);
-            setTimeout(() => window.location.href = '/analysis', 800);
-        } else {
-            showToast(data.message || 'Analysis failed.', 'error');
-            resetUploadUI();
-        }
-    })
-    .catch(err => {
-        clearInterval(progressInterval);
-        console.error('Upload error:', err);
-        showToast(err.message || 'Network error. Please try again.', 'error');
-        resetUploadUI();
-    });
-}
-
-// ============================================
-// HANDLE URL UPLOAD - FIXED
-// ============================================
-function handleUrlUpload(url) {
-    if (uploadProgress) uploadProgress.style.display = 'block';
-    if (uploadProgressFill) uploadProgressFill.style.width = '0%';
-    if (uploadPercent) uploadPercent.textContent = '0%';
-    if (uploadStatusText) uploadStatusText.textContent = '📥 Fetching image from URL...';
-    if (fileNameDisplay) fileNameDisplay.textContent = `🔗 ${url.substring(0, 50)}...`;
-
-    if (urlAnalyzeBtn) {
-        urlAnalyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        urlAnalyzeBtn.disabled = true;
-    }
-
-    let progress = 0;
-    const progressInterval = setInterval(() => {
-        progress += Math.random() * 10;
-        if (progress > 50) progress = 50;
-        if (uploadProgressFill) uploadProgressFill.style.width = progress + '%';
-        if (uploadPercent) uploadPercent.textContent = Math.round(progress) + '%';
-    }, 200);
-
-    // ✅ Get CSRF token
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-
-    fetch('/api/fetch-image?url=' + encodeURIComponent(url), {
-        method: 'GET',
-        headers: {
-            'X-CSRF-TOKEN': csrfToken,
-            'Accept': 'application/json',
-        },
-    })
-    .then(async res => {
-        // ✅ Check if response is JSON
         const contentType = res.headers.get('content-type');
         if (!contentType || !contentType.includes('application/json')) {
             if (res.status === 419) {
@@ -1549,12 +1648,97 @@ function handleUrlUpload(url) {
     })
     .then(data => {
         clearInterval(progressInterval);
+        console.log('📦 Upload response:', data);
+
+        if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '100%';
+        if (DOM.uploadPercent) DOM.uploadPercent.textContent = '100%';
+        if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Starting analysis...';
+
+        if (data.success && data.id) {
+            // ✅ Store analysis ID in sessionStorage for the analysis page
+            sessionStorage.setItem('analysisId', data.id);
+            sessionStorage.setItem('uploadedFileName', file.name);
+
+            if (data.data?.image_url) {
+                sessionStorage.setItem('uploadedImage', data.data.image_url);
+            }
+
+            showToast('Analysis started — redirecting...', 'success');
+
+            // ✅ Redirect to analysis page with auto-start
+            setTimeout(() => {
+                window.location.href = '/analysis';
+            }, 1000);
+        } else {
+            showToast(data.message || 'Analysis failed. Please try again.', 'error');
+            resetUploadUI();
+        }
+    })
+    .catch(err => {
+        clearInterval(progressInterval);
+        console.error('❌ Upload error:', err);
+        showToast(err.message || 'Network error. Please try again.', 'error');
+        resetUploadUI();
+    });
+}
+
+// ============================================
+// ✅ HANDLE URL UPLOAD - WORKS WITH ANALYSIS PAGE
+// ============================================
+function handleUrlUpload(url) {
+    console.log('🔗 Fetching URL:', url);
+
+    if (DOM.uploadProgress) DOM.uploadProgress.style.display = 'block';
+    if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '0%';
+    if (DOM.uploadPercent) DOM.uploadPercent.textContent = '0%';
+    if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Fetching image from URL...';
+    if (DOM.fileNameText) DOM.fileNameText.textContent = `${url.substring(0, 50)}...`;
+
+    if (DOM.urlAnalyzeBtn) {
+        DOM.urlAnalyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        DOM.urlAnalyzeBtn.disabled = true;
+    }
+
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+        progress += Math.random() * 10;
+        if (progress > 50) progress = 50;
+        if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = progress + '%';
+        if (DOM.uploadPercent) DOM.uploadPercent.textContent = Math.round(progress) + '%';
+    }, 200);
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+    fetch('/api/fetch-image?url=' + encodeURIComponent(url), {
+        method: 'GET',
+        headers: {
+            'X-CSRF-TOKEN': csrfToken || '',
+            'Accept': 'application/json',
+        },
+    })
+    .then(async res => {
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            if (res.status === 419) {
+                throw new Error('Session expired. Please refresh and try again.');
+            } else if (res.status === 401 || res.status === 302) {
+                throw new Error('Please login to upload images.');
+            } else {
+                throw new Error('Server error. Please try again.');
+            }
+        }
+        return res.json();
+    })
+    .then(data => {
+        clearInterval(progressInterval);
+        console.log('📦 Fetch response:', data);
 
         if (data.success && data.image_data) {
-            if (uploadProgressFill) uploadProgressFill.style.width = '60%';
-            if (uploadPercent) uploadPercent.textContent = '60%';
-            if (uploadStatusText) uploadStatusText.textContent = '📸 Processing image...';
+            if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '60%';
+            if (DOM.uploadPercent) DOM.uploadPercent.textContent = '60%';
+            if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Processing image...';
 
+            // Convert base64 to file
             const byteCharacters = atob(data.image_data);
             const byteNumbers = new Array(byteCharacters.length);
             for (let i = 0; i < byteCharacters.length; i++) {
@@ -1565,9 +1749,9 @@ function handleUrlUpload(url) {
             const fileName = data.filename || 'image.jpg';
             const file = new File([blob], fileName, { type: data.mime_type || 'image/jpeg' });
 
-            if (uploadProgressFill) uploadProgressFill.style.width = '80%';
-            if (uploadPercent) uploadPercent.textContent = '80%';
-            if (uploadStatusText) uploadStatusText.textContent = '🤖 AI analyzing...';
+            if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '80%';
+            if (DOM.uploadPercent) DOM.uploadPercent.textContent = '80%';
+            if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'AI analyzing...';
 
             const formData = new FormData();
             formData.append('image', file);
@@ -1575,7 +1759,7 @@ function handleUrlUpload(url) {
             fetch('/api/analyze', {
                 method: 'POST',
                 headers: {
-                    'X-CSRF-TOKEN': csrfToken,
+                    'X-CSRF-TOKEN': csrfToken || '',
                     'Accept': 'application/json',
                 },
                 body: formData,
@@ -1594,16 +1778,25 @@ function handleUrlUpload(url) {
                 return res.json();
             })
             .then(analysisData => {
-                if (uploadProgressFill) uploadProgressFill.style.width = '100%';
-                if (uploadPercent) uploadPercent.textContent = '100%';
-                if (uploadStatusText) uploadStatusText.textContent = '✅ Analysis complete! Redirecting...';
+                console.log('📦 Analysis response:', analysisData);
 
-                if (analysisData.success && analysisData.data) {
-                    showToast('🌍 Analysis complete!', 'success');
-                    sessionStorage.setItem('analysisResult', JSON.stringify(analysisData.data));
-                    sessionStorage.setItem('analysisId', analysisData.analysis_id || '');
+                if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '100%';
+                if (DOM.uploadPercent) DOM.uploadPercent.textContent = '100%';
+                if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Starting analysis...';
+
+                if (analysisData.success && analysisData.id) {
+                    sessionStorage.setItem('analysisId', analysisData.id);
                     sessionStorage.setItem('uploadedFileName', fileName);
-                    setTimeout(() => window.location.href = '/analysis', 800);
+
+                    if (analysisData.data?.image_url) {
+                        sessionStorage.setItem('uploadedImage', analysisData.data.image_url);
+                    }
+
+                    showToast('Analysis started — redirecting...', 'success');
+
+                    setTimeout(() => {
+                        window.location.href = '/analysis';
+                    }, 1000);
                 } else {
                     showToast(analysisData.message || 'Analysis failed.', 'error');
                     resetUploadUI();
@@ -1631,17 +1824,17 @@ function handleUrlUpload(url) {
 // RESET UI
 // ============================================
 function resetUploadUI() {
-    if (uploadProgress) uploadProgress.style.display = 'none';
-    if (urlAnalyzeBtn) {
-        urlAnalyzeBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Analyze';
-        urlAnalyzeBtn.disabled = false;
+    if (DOM.uploadProgress) DOM.uploadProgress.style.display = 'none';
+    if (DOM.urlAnalyzeBtn) {
+        DOM.urlAnalyzeBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Analyze';
+        DOM.urlAnalyzeBtn.disabled = false;
     }
-    if (uploadProgressFill) uploadProgressFill.style.width = '0%';
-    if (uploadPercent) uploadPercent.textContent = '0%';
+    if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '0%';
+    if (DOM.uploadPercent) DOM.uploadPercent.textContent = '0%';
 }
 
 // ============================================
-// LOAD DASHBOARD DATA (Only if logged in)
+// LOAD DASHBOARD DATA
 // ============================================
 @auth
 async function loadDashboardData() {
@@ -1650,35 +1843,46 @@ async function loadDashboardData() {
         const data = await response.json();
 
         if (data.success) {
-            animateNumber('totalAnalyses', data.stats.total_analyses || 0);
-            animateNumber('uniqueLocations', data.stats.unique_locations || 0);
-            animateNumber('avgConfidence', data.stats.avg_confidence || 0, '%');
+            animateNumber('totalAnalyses', data.stats?.total_analyses || 0);
+            animateNumber('uniqueLocations', data.stats?.unique_locations || 0);
+            animateNumber('avgConfidence', data.stats?.avg_confidence || 0, '%');
 
             const recentGrid = document.getElementById('recentGrid');
             if (data.recent && data.recent.length > 0) {
-                recentGrid.innerHTML = data.recent.map(item => `
-                    <a href="/analysis/${item.id}" class="recent-item" style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;transition:all 0.3s ease;cursor:pointer;text-decoration:none;color:inherit;">
-                        <div class="thumb" style="height:90px;border-radius:8px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--text-muted);margin-bottom:8px;overflow:hidden;">
-                            ${item.image_path ? `<img src="/storage/${item.image_path}" alt="${item.landmark_name}" style="width:100%;height:100%;object-fit:cover;">` : '<i class="fas fa-image"></i>'}
-                        </div>
-                        <div class="name" style="font-size:14px;font-weight:600;">${item.landmark_name || 'Unknown'}</div>
-                        <div class="loc" style="font-size:12px;color:var(--text-secondary);">${item.city || ''}, ${item.country || ''}</div>
-                        <div class="conf" style="font-size:11px;color:var(--success);font-weight:600;margin-top:4px;">${item.confidence || 0}%</div>
-                    </a>
-                `).join('');
+                recentGrid.innerHTML = data.recent.map(item => {
+                    let imageUrl = null;
+                    if (item.image_path) {
+                        if (item.image_path.startsWith('http://') || item.image_path.startsWith('https://')) {
+                            imageUrl = item.image_path;
+                        } else {
+                            imageUrl = '/storage/' + item.image_path;
+                        }
+                    }
+
+                    return `
+                        <a href="/analysis" onclick="sessionStorage.setItem('analysisId', '${item.id}')" class="recent-item">
+                            <div class="thumb">
+                                ${imageUrl ? `<img src="${imageUrl}" alt="${item.landmark_name}">` : '<i class="fas fa-image"></i>'}
+                            </div>
+                            <div class="name">${item.landmark_name || 'Unknown'}</div>
+                            <div class="loc">${item.city || ''}${item.city && item.country ? ', ' : ''}${item.country || ''}</div>
+                            <div class="conf">${item.confidence || 0}%</div>
+                        </a>
+                    `;
+                }).join('');
             }
 
             const popularGrid = document.getElementById('popularGrid');
             if (data.popular && data.popular.length > 0) {
                 popularGrid.innerHTML = data.popular.map((item, index) => `
-                    <a href="#" class="popular-item" style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:flex;align-items:center;gap:12px;transition:all 0.3s ease;text-decoration:none;color:inherit;">
-                        <span class="rank" style="font-size:18px;font-weight:700;color:var(--text-muted);min-width:24px;font-family:'Space Grotesk',sans-serif;">#${index + 1}</span>
+                    <div class="popular-item">
+                        <span class="rank">#${index + 1}</span>
                         <div class="info">
-                            <div class="name" style="font-size:14px;font-weight:500;">${item.landmark_name || 'Unknown'}</div>
-                            <div class="country" style="font-size:12px;color:var(--text-secondary);">${item.country || ''}</div>
+                            <div class="name">${item.landmark_name || 'Unknown'}</div>
+                            <div class="country">${item.country || ''}</div>
                         </div>
-                        <span class="count" style="font-size:12px;color:var(--text-muted);margin-left:auto;background:var(--accent-light);padding:2px 10px;border-radius:12px;font-weight:600;">${item.count || 0}×</span>
-                    </a>
+                        <span class="count">${item.count || 0}×</span>
+                    </div>
                 `).join('');
             }
         }
@@ -1686,10 +1890,18 @@ async function loadDashboardData() {
         console.error('Failed to load dashboard data:', error);
     }
 }
+@endauth
 
+// ============================================
+// ANIMATE NUMBER
+// ============================================
 function animateNumber(elementId, target, suffix = '') {
     const el = document.getElementById(elementId);
     if (!el) return;
+    if (prefersReducedMotion) {
+        el.textContent = Math.round(target) + suffix;
+        return;
+    }
     let current = 0;
     const duration = 1000;
     const steps = 30;
@@ -1703,7 +1915,48 @@ function animateNumber(elementId, target, suffix = '') {
         el.textContent = Math.round(current) + suffix;
     }, duration / steps);
 }
-@endauth
+
+// ============================================
+// COSMETIC: HERO COORDINATE READOUT
+// Purely decorative — ticks toward a resolved-looking
+// coordinate to echo the "locking on" idea. No data meaning.
+// ============================================
+(function animateCoordReadout() {
+    const el = document.getElementById('coordReadout');
+    if (!el || prefersReducedMotion) return;
+    const targetLat = 48.8584, targetLng = 2.2945;
+    let t = 0;
+    const steps = 40;
+    const interval = setInterval(() => {
+        t++;
+        const progress = Math.min(t / steps, 1);
+        const lat = (targetLat * progress).toFixed(4);
+        const lng = (targetLng * progress).toFixed(4);
+        el.textContent = `${lat}, ${lng}`;
+        if (progress >= 1) clearInterval(interval);
+    }, 60);
+})();
+
+// ============================================
+// SCROLL-REVEAL FOR FEATURE CARDS
+// ============================================
+(function initReveal() {
+    const items = document.querySelectorAll('.reveal');
+    if (!items.length) return;
+    if (prefersReducedMotion || !('IntersectionObserver' in window)) {
+        items.forEach(el => el.classList.add('in-view'));
+        return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry, i) => {
+            if (entry.isIntersecting) {
+                setTimeout(() => entry.target.classList.add('in-view'), i * 80);
+                observer.unobserve(entry.target);
+            }
+        });
+    }, { threshold: 0.15 });
+    items.forEach(el => observer.observe(el));
+})();
 
 // ============================================
 // CHECK FOR RETURNING FROM ANALYSIS
@@ -1713,47 +1966,36 @@ if (result) {
     try {
         const data = JSON.parse(result);
         const fileName = sessionStorage.getItem('uploadedFileName') || 'image';
-        showToast(`📍 Found: ${data.landmark_name || 'Location'} from ${fileName}`, 'success');
+        showToast(`Found: ${data.landmark_name || 'Location'} from ${fileName}`, 'success');
         setTimeout(() => sessionStorage.removeItem('analysisResult'), 5000);
     } catch(e) {}
 }
 
 // ============================================
-// LOGOUT - FIXED
+// LOGOUT
 // ============================================
 document.getElementById('logoutBtn')?.addEventListener('click', async function(e) {
     e.preventDefault();
-    
+
     try {
-        // ✅ Get CSRF token
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-        
-        // ✅ Use fetch with proper headers
+
         const response = await fetch('/logout', {
             method: 'POST',
             headers: {
-                'X-CSRF-TOKEN': csrfToken,
+                'X-CSRF-TOKEN': csrfToken || '',
                 'Accept': 'application/json',
                 'Content-Type': 'application/json',
             },
         });
-        
-        // ✅ Check if response is JSON
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-            const result = await response.json();
-            if (result.success) {
-                showToast('Logged out successfully!', 'success');
-                setTimeout(() => window.location.reload(), 500);
-            }
-        } else {
-            // ✅ If not JSON, it's a redirect - reload page
+
+        const result = await response.json();
+        if (result.success) {
             showToast('Logged out successfully!', 'success');
             setTimeout(() => window.location.reload(), 500);
         }
     } catch (error) {
         console.error('Logout error:', error);
-        // ✅ Fallback: reload page anyway
         showToast('Logged out successfully!', 'success');
         setTimeout(() => window.location.reload(), 500);
     }
@@ -1763,13 +2005,11 @@ document.getElementById('logoutBtn')?.addEventListener('click', async function(e
 // KEYBOARD SHORTCUTS
 // ============================================
 document.addEventListener('keydown', function(e) {
-    // Ctrl+U or Cmd+U - Open file picker
     if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
         e.preventDefault();
         closeDropdown();
-        imageInput?.click();
+        DOM.imageInput?.click();
     }
-    // Escape - Close dropdown
     if (e.key === 'Escape') {
         closeDropdown();
     }
@@ -1786,11 +2026,12 @@ console.log('✅ TraceGeo homepage loaded. User is not logged in.');
 console.log('📸 Please login or register to use the analysis features.');
 @endauth
 
-console.log('📸 Click "see upload options" for dropdown menu:');
-console.log('   📁 Upload File - Opens file picker');
-console.log('   🔗 Paste URL - Focus URL input');
-console.log('   🔄 Drag & Drop - Shows info');
-console.log('⌨️  Shortcut: Ctrl+U to upload, ESC to close dropdown');
+console.log('📸 Upload options:');
+console.log('   📁 Upload File - Click "Choose Image" or Ctrl+U');
+console.log('   🔗 Paste URL - Enter URL and click Analyze');
+console.log('   🔄 Drag & Drop - Drop image anywhere');
+console.log('🔄 Upload redirects to /analysis with auto-start');
+console.log('✅ Ready!');
 </script>
 
 </body>

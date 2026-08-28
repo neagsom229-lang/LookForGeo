@@ -257,20 +257,38 @@
 
     <div class="grid">
         @forelse($analyses ?? [] as $analysis)
-            <a href="/analysis/{{ $analysis->id }}" class="card">
+            <a href="/analysis" onclick="sessionStorage.setItem('analysisId', '{{ $analysis->id }}')" class="card">
                 <div class="thumb">
-                    @if($analysis->image_path)
-                        <img src="{{ asset('storage/' . $analysis->image_path) }}" alt="{{ $analysis->landmark_name }}">
+                    @if($analysis->image_url)
+                        <img src="{{ $analysis->image_url }}" alt="{{ $analysis->landmark_name ?? 'Image' }}">
                     @else
                         <i class="fas fa-image"></i>
                     @endif
                 </div>
                 <div class="body">
-                    <div class="name">{{ $analysis->landmark_name ?? 'Unknown' }}</div>
-                    <div class="location">{{ $analysis->city ?? '' }}, {{ $analysis->country ?? '' }}</div>
+                    @php
+                        $result = $analysis->result ? json_decode($analysis->result, true) : null;
+                        $landmark = $result['landmark_name'] ?? $analysis->landmark_name ?? 'Unknown';
+                        $city = $result['city'] ?? $analysis->city ?? '';
+                        $country = $result['country'] ?? $analysis->country ?? '';
+                        $confidence = $result['confidence'] ?? $analysis->confidence ?? 0;
+                    @endphp
+                    <div class="name">{{ $landmark }}</div>
+                    <div class="location">
+                        @if($city && $country)
+                            {{ $city }}, {{ $country }}
+                        @elseif($city)
+                            {{ $city }}
+                        @elseif($country)
+                            {{ $country }}
+                        @endif
+                    </div>
                     <div class="meta">
-                        <span class="conf">{{ $analysis->confidence ?? 0 }}%</span>
+                        <span class="conf">{{ $confidence }}%</span>
                         <span>{{ $analysis->created_at ? $analysis->created_at->diffForHumans() : '' }}</span>
+                        @if($analysis->status === 'processing')
+                            <span style="color: #fbbf24;"><i class="fas fa-spinner fa-spin"></i> Processing</span>
+                        @endif
                     </div>
                 </div>
             </a>
@@ -278,7 +296,7 @@
             <div class="empty">
                 <i class="fas fa-inbox"></i>
                 <p>No analyses found yet.<br>Upload a photo to get started!</p>
-                <a href="/analysis" class="btn btn-primary" style="margin-top:16px;display:inline-block;">
+                <a href="/" class="btn btn-primary" style="margin-top:16px;display:inline-block;">
                     <i class="fas fa-plus"></i> Start Analysis
                 </a>
             </div>
