@@ -92,7 +92,3 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/export/{id}', [LandmarkController::class, 'export']);
 });
 
-// ============================================================
-// PUBLIC ANALYSIS PAGE (No auth required for viewing)
-// ============================================================
-Route::get('/analyze', [AnalysisController::class, 'index'])->name('analyze.index');
