@@ -1882,13 +1882,12 @@
             ],
         });
         L.tileLayer(DARK_TILE, {
-            attribution: DARK_ATTR,
-            maxZoom: 19,
-            minZoom: 1,
-            noWrap: true,          // <-- add this
-    bounds: [[-90, -180], [90, 180]]  // <-- add this
-            noWrap: true
-        }).addTo(earthMapInstance);
+    attribution: DARK_ATTR,
+    maxZoom: 19,
+    minZoom: 1,
+    noWrap: true,
+    bounds: [[-90, -180], [90, 180]]
+}).addTo(earthMapInstance);
         setTimeout(() => {
             if (earthMapInstance) earthMapInstance.invalidateSize();
         }, 300);
