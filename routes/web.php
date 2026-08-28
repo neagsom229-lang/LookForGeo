@@ -6,70 +6,36 @@ use App\Http\Controllers\AnalysisController;
 use App\Http\Controllers\AuthController;
 
 // ============================================
-// WEB ROUTES (With Session & CSRF)
+// WEB ROUTES (HTML Views Only)
 // ============================================
 
 // Auth Pages
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
 Route::get('/register', [AuthController::class, 'showRegister'])->name('register');
 
-// Web POST routes
+// Web POST routes (form submissions)
 Route::post('/login', [AuthController::class, 'webLogin']);
 Route::post('/register', [AuthController::class, 'webRegister']);
 Route::post('/logout', [AuthController::class, 'webLogout']);
 
-// Home
+// Homepage
 Route::get('/', [HomeController::class, 'index'])->name('home');
 
 // ============================================
-// PROTECTED WEB ROUTES (Auth Required)
+// PROTECTED WEB ROUTES (HTML Views Only)
 // ============================================
 
 Route::middleware(['auth'])->group(function () {
+    // These return HTML pages (not JSON)
     Route::get('/analysis', [AnalysisController::class, 'index'])->name('analysis.index');
     Route::get('/history', [AnalysisController::class, 'history'])->name('analysis.history');
+    
+    // Dashboard data (optional, returns JSON for the dashboard view)
     Route::get('/api/dashboard-data', [HomeController::class, 'dashboardData'])->name('api.dashboard-data');
-
-    // ============================================
-    // API ROUTES (Protected by Auth) - Web routes
-    // ============================================
-
-    Route::prefix('api')->group(function () {
-        // ✅ Async analysis (RECOMMENDED - handles large files)
-        Route::post('/analyze', [AnalysisController::class, 'store'])->name('api.analyze');
-        
-        // ✅ Status polling
-        Route::get('/analyze/{id}/status', [AnalysisController::class, 'status'])->name('api.analyze.status');
-        
-        // ✅ Get results
-        Route::get('/results/{id}', [AnalysisController::class, 'getResults'])->name('api.results');
-        
-        // ✅ History
-        Route::get('/history', [AnalysisController::class, 'history'])->name('api.history');
-        
-        // ✅ Delete analysis
-        Route::delete('/analyze/{id}', [AnalysisController::class, 'destroy'])->name('api.analyze.destroy');
-        
-        // ✅ Retry failed analysis
-        Route::post('/analyze/{id}/retry', [AnalysisController::class, 'retry'])->name('api.analyze.retry');
-        
-        // ✅ Legacy sync (kept for compatibility)
-        Route::post('/analyze-sync', [AnalysisController::class, 'analyze'])->name('api.analyze.sync');
-        
-        // ✅ Fetch image from URL
-        Route::get('/fetch-image', [AnalysisController::class, 'fetchImage'])->name('api.fetch-image');
-        
-        // ✅ Street view
-        Route::get('/street-view', [AnalysisController::class, 'streetView'])->name('api.street-view');
-        
-        // ✅ Session data (legacy)
-        Route::get('/analysis-data', [AnalysisController::class, 'getSessionData'])->name('api.analysis-data');
-        Route::post('/clear-cache', [AnalysisController::class, 'clearCache'])->name('api.clear-cache');
-    });
 });
 
 // ============================================
-// DEBUG ROUTES
+// DEBUG ROUTES (Ignore these - safe to keep)
 // ============================================
 
 Route::get('/debug/test-api', function () {

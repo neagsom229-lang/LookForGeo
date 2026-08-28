@@ -58,7 +58,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/analyze/retry/{id}', [AnalysisController::class, 'retry'])->name('api.analyze.retry');
     
     // ⚡ SYNC ANALYSIS - Kept for backward compatibility (may timeout on large files)
-    Route::post('/analyze', [AnalysisController::class, 'analyze'])->name('api.analyze');
+    Route::post('/analyze/sync', [AnalysisController::class, 'analyze'])->name('api.analyze.sync');
     
     // 🖼️ FETCH IMAGE FROM URL
     Route::get('/fetch-image', [AnalysisController::class, 'fetchImage'])->name('api.fetch-image');
