@@ -55,7 +55,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('/analyze/{id}', [AnalysisController::class, 'destroy'])->name('api.analyze.destroy');
     
     // 🔄 RETRY FAILED ANALYSIS
-    Route::post('/analyze/retry/{id}', [AnalysisController::class, 'retry'])->name('api.analyze.retry');
+    // Route::post('/analyze/retry/{id}', [AnalysisController::class, 'retry'])->name('api.analyze.retry');
     
     // ⚡ SYNC ANALYSIS - Kept for backward compatibility (may timeout on large files)
     Route::post('/analyze/sync', [AnalysisController::class, 'analyze'])->name('api.analyze.sync');
