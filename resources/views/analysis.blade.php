@@ -1894,18 +1894,58 @@
     }
 
     function flyEarthTo(lat, lng, zoom, duration = 1600) {
-        return new Promise(resolve => {
-            if (!earthMapInstance) {
-                resolve();
-                return;
-            }
-            earthMapInstance.flyTo([lat, lng], zoom, {
-                duration: duration / 1000,
-                easeLinearity: 0.20
+    return new Promise(resolve => {
+        // ----- INTELLIGENT COORDINATE VALIDATION -----
+        function isValidCoordinate(lat, lng) {
+            const latNum = parseFloat(lat);
+            const lngNum = parseFloat(lng);
+            return !isNaN(latNum) && !isNaN(lngNum) && 
+                   Math.abs(latNum) <= 90 && Math.abs(lngNum) <= 180 &&
+                   latNum !== 0 && lngNum !== 0; // 0,0 is likely a fallback, not real
+        }
+
+        // ----- SANITISE & FALLBACK -----
+        let latNum = parseFloat(lat);
+        let lngNum = parseFloat(lng);
+
+        // If invalid, use a safe fallback (Eiffel Tower, Paris)
+        if (!isValidCoordinate(latNum, lngNum)) {
+            console.warn('⚠️ flyEarthTo: Invalid coordinates received', { lat, lng });
+            console.warn('   → Using fallback: Eiffel Tower, Paris (48.8584, 2.2945)');
+            latNum = 48.8584;
+            lngNum = 2.2945;
+            zoom = zoom || 12;
+        }
+
+        // Clamp zoom to safe range
+        const safeZoom = Math.min(Math.max(zoom || 2, 1), 18);
+
+        // ----- EXECUTE FLY -----
+        if (!earthMapInstance) {
+            console.warn('⚠️ earthMapInstance not initialized');
+            resolve();
+            return;
+        }
+
+        // Clear any existing probe markers to avoid clutter
+        try {
+            earthMapInstance.eachLayer(l => {
+                if (l instanceof L.Marker && l.options?.probeMarker) {
+                    earthMapInstance.removeLayer(l);
+                }
             });
-            setTimeout(resolve, duration + 60);
+        } catch (e) { /* ignore */ }
+
+        // Perform the flyTo
+        earthMapInstance.flyTo([latNum, lngNum], safeZoom, {
+            duration: duration / 1000,
+            easeLinearity: 0.25
         });
-    }
+
+        // Resolve after animation completes
+        setTimeout(resolve, duration + 100);
+    });
+}
 
     function addProbeMarker(lat, lng, isTarget = false) {
         if (!earthMapInstance) return;
@@ -2274,46 +2314,74 @@
     }
 
     // ========== CINEMATIC TARGET REVEAL ==========
-    async function revealTarget(lat, lng, name) {
-        analysisComplete = true;
+    // ========== CINEMATIC TARGET REVEAL ==========
+async function revealTarget(lat, lng, name) {
+    analysisComplete = true;
 
-        // Make sure we're on flat map for the final reveal
-        showFlatMapMode();
-        await sleep(300);
-
-        // Clear any existing probes
-        if (earthMapInstance) {
-            earthMapInstance.eachLayer(l => {
-                if (l instanceof L.Marker && l.options.probeMarker) earthMapInstance.removeLayer(l);
-            });
-        }
-
-        if (DOM.mapStatusText) DOM.mapStatusText.textContent = `🎯 Target acquired — ${name}...`;
-        if (DOM.pcScanning) DOM.pcScanning.textContent = `// PINPOINTING ${name.toUpperCase()}`;
-
-        // Stage 1: Pull back to global view centered on target
-        await flyEarthTo(lat, lng, 2.5, 1400);
-        await sleep(500);
-
-        // Stage 2: Add the pulsing target marker
-        addProbeMarker(lat, lng, true);
-
-        // Stage 3: Continental approach
-        await flyEarthTo(lat, lng, 6, 1600);
-        await sleep(500);
-
-        // Stage 4: Regional approach
-        await flyEarthTo(lat, lng, 11, 1500);
-        await sleep(500);
-
-        // Stage 5: Final landing on exact coordinates
-        await flyEarthTo(lat, lng, 15.5, 1700);
-        await sleep(900);
-
-        if (DOM.mapStatusText) {
-            DOM.mapStatusText.innerHTML = `<span class="target-found">🎯 ${name} — CONFIRMED!</span>`;
-        }
+    // ----- SANITISE COORDINATES -----
+    function isValidCoordinate(lat, lng) {
+        const latNum = parseFloat(lat);
+        const lngNum = parseFloat(lng);
+        return !isNaN(latNum) && !isNaN(lngNum) && 
+               Math.abs(latNum) <= 90 && Math.abs(lngNum) <= 180 &&
+               latNum !== 0 && lngNum !== 0;
     }
+
+    let latNum = parseFloat(lat);
+    let lngNum = parseFloat(lng);
+
+    // If invalid, use fallback
+    if (!isValidCoordinate(latNum, lngNum)) {
+        console.warn('⚠️ revealTarget: Invalid coordinates, using fallback');
+        console.warn('   → Received:', { lat, lng, name });
+        latNum = 48.8584;  // Eiffel Tower
+        lngNum = 2.2945;
+        name = name || 'Unknown Location (fallback)';
+    }
+
+    // Clamp to safe ranges
+    latNum = Math.min(Math.max(latNum, -90), 90);
+    lngNum = Math.min(Math.max(lngNum, -180), 180);
+
+    // ----- CONTINUE WITH REVEAL -----
+    showFlatMapMode();
+    await sleep(300);
+
+    // Clear existing probes
+    if (earthMapInstance) {
+        earthMapInstance.eachLayer(l => {
+            if (l instanceof L.Marker && l.options?.probeMarker) {
+                earthMapInstance.removeLayer(l);
+            }
+        });
+    }
+
+    if (DOM.mapStatusText) DOM.mapStatusText.textContent = `🎯 Target acquired — ${name}...`;
+    if (DOM.pcScanning) DOM.pcScanning.textContent = `// PINPOINTING ${name.toUpperCase()}`;
+
+    // Stage 1: Global view
+    await flyEarthTo(latNum, lngNum, 2.5, 1400);
+    await sleep(500);
+
+    // Stage 2: Add marker
+    addProbeMarker(latNum, lngNum, true);
+
+    // Stage 3: Continental approach
+    await flyEarthTo(latNum, lngNum, 6, 1600);
+    await sleep(500);
+
+    // Stage 4: Regional approach
+    await flyEarthTo(latNum, lngNum, 11, 1500);
+    await sleep(500);
+
+    // Stage 5: Final landing
+    await flyEarthTo(latNum, lngNum, 15.5, 1700);
+    await sleep(900);
+
+    if (DOM.mapStatusText) {
+        DOM.mapStatusText.innerHTML = `<span class="target-found">🎯 ${name} — CONFIRMED!</span>`;
+    }
+}
 
     // ========== PROGRESS CARD ==========
     // The "Elapsed Xs" readout is always computed from the client's own wall
@@ -2426,9 +2494,19 @@
                         // keep flying the map during the wrap-up delay below.
                         analysisComplete = true;
 
-                        const tLat = parseFloat(result.latitude ?? result.lat);
-                        const tLng = parseFloat(result.longitude ?? result.lng);
-                        const tName = result.landmark_name || result.city || 'Target';
+                        // ----- SMART COORDINATE EXTRACTION -----
+function parseSafeCoordinate(value, fallback = 48.8584) {
+    const parsed = parseFloat(value);
+    return !isNaN(parsed) && isFinite(parsed) && Math.abs(parsed) <= 180 ? parsed : fallback;
+}
+
+let tLat = parseSafeCoordinate(result.latitude ?? result.lat, 48.8584);
+let tLng = parseSafeCoordinate(result.longitude ?? result.lng, 2.2945);
+let tName = result.landmark_name || result.city || result.place || 'Unknown Location';
+
+// Log what we found
+console.log('📍 Target coordinates extracted:', { tLat, tLng, tName });
+console.log('📦 Full result:', result);
 
                         // Give exploration a moment to reach its next checkpoint and exit, then reveal
                         setTimeout(async () => {
