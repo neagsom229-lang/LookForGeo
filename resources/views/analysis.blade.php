@@ -705,17 +705,17 @@
 
     /* Street View inline */
     .street-inline {
-        position: absolute;
-        inset: 0;
-        background: #000;
-        z-index: 10;
-    }
-
-    .street-inline iframe {
-        width: 100%;
-        height: 100%;
-        border: none;
-    }
+    position: absolute;
+    inset: 0;
+    background: #0a0a12;
+    z-index: 20 !important;
+}
+.street-inline iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+}
 
     .street-back {
         position: absolute;
@@ -2731,7 +2731,7 @@
     const embedSrc = `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
     wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
-        <iframe src="${embedSrc}" allowfullscreen loading="lazy" referrerpolicy="no-referrer-when-downgrade" allow="accelerometer; gyroscope; magnetometer; fullscreen"></iframe>
+        <iframe src="${embedSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allow="accelerometer; gyroscope; magnetometer; fullscreen"></iframe>
         <button class="street-open-full" id="streetOpenFullBtn"><i class="fas fa-expand"></i> Open Full Street View</button>
     `;
 }else {
