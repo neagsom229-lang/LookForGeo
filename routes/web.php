@@ -22,20 +22,43 @@ Route::post('/logout', [AuthController::class, 'webLogout']);
 Route::get('/', [HomeController::class, 'index'])->name('home');
 
 // ============================================
-// PROTECTED WEB ROUTES (HTML Views Only)
+// PROTECTED ROUTES (Auth Required)
 // ============================================
 
 Route::middleware(['auth'])->group(function () {
-    // These return HTML pages (not JSON)
+    // ------------------------------------------
+    // HTML VIEWS (return web pages)
+    // ------------------------------------------
     Route::get('/analysis', [AnalysisController::class, 'index'])->name('analysis.index');
     Route::get('/history', [AnalysisController::class, 'history'])->name('analysis.history');
     
-    // Dashboard data (optional, returns JSON for the dashboard view)
+    // Dashboard data (returns JSON for the dashboard view)
     Route::get('/api/dashboard-data', [HomeController::class, 'dashboardData'])->name('api.dashboard-data');
+
+    // ------------------------------------------
+    // API ENDPOINTS (called by JavaScript)
+    // These are protected by session authentication.
+    // ------------------------------------------
+    Route::prefix('api')->group(function () {
+        // ✅ Main upload endpoint – processes the image and returns result directly
+        Route::post('/analyze', [AnalysisController::class, 'analyze'])->name('api.analyze');
+        
+        // 📋 Get a specific result by ID
+        Route::get('/results/{id}', [AnalysisController::class, 'getResults'])->name('api.results');
+        
+        // 🗑️ Delete an analysis record
+        Route::delete('/analyze/{id}', [AnalysisController::class, 'destroy'])->name('api.analyze.destroy');
+        
+        // 🔄 Retry a failed analysis
+        Route::post('/analyze/{id}/retry', [AnalysisController::class, 'retry'])->name('api.analyze.retry');
+        
+        // (Optional) Status polling – uncomment if you switch to async later
+        // Route::get('/analyze/{id}/status', [AnalysisController::class, 'status'])->name('api.analyze.status');
+    });
 });
 
 // ============================================
-// DEBUG ROUTES (Ignore these - safe to keep)
+// DEBUG ROUTES (Safe to keep – ignore these)
 // ============================================
 
 Route::get('/debug/test-api', function () {
