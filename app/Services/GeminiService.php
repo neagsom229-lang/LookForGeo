@@ -13,6 +13,8 @@ class GeminiService
     protected $primaryModel;
     protected $fallbackModel;
     protected $requestTimeout;
+    protected $maxRetries;
+    protected $maxTotalTimeSeconds;
 
     public function __construct()
     {
@@ -22,13 +24,26 @@ class GeminiService
         // primary outage or deprecation doesn't take down both. As of
         // Aug 2026, gemini-3.5-flash is the prior-generation stable Flash.
         $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.5-flash');
-        // Split timeout per-attempt so primary+fallback can't exceed ~50s combined.
-        $this->requestTimeout = config('services.gemini.timeout', 25);
+        $this->requestTimeout = config('services.gemini.timeout', 60);
+        $this->maxRetries = config('services.gemini.retries', 2);
+        // Hard ceiling on total wall-clock time across primary + fallback +
+        // all retries combined. Without this, timeout(60) * retries(2+1)
+        // attempts * two models can add up to ~6 minutes — long past
+        // PHP-FPM's max_execution_time or a reverse-proxy's read timeout,
+        // meaning the client gets a 504 well before this method returns
+        // anything, including the graceful fallback response. If this
+        // analysis genuinely needs more than ~45s of retry budget in your
+        // environment, that's a sign it belongs in a queued job rather
+        // than a synchronous request.
+        $this->maxTotalTimeSeconds = config('services.gemini.max_total_time', 45);
 
         Log::info('GeminiService initialized', [
             'key_set' => !empty($this->apiKey),
             'primary' => $this->primaryModel,
             'fallback' => $this->fallbackModel,
+            'timeout' => $this->requestTimeout,
+            'retries' => $this->maxRetries,
+            'max_total_time' => $this->maxTotalTimeSeconds,
         ]);
     }
 
@@ -55,30 +70,96 @@ class GeminiService
     }
 
     /**
-     * PRIMARY + FALLBACK MODEL
+     * PRIMARY + FALLBACK MODEL (with retries, sharing one time budget)
      */
     private function analyzeImageWithFallback($imageData, $prompt)
     {
-        $result = $this->sendGeminiRequest($this->primaryModel, $imageData, $prompt);
+        // One deadline shared across primary and fallback attempts, rather
+        // than each getting its own independent retry budget — that's
+        // what let the original version's worst case run into minutes.
+        $deadline = microtime(true) + $this->maxTotalTimeSeconds;
+
+        $result = $this->sendGeminiRequestWithRetry($this->primaryModel, $imageData, $prompt, $deadline);
         if (!isset($result['error'])) {
             return $result;
         }
 
-        // Don't bother retrying with fallback if the key itself is missing —
-        // it will fail identically and just waste a request cycle.
         if ($result['error'] === 'api_key_missing') {
+            return $result;
+        }
+
+        if (microtime(true) >= $deadline) {
+            Log::warning('Time budget exhausted before fallback attempt', ['primary_error' => $result['message']]);
             return $result;
         }
 
         Log::warning('Primary model failed, using fallback', ['error' => $result['message']]);
 
-        return $this->sendGeminiRequest($this->fallbackModel, $imageData, $prompt);
+        return $this->sendGeminiRequestWithRetry($this->fallbackModel, $imageData, $prompt, $deadline);
     }
 
     /**
-     * SEND REQUEST TO GEMINI
+     * SEND REQUEST WITH RETRY LOGIC
+     *
+     * Retries on connection-level failures (timeout, connection reset)
+     * AND on 5xx server errors from Gemini, since those are typically
+     * transient too — the original version only retried the former,
+     * which misses the more common "Google's endpoint hiccuped" case.
+     * Never retries 429 (quota) — a rate limit won't clear in the ~1-4s
+     * this backoff window covers, so retrying just burns more of the
+     * shared time budget for no benefit.
      */
-    private function sendGeminiRequest($model, $imageData, $prompt)
+    private function sendGeminiRequestWithRetry($model, $imageData, $prompt, float $deadline)
+    {
+        $backoffMicros = 1_000_000; // start at 1s
+        $maxBackoffMicros = (int) config('services.gemini.max_backoff_ms', 5000) * 1000;
+        $attempt = 0;
+        $lastResult = ['error' => 'unknown', 'message' => 'Request never attempted'];
+
+        while (true) {
+            $attempt++;
+
+            if (microtime(true) >= $deadline) {
+                Log::warning("Gemini [{$model}] time budget exhausted before attempt {$attempt}");
+                return $lastResult;
+            }
+
+            $lastResult = $this->sendSingleGeminiRequest($model, $imageData, $prompt);
+
+            if (!isset($lastResult['error'])) {
+                return $lastResult;
+            }
+
+            $retryable = in_array($lastResult['error'], ['timeout', 'connection_error'], true)
+                || ($lastResult['error'] === 'api_error' && ($lastResult['status'] ?? 0) >= 500);
+
+            if (!$retryable || $attempt > $this->maxRetries) {
+                return $lastResult;
+            }
+
+            // Don't sleep past the deadline just to make an attempt we know we'll skip.
+            $remaining = $deadline - microtime(true);
+            if ($remaining <= 0) {
+                return $lastResult;
+            }
+            $sleepMicros = (int) min($backoffMicros, $remaining * 1_000_000);
+
+            Log::warning("Gemini [{$model}] attempt {$attempt} failed, retrying in " . round($sleepMicros / 1_000_000, 1) . 's', [
+                'error' => $lastResult['message'],
+            ]);
+
+            usleep(max(0, $sleepMicros));
+            // Full jitter would be more correct under real concurrency, but
+            // a capped exponential backoff is enough here given the low
+            // retry count and shared deadline already bounding worst case.
+            $backoffMicros = min($backoffMicros * 2, $maxBackoffMicros);
+        }
+    }
+
+    /**
+     * SEND A SINGLE REQUEST TO GEMINI (no retry logic — that lives in the caller)
+     */
+    private function sendSingleGeminiRequest($model, $imageData, $prompt)
     {
         try {
             if (empty($this->apiKey)) {
@@ -105,7 +186,7 @@ class GeminiService
                 ],
                 'generationConfig' => [
                     'temperature' => 0.2,
-                    'maxOutputTokens' => 8192,
+                    'maxOutputTokens' => 4096,
                     'topP' => 0.95,
                     'topK' => 40,
                 ],
@@ -114,12 +195,12 @@ class GeminiService
             $response = Http::timeout($this->requestTimeout)->post($url, $payload);
 
             if ($response->status() === 429) {
-                return ['error' => 'quota_exceeded', 'message' => 'API quota exceeded. Try again later.'];
+                return ['error' => 'quota_exceeded', 'message' => 'API quota exceeded. Try again later.', 'status' => 429];
             }
 
             if (!$response->successful()) {
                 Log::error("Gemini API error (status {$response->status()}): " . $response->body());
-                return ['error' => 'api_error', 'message' => "HTTP {$response->status()}"];
+                return ['error' => 'api_error', 'message' => "HTTP {$response->status()}", 'status' => $response->status()];
             }
 
             $data = $response->json();
@@ -142,7 +223,7 @@ class GeminiService
             return ['error' => 'timeout', 'message' => $e->getMessage()];
         } catch (\Exception $e) {
             Log::error('Gemini request error: ' . $e->getMessage());
-            return ['error' => 'request_exception', 'message' => $e->getMessage()];
+            return ['error' => 'connection_error', 'message' => $e->getMessage()];
         }
     }
 
@@ -617,7 +698,8 @@ PROMPT;
         $maxDimension = (int) config('services.gemini.max_image_dimension', 1536);
         $sizeThresholdBytes = (int) config('services.gemini.compress_threshold_bytes', 1_500_000);
 
-        if (strlen($imageData) <= $sizeThresholdBytes) {
+        $originalSize = strlen($imageData);
+        if ($originalSize <= $sizeThresholdBytes) {
             return $imageData;
         }
 
@@ -649,7 +731,19 @@ PROMPT;
             imagedestroy($image);
             imagedestroy($resized);
 
-            return $compressed ?: $imageData;
+            if (!$compressed) {
+                return $imageData;
+            }
+
+            $compressedSize = strlen($compressed);
+            Log::info('Gemini image compressed', [
+                'original_kb' => round($originalSize / 1024),
+                'compressed_kb' => round($compressedSize / 1024),
+                'reduction_pct' => $originalSize > 0 ? round((1 - $compressedSize / $originalSize) * 100) : 0,
+                'dimensions' => "{$width}x{$height} -> {$newWidth}x{$newHeight}",
+            ]);
+
+            return $compressed;
         } catch (\Exception $e) {
             Log::warning('Image compression failed, sending original: ' . $e->getMessage());
             return $imageData;
