@@ -2728,18 +2728,13 @@
         const fullUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
 
         if (GOOGLE_MAPS_EMBED_KEY) {
-            // Real, photographic Street View — the officially supported embed.
-            // The Maps Embed API is the only reliable way to show an actual
-            // panorama inline: Google blocks the classic maps.google.com page
-            // (and the old undocumented ?output=svembed trick) from loading
-            // inside an iframe on other sites, so those approaches render
-            // blank instead of a real photo, which is what was happening here.
-            const embedSrc = `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
-            wrap.innerHTML = `
+    const embedSrc = `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
+    wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
-        <iframe src="${embedSrc}" allowfullscreen loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
-        <button class="street-open-full" id="streetOpenFullBtn"><i class="fas fa-expand"></i> Open Full Street View</button>`;
-        } else {
+        <iframe src="${embedSrc}" allowfullscreen loading="lazy" referrerpolicy="no-referrer-when-downgrade" allow="accelerometer; gyroscope; magnetometer; fullscreen"></iframe>
+        <button class="street-open-full" id="streetOpenFullBtn"><i class="fas fa-expand"></i> Open Full Street View</button>
+    `;
+}else {
             // No API key configured yet — rather than show a blank/broken
             // iframe, be upfront about it and take the person straight to
             // the real thing in a new tab. See the GOOGLE_MAPS_EMBED_KEY
