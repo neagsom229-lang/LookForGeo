@@ -136,18 +136,18 @@ Route::get('/test-gemini', function () {
 // ============================================
 // TEMPORARY DB FIX ROUTE (remove after use)
 // ============================================
-Route::get('/fix-db', function () {
-    try {
-        \DB::statement('ALTER TABLE geo_analyses ADD COLUMN IF NOT EXISTS user_id BIGINT NULL;');
-    } catch (\Exception $e) {}
+// Route::get('/fix-db', function () {
+//     try {
+//         \DB::statement('ALTER TABLE geo_analyses ADD COLUMN IF NOT EXISTS user_id BIGINT NULL;');
+//     } catch (\Exception $e) {}
 
-    try {
-        \DB::statement('ALTER TABLE geo_analyses ADD CONSTRAINT geo_analyses_user_id_foreign FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;');
-    } catch (\Exception $e) {}
+//     try {
+//         \DB::statement('ALTER TABLE geo_analyses ADD CONSTRAINT geo_analyses_user_id_foreign FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;');
+//     } catch (\Exception $e) {}
 
-    try {
-        \DB::statement('CREATE INDEX IF NOT EXISTS geo_analyses_user_id_index ON geo_analyses(user_id);');
-    } catch (\Exception $e) {}
+//     try {
+//         \DB::statement('CREATE INDEX IF NOT EXISTS geo_analyses_user_id_index ON geo_analyses(user_id);');
+//     } catch (\Exception $e) {}
 
-    return '✅ Database fixed! user_id column added successfully.';
-});
+//     return '✅ Database fixed! user_id column added successfully.';
+// });
