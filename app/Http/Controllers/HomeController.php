@@ -164,36 +164,29 @@ class HomeController extends Controller
      * Priority: image_url > image_path (local) > result.image_url > null
      */
     private function getImageUrl($analysis)
-    {
-        // 1. If the model has a direct image_url field (Cloudinary or full asset URL)
-        if (!empty($analysis->image_url)) {
-            // If it's already a full URL, return it
-            if (filter_var($analysis->image_url, FILTER_VALIDATE_URL)) {
-                return $analysis->image_url;
-            }
-            // Otherwise, assume it's a relative path and convert to asset
-            return asset($analysis->image_url);
-        }
-
-        // 2. Fallback to image_path
-        if (!empty($analysis->image_path)) {
-            // If it's already a full URL, return it
-            if (filter_var($analysis->image_path, FILTER_VALIDATE_URL)) {
-                return $analysis->image_path;
-            }
-            // Otherwise, assume it's a storage path
-            return asset('storage/' . $analysis->image_path);
-        }
-
-        // 3. Check the result JSON for an image_url
-        $result = $this->parseResult($analysis->result);
-        if (!empty($result['image_url']) && filter_var($result['image_url'], FILTER_VALIDATE_URL)) {
-            return $result['image_url'];
-        }
-
-        // 4. If everything fails, return a placeholder
-        return null;
+{
+    // 1. FIRST: Check the result JSON for a Cloudinary URL (most reliable)
+    $result = $this->parseResult($analysis->result);
+    if (!empty($result['image_url']) && filter_var($result['image_url'], FILTER_VALIDATE_URL)) {
+        return $result['image_url'];
     }
+
+    // 2. If the model has a direct image_url field (Cloudinary or full asset URL)
+    if (!empty($analysis->image_url) && filter_var($analysis->image_url, FILTER_VALIDATE_URL)) {
+        return $analysis->image_url;
+    }
+
+    // 3. Fallback to image_path
+    if (!empty($analysis->image_path)) {
+        if (filter_var($analysis->image_path, FILTER_VALIDATE_URL)) {
+            return $analysis->image_path;
+        }
+        return asset('storage/' . $analysis->image_path);
+    }
+
+    // 4. If everything fails, return null
+    return null;
+}
 
     // ============================================================
     // Optional: Clear cache after analysis
