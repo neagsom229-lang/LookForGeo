@@ -211,18 +211,19 @@ class GeoAnalysis extends Model
     }
 
     public function markAsCompleted(array $result): void
-    {
-        $this->update([
-            'status' => 'completed',
-            'stage' => 4,
-            'stage_label' => self::STAGES[4],
-            'progress' => 100,
-            'result' => $result,
-            'finished_at' => now(),
-            'error' => null,
-        ]);
-        $this->clearCache();
-    }
+{
+    $this->update([
+        'status' => 'completed',
+        'stage' => 4,
+        'stage_label' => self::STAGES[4],
+        'progress' => 100,
+        'result' => $result,
+        'image_url' => $result['image_url'] ?? $this->image_url, // ✅ update column
+        'finished_at' => now(),
+        'error' => null,
+    ]);
+    $this->clearCache();
+}
 
     public function markAsFailed(string $error): void
     {
