@@ -51,8 +51,8 @@ services:
         value: database
       # ⚠️ REPLACE THE VALUES BELOW WITH YOUR ACTUAL KEYS (same as above)
       - key: GEMINI_API_KEY
-        value: your_actual_gemini_key
+        value: AQ.Ab8RN6L7ZbRFac-xaVyZtn66co8_u6OsG3jntfLxNMFVF-ekcg
       - key: GOOGLE_MAPS_EMBED_KEY
-        value: your_actual_google_maps_key
+        value: AIzaSyBcxirNN0kk0hiMbbPM-wH7o9wRX5Y8MS8
       - key: CLOUDINARY_URL
         value: cloudinary://189951824121921:rAj6ViiDqGd7oWKQsRQdMho6nLw/hyv3laps
