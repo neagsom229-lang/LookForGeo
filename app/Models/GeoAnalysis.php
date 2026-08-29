@@ -332,12 +332,22 @@ class GeoAnalysis extends Model
     }
 
     public function getImageUrlDisplayAttribute()
-    {
-        if (!empty($this->image_url)) {
+{
+    // 1. FIRST: Check the result JSON for a Cloudinary URL
+    $result = $this->result;
+    if (is_string($result)) {
+        $result = json_decode($result, true);
+    }
+    if (!empty($result['image_url']) && filter_var($result['image_url'], FILTER_VALIDATE_URL)) {
+        return $result['image_url'];
+    }
+
+    // 2. If the model has a direct image_url column (Cloudinary or full asset URL)
+    if (!empty($this->image_url) && filter_var($this->image_url, FILTER_VALIDATE_URL)) {
         return $this->image_url;
     }
 
-    // 2. Fallback to image_path
+    // 3. Fallback to image_path
     if (!empty($this->image_path)) {
         if (filter_var($this->image_path, FILTER_VALIDATE_URL)) {
             return $this->image_path;
@@ -345,11 +355,7 @@ class GeoAnalysis extends Model
         return asset('storage/' . $this->image_path);
     }
 
-    // 3. Check the result JSON for an image_url
-    $result = $this->result;
-    if (is_string($result)) {
-        $result = json_decode($result, true);
-    }
-    return $result['image_url'] ?? null;
-    }
+    // 4. If everything fails, return null
+    return null;
+}
 }
