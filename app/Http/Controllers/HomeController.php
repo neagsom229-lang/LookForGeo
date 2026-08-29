@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Landmark;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class HomeController extends Controller
 {
@@ -44,7 +45,7 @@ class HomeController extends Controller
             return response()->json($data);
 
         } catch (\Exception $e) {
-            \Log::error('Dashboard error: ' . $e->getMessage());
+            Log::error('Dashboard error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Error loading dashboard data: ' . $e->getMessage(),
@@ -95,7 +96,8 @@ class HomeController extends Controller
                 'city' => $result['city'] ?? '',
                 'country' => $result['country'] ?? '',
                 'confidence' => $result['confidence'] ?? 0,
-                'image_path' => $imageUrl,
+                'image_path' => $imageUrl,       // ✅ Full URL (Cloudinary or asset)
+                'image_url' => $imageUrl,        // ✅ Also provide as 'image_url' for flexibility
             ];
         });
 
@@ -158,27 +160,39 @@ class HomeController extends Controller
     }
 
     /**
-     * Get the correct image URL for display
+     * Get the correct image URL for display – ALWAYS returns a full, absolute URL.
+     * Priority: image_url > image_path (local) > result.image_url > null
      */
     private function getImageUrl($analysis)
     {
-        // If we have a direct image_url field, use it
+        // 1. If the model has a direct image_url field (Cloudinary or full asset URL)
         if (!empty($analysis->image_url)) {
-            return $analysis->image_url;
+            // If it's already a full URL, return it
+            if (filter_var($analysis->image_url, FILTER_VALIDATE_URL)) {
+                return $analysis->image_url;
+            }
+            // Otherwise, assume it's a relative path and convert to asset
+            return asset($analysis->image_url);
         }
 
-        // Fallback to image_path
+        // 2. Fallback to image_path
         if (!empty($analysis->image_path)) {
-            if (str_starts_with($analysis->image_path, 'http://') || str_starts_with($analysis->image_path, 'https://')) {
+            // If it's already a full URL, return it
+            if (filter_var($analysis->image_path, FILTER_VALIDATE_URL)) {
                 return $analysis->image_path;
             }
-            // Local storage path
-            return '/storage/' . $analysis->image_path;
+            // Otherwise, assume it's a storage path
+            return asset('storage/' . $analysis->image_path);
         }
 
-        // If result contains image_url
+        // 3. Check the result JSON for an image_url
         $result = $this->parseResult($analysis->result);
-        return $result['image_url'] ?? null;
+        if (!empty($result['image_url']) && filter_var($result['image_url'], FILTER_VALIDATE_URL)) {
+            return $result['image_url'];
+        }
+
+        // 4. If everything fails, return a placeholder
+        return null;
     }
 
     // ============================================================

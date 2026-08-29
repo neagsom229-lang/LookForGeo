@@ -1993,7 +1993,11 @@
                 if (data.recent && data.recent.length > 0) {
                     recentGrid.innerHTML = data.recent.map(item => {
                         let imageUrl = null;
-                        if (item.image_path) {
+                        // Prefer image_url (full URL from Cloudinary or asset)
+                        if (item.image_url) {
+                            imageUrl = item.image_url;
+                        } else if (item.image_path) {
+                            // If image_path is a full URL, use it directly; otherwise assume it's relative
                             if (item.image_path.startsWith('http://') || item.image_path.startsWith(
                                     'https://')) {
                                 imageUrl = item.image_path;

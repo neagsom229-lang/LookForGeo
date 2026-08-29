@@ -332,6 +332,23 @@ class GeoAnalysis extends Model
 
     public function getImageUrlDisplayAttribute()
     {
-        return $this->image_url_display;
+        if (!empty($this->image_url)) {
+        return $this->image_url;
+    }
+
+    // 2. Fallback to image_path
+    if (!empty($this->image_path)) {
+        if (filter_var($this->image_path, FILTER_VALIDATE_URL)) {
+            return $this->image_path;
+        }
+        return asset('storage/' . $this->image_path);
+    }
+
+    // 3. Check the result JSON for an image_url
+    $result = $this->result;
+    if (is_string($result)) {
+        $result = json_decode($result, true);
+    }
+    return $result['image_url'] ?? null;
     }
 }

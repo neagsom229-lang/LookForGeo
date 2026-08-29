@@ -594,7 +594,7 @@
             $country = $result['country'] ?? $analysis->country ?? '';
             $confidence = $result['confidence'] ?? $analysis->confidence ?? 0;
             $status = $analysis->status ?? 'pending';
-            $imageUrl = $analysis->image_url ?? null;
+            $imageUrl = $analysis->image_url_display ?? null;
             $createdAt = $analysis->created_at ?? null;
             @endphp
 
