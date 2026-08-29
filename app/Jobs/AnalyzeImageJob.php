@@ -90,9 +90,23 @@ class AnalyzeImageJob implements ShouldQueue
 
         $aiResult = $geminiService->analyzeGeolocation($imageData, $metadata);
 
-        // ✅ Check for AI error
+        // 🚨 NEW: Check for 503 (service unavailable) – release job for retry
+        if (isset($aiResult['error']) && str_contains($aiResult['message'] ?? '', '503')) {
+            Log::warning('⚠️ Gemini service unavailable (503), releasing job for retry...');
+            $this->release(30); // retry after 30 seconds
+            return;
+        }
+
+        // ✅ Check for other AI errors (including is_error flag)
         if (isset($aiResult['is_error']) && $aiResult['is_error'] === true) {
             $errorMsg = $aiResult['error_message'] ?? 'AI analysis failed without specific message';
+            Log::error('❌ Gemini API returned error: ' . $errorMsg);
+            throw new \Exception($errorMsg);
+        }
+
+        // Also check if the result is an array with an 'error' key (non-503)
+        if (isset($aiResult['error'])) {
+            $errorMsg = $aiResult['message'] ?? 'Unknown AI error';
             Log::error('❌ Gemini API returned error: ' . $errorMsg);
             throw new \Exception($errorMsg);
         }
@@ -107,11 +121,12 @@ class AnalyzeImageJob implements ShouldQueue
         $cloudinaryUrl = $this->uploadToCloudinary($analysis);
         Log::info('☁️ Cloudinary upload result', ['url' => $cloudinaryUrl ?? 'none']);
 
-        // ✅ STEP 6: Complete
+        // ✅ STEP 6: Complete – ensure image_url is set
         $finalResult = array_merge($aiResult, [
             'image_url' => $cloudinaryUrl ?? $analysis->image_url,
         ]);
 
+        // markAsCompleted() now updates the image_url column as well
         $analysis->markAsCompleted($finalResult);
         Log::info('🎉 Analysis COMPLETED for ID: ' . $this->analysisId);
 
