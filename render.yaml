@@ -2,7 +2,7 @@ services:
   - type: web
     name: LookForGeo
     env: php
-    buildCommand: composer install --no-dev --optimize-autoloader && php artisan migrate --force
+    buildCommand: composer install --no-dev --optimize-autoloader && php artisan migrate --force && php artisan storage:link
     startCommand: php artisan serve --host=0.0.0.0 --port=$PORT
     envVars:
       - key: APP_ENV
@@ -21,12 +21,13 @@ services:
         value: file
       - key: QUEUE_CONNECTION
         value: database
+      # ⚠️ REPLACE THE VALUES BELOW WITH YOUR ACTUAL KEYS
       - key: GEMINI_API_KEY
-        sync: false
+        value: your_actual_gemini_key
       - key: GOOGLE_MAPS_EMBED_KEY
-        sync: false
+        value: your_actual_google_maps_key
       - key: CLOUDINARY_URL
-        sync: false
+        value: cloudinary://189951824121921:rAj6ViiDqGd7oWKQsRQdMho6nLw/hyv3laps
 
   - type: worker
     name: queue-worker
@@ -48,9 +49,10 @@ services:
         value: file
       - key: QUEUE_CONNECTION
         value: database
+      # ⚠️ REPLACE THE VALUES BELOW WITH YOUR ACTUAL KEYS (same as above)
       - key: GEMINI_API_KEY
-        sync: false
+        value: your_actual_gemini_key
       - key: GOOGLE_MAPS_EMBED_KEY
-        sync: false
+        value: your_actual_google_maps_key
       - key: CLOUDINARY_URL
-        sync: false
+        value: cloudinary://189951824121921:rAj6ViiDqGd7oWKQsRQdMho6nLw/hyv3laps
