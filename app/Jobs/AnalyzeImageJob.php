@@ -19,7 +19,7 @@ class AnalyzeImageJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     // Retry configuration – 3 attempts with exponential backoff
-    public int $tries = 3;
+    public int $tries = 5;
     public array $backoff = [10, 30, 60];
     public int $timeout = 180;
 
