@@ -2667,7 +2667,11 @@
         // labels (drawn from the returned tags when available) meant to evoke
         // a vision pass over the image, not literal per-object coordinates.
         if (DOM.photoFrame) {
-            const imgUrl = uploadedImageURL || sessionStorage.getItem('uploadedImage');
+            let imgUrl = uploadedImageURL || sessionStorage.getItem('uploadedImage');
+// If the URL is local (starts with /storage/) and the result contains a Cloudinary URL, use that
+if (imgUrl && imgUrl.includes('/storage/') && data.result && data.result.image_url) {
+    imgUrl = data.result.image_url;
+}
             DOM.photoFrame.innerHTML = imgUrl ?
                 `<img src="${imgUrl}" alt="source">` :
                 `<div class="no-photo"><i class="fas fa-image"></i></div>`;
