@@ -1521,8 +1521,7 @@
     // above showStreetView() further down). Put it here, or better, render it
     // from a Blade variable — e.g. '{{ config('services.google_maps.embed_key') }}'
     // — so it isn't hardcoded into a public file.
-    const GOOGLE_MAPS_EMBED_KEY = '{{ config('
-    services.google_maps.embed_key ') }}';
+    const GOOGLE_MAPS_EMBED_KEY = '{{ config('services.google_maps.embed_key') }}';
 
     const DARK_TILE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
     const DARK_ATTR = '&copy; <a href="https://carto.com/attributions">CARTO</a>';
