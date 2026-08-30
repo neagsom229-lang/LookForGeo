@@ -2,7 +2,7 @@ services:
   - type: web
     name: LookForGeo
     env: php
-    buildCommand: composer install --no-dev --optimize-autoloader && composer dump-autoload && php artisan route:clear && php artisan config:clear && php artisan optimize && php artisan migrate --force && php artisan storage:link
+    buildCommand: composer install --no-dev --optimize-autoloader && php artisan migrate --force && php artisan storage:link && php artisan config:cache && php artisan route:cache && php artisan view:cache && chmod -R 775 storage bootstrap/cache
     startCommand: php artisan serve --host=0.0.0.0 --port=$PORT
     envVars:
       - key: APP_ENV
@@ -19,9 +19,10 @@ services:
         value: file
       - key: SESSION_DRIVER
         value: file
+      # IMPORTANT: Set to database so the Worker service picks it up!
       - key: QUEUE_CONNECTION
         value: database
-      # Secret keys – set actual values in Render Dashboard (Environment → Environment Variables)
+      # Secret keys – set actual values in Render Dashboard
       - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_MAPS_EMBED_KEY
@@ -32,8 +33,8 @@ services:
   - type: worker
     name: queue-worker
     env: php
-    buildCommand: composer install --no-dev --optimize-autoloader && composer dump-autoload && php artisan route:clear && php artisan config:clear && php artisan optimize
-    startCommand: php artisan queue:work
+    buildCommand: composer install --no-dev --optimize-autoloader && chmod -R 775 storage bootstrap/cache && php artisan config:cache
+    startCommand: php artisan queue:work --tries=3 --timeout=90
     envVars:
       - key: APP_ENV
         value: production
@@ -49,7 +50,6 @@ services:
         value: file
       - key: QUEUE_CONNECTION
         value: database
-      # Secret keys – set actual values in Render Dashboard (same as web service)
       - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_MAPS_EMBED_KEY
