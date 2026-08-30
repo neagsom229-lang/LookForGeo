@@ -32,8 +32,8 @@ services:
   - type: worker
     name: queue-worker
     env: php
-    buildCommand: composer install --no-dev --optimize-autoloader && composer dump-autoload && php artisan route:clear && php artisan config:clear
-    startCommand: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    buildCommand: composer install --no-dev --optimize-autoloader && composer dump-autoload && php artisan route:clear && php artisan config:clear && php artisan optimize
+    startCommand: php artisan queue:work
     envVars:
       - key: APP_ENV
         value: production
