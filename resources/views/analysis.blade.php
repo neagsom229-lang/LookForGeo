@@ -47,7 +47,10 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
-        *, *::before, *::after {
+
+        *,
+        *::before,
+        *::after {
             animation-duration: 0.001ms !important;
             animation-iteration-count: 1 !important;
             transition-duration: 0.001ms !important;
@@ -705,17 +708,18 @@
 
     /* Street View inline */
     .street-inline {
-    position: absolute;
-    inset: 0;
-    background: #0a0a12;
-    z-index: 20 !important;
-}
-.street-inline iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
-    display: block;
-}
+        position: absolute;
+        inset: 0;
+        background: #0a0a12;
+        z-index: 20 !important;
+    }
+
+    .street-inline iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        display: block;
+    }
 
     .street-back {
         position: absolute;
@@ -998,7 +1002,9 @@
         transition: color 0.2s ease;
     }
 
-    .mode-switch-label.left { color: var(--text); }
+    .mode-switch-label.left {
+        color: var(--text);
+    }
 
     .mode-switch-row:has(#streetViewSwitch:checked) .mode-switch-label.right {
         color: var(--text);
@@ -1028,7 +1034,7 @@
         height: 22px;
         border-radius: 20px;
         background: rgba(255, 255, 255, 0.12);
-        border: 1px solid var(--border-light, rgba(255,255,255,0.15));
+        border: 1px solid var(--border-light, rgba(255, 255, 255, 0.15));
         position: relative;
         transition: background 0.25s ease;
     }
@@ -1044,15 +1050,15 @@
         transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
-    .mode-switch input:checked + .mode-switch-track {
+    .mode-switch input:checked+.mode-switch-track {
         background: var(--success);
     }
 
-    .mode-switch input:checked + .mode-switch-track .mode-switch-thumb {
+    .mode-switch input:checked+.mode-switch-track .mode-switch-thumb {
         transform: translateX(18px);
     }
 
-    .mode-switch input:focus-visible + .mode-switch-track {
+    .mode-switch input:focus-visible+.mode-switch-track {
         outline: 2px solid var(--success);
         outline-offset: 2px;
     }
@@ -1104,8 +1110,15 @@
     }
 
     @keyframes chipIn {
-        from { opacity: 0; transform: translateY(3px); }
-        to { opacity: 1; transform: translateY(0); }
+        from {
+            opacity: 0;
+            transform: translateY(3px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 
     .pane-toggle-row {
@@ -1435,8 +1448,10 @@
                     </div>
 
                     <div class="action-row">
-                        <button class="action-primary" id="homeBtn" title="Back to home"><i class="fas fa-house"></i> Home</button>
-                        <button id="reuploadBtn" title="Analyze another photo"><i class="fas fa-arrow-up-from-bracket"></i> Reupload</button>
+                        <button class="action-primary" id="homeBtn" title="Back to home"><i class="fas fa-house"></i>
+                            Home</button>
+                        <button id="reuploadBtn" title="Analyze another photo"><i
+                                class="fas fa-arrow-up-from-bracket"></i> Reupload</button>
                         <button id="saveReportBtn" title="Save report"><i class="fas fa-folder"></i></button>
                         <button id="shareBtn" title="Share"><i class="fas fa-share-nodes"></i></button>
                     </div>
@@ -1460,10 +1475,13 @@
                         <div class="no-photo"><i class="fas fa-image"></i></div>
                     </div>
                     <div class="photo-icon-row">
-                        <button id="viewFullSizeBtn" title="View full size"><i class="fas fa-magnifying-glass"></i></button>
+                        <button id="viewFullSizeBtn" title="View full size"><i
+                                class="fas fa-magnifying-glass"></i></button>
                         <button id="fullscreenPhotoBtn" title="Fullscreen"><i class="fas fa-expand"></i></button>
-                        <button id="reverseSearchBtn" title="Reverse image search"><i class="fas fa-magnifying-glass-location"></i></button>
-                        <button id="openOriginalBtn" title="Open original"><i class="fas fa-arrow-up-right-from-square"></i></button>
+                        <button id="reverseSearchBtn" title="Reverse image search"><i
+                                class="fas fa-magnifying-glass-location"></i></button>
+                        <button id="openOriginalBtn" title="Open original"><i
+                                class="fas fa-arrow-up-right-from-square"></i></button>
                     </div>
                     <div class="tag-pills" id="tagPills"></div>
                     <div class="reasoning-block">
@@ -1503,7 +1521,8 @@
     // above showStreetView() further down). Put it here, or better, render it
     // from a Blade variable — e.g. '{{ config('services.google_maps.embed_key') }}'
     // — so it isn't hardcoded into a public file.
-    const GOOGLE_MAPS_EMBED_KEY = '{{ config('services.google_maps.embed_key') }}';
+    const GOOGLE_MAPS_EMBED_KEY = '{{ config('
+    services.google_maps.embed_key ') }}';
 
     const DARK_TILE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
     const DARK_ATTR = '&copy; <a href="https://carto.com/attributions">CARTO</a>';
@@ -1882,70 +1901,77 @@
             ],
         });
         L.tileLayer(DARK_TILE, {
-    attribution: DARK_ATTR,
-    maxZoom: 19,
-    minZoom: 1,
-    noWrap: true,
-    bounds: [[-90, -180], [90, 180]]
-}).addTo(earthMapInstance);
+            attribution: DARK_ATTR,
+            maxZoom: 19,
+            minZoom: 1,
+            noWrap: true,
+            bounds: [
+                [-90, -180],
+                [90, 180]
+            ]
+        }).addTo(earthMapInstance);
         setTimeout(() => {
             if (earthMapInstance) earthMapInstance.invalidateSize();
         }, 300);
     }
 
     function flyEarthTo(lat, lng, zoom, duration = 1600) {
-    return new Promise(resolve => {
-        // ----- INTELLIGENT COORDINATE VALIDATION -----
-        function isValidCoordinate(lat, lng) {
-            const latNum = parseFloat(lat);
-            const lngNum = parseFloat(lng);
-            return !isNaN(latNum) && !isNaN(lngNum) && 
-                   Math.abs(latNum) <= 90 && Math.abs(lngNum) <= 180 &&
-                   latNum !== 0 && lngNum !== 0; // 0,0 is likely a fallback, not real
-        }
+        return new Promise(resolve => {
+            // ----- INTELLIGENT COORDINATE VALIDATION -----
+            function isValidCoordinate(lat, lng) {
+                const latNum = parseFloat(lat);
+                const lngNum = parseFloat(lng);
+                return !isNaN(latNum) && !isNaN(lngNum) &&
+                    Math.abs(latNum) <= 90 && Math.abs(lngNum) <= 180 &&
+                    latNum !== 0 && lngNum !== 0; // 0,0 is likely a fallback, not real
+            }
 
-        // ----- SANITISE & FALLBACK -----
-        let latNum = parseFloat(lat);
-        let lngNum = parseFloat(lng);
+            // ----- SANITISE & FALLBACK -----
+            let latNum = parseFloat(lat);
+            let lngNum = parseFloat(lng);
 
-        // If invalid, use a safe fallback (Eiffel Tower, Paris)
-        if (!isValidCoordinate(latNum, lngNum)) {
-            console.warn('⚠️ flyEarthTo: Invalid coordinates received', { lat, lng });
-            console.warn('   → Using fallback: Eiffel Tower, Paris (48.8584, 2.2945)');
-            latNum = 48.8584;
-            lngNum = 2.2945;
-            zoom = zoom || 12;
-        }
+            // If invalid, use a safe fallback (Eiffel Tower, Paris)
+            if (!isValidCoordinate(latNum, lngNum)) {
+                console.warn('⚠️ flyEarthTo: Invalid coordinates received', {
+                    lat,
+                    lng
+                });
+                console.warn('   → Using fallback: Eiffel Tower, Paris (48.8584, 2.2945)');
+                latNum = 48.8584;
+                lngNum = 2.2945;
+                zoom = zoom || 12;
+            }
 
-        // Clamp zoom to safe range
-        const safeZoom = Math.min(Math.max(zoom || 2, 1), 18);
+            // Clamp zoom to safe range
+            const safeZoom = Math.min(Math.max(zoom || 2, 1), 18);
 
-        // ----- EXECUTE FLY -----
-        if (!earthMapInstance) {
-            console.warn('⚠️ earthMapInstance not initialized');
-            resolve();
-            return;
-        }
+            // ----- EXECUTE FLY -----
+            if (!earthMapInstance) {
+                console.warn('⚠️ earthMapInstance not initialized');
+                resolve();
+                return;
+            }
 
-        // Clear any existing probe markers to avoid clutter
-        try {
-            earthMapInstance.eachLayer(l => {
-                if (l instanceof L.Marker && l.options?.probeMarker) {
-                    earthMapInstance.removeLayer(l);
-                }
+            // Clear any existing probe markers to avoid clutter
+            try {
+                earthMapInstance.eachLayer(l => {
+                    if (l instanceof L.Marker && l.options?.probeMarker) {
+                        earthMapInstance.removeLayer(l);
+                    }
+                });
+            } catch (e) {
+                /* ignore */ }
+
+            // Perform the flyTo
+            earthMapInstance.flyTo([latNum, lngNum], safeZoom, {
+                duration: duration / 1000,
+                easeLinearity: 0.25
             });
-        } catch (e) { /* ignore */ }
 
-        // Perform the flyTo
-        earthMapInstance.flyTo([latNum, lngNum], safeZoom, {
-            duration: duration / 1000,
-            easeLinearity: 0.25
+            // Resolve after animation completes
+            setTimeout(resolve, duration + 100);
         });
-
-        // Resolve after animation completes
-        setTimeout(resolve, duration + 100);
-    });
-}
+    }
 
     function addProbeMarker(lat, lng, isTarget = false) {
         if (!earthMapInstance) return;
@@ -2315,73 +2341,77 @@
 
     // ========== CINEMATIC TARGET REVEAL ==========
     // ========== CINEMATIC TARGET REVEAL ==========
-async function revealTarget(lat, lng, name) {
-    analysisComplete = true;
+    async function revealTarget(lat, lng, name) {
+        analysisComplete = true;
 
-    // ----- SANITISE COORDINATES -----
-    function isValidCoordinate(lat, lng) {
-        const latNum = parseFloat(lat);
-        const lngNum = parseFloat(lng);
-        return !isNaN(latNum) && !isNaN(lngNum) && 
-               Math.abs(latNum) <= 90 && Math.abs(lngNum) <= 180 &&
-               latNum !== 0 && lngNum !== 0;
+        // ----- SANITISE COORDINATES -----
+        function isValidCoordinate(lat, lng) {
+            const latNum = parseFloat(lat);
+            const lngNum = parseFloat(lng);
+            return !isNaN(latNum) && !isNaN(lngNum) &&
+                Math.abs(latNum) <= 90 && Math.abs(lngNum) <= 180 &&
+                latNum !== 0 && lngNum !== 0;
+        }
+
+        let latNum = parseFloat(lat);
+        let lngNum = parseFloat(lng);
+
+        // If invalid, use fallback
+        if (!isValidCoordinate(latNum, lngNum)) {
+            console.warn('⚠️ revealTarget: Invalid coordinates, using fallback');
+            console.warn('   → Received:', {
+                lat,
+                lng,
+                name
+            });
+            latNum = 48.8584; // Eiffel Tower
+            lngNum = 2.2945;
+            name = name || 'Unknown Location (fallback)';
+        }
+
+        // Clamp to safe ranges
+        latNum = Math.min(Math.max(latNum, -90), 90);
+        lngNum = Math.min(Math.max(lngNum, -180), 180);
+
+        // ----- CONTINUE WITH REVEAL -----
+        showFlatMapMode();
+        await sleep(300);
+
+        // Clear existing probes
+        if (earthMapInstance) {
+            earthMapInstance.eachLayer(l => {
+                if (l instanceof L.Marker && l.options?.probeMarker) {
+                    earthMapInstance.removeLayer(l);
+                }
+            });
+        }
+
+        if (DOM.mapStatusText) DOM.mapStatusText.textContent = `🎯 Target acquired — ${name}...`;
+        if (DOM.pcScanning) DOM.pcScanning.textContent = `// PINPOINTING ${name.toUpperCase()}`;
+
+        // Stage 1: Global view
+        await flyEarthTo(latNum, lngNum, 2.5, 1400);
+        await sleep(500);
+
+        // Stage 2: Add marker
+        addProbeMarker(latNum, lngNum, true);
+
+        // Stage 3: Continental approach
+        await flyEarthTo(latNum, lngNum, 6, 1600);
+        await sleep(500);
+
+        // Stage 4: Regional approach
+        await flyEarthTo(latNum, lngNum, 11, 1500);
+        await sleep(500);
+
+        // Stage 5: Final landing
+        await flyEarthTo(latNum, lngNum, 15.5, 1700);
+        await sleep(900);
+
+        if (DOM.mapStatusText) {
+            DOM.mapStatusText.innerHTML = `<span class="target-found">🎯 ${name} — CONFIRMED!</span>`;
+        }
     }
-
-    let latNum = parseFloat(lat);
-    let lngNum = parseFloat(lng);
-
-    // If invalid, use fallback
-    if (!isValidCoordinate(latNum, lngNum)) {
-        console.warn('⚠️ revealTarget: Invalid coordinates, using fallback');
-        console.warn('   → Received:', { lat, lng, name });
-        latNum = 48.8584;  // Eiffel Tower
-        lngNum = 2.2945;
-        name = name || 'Unknown Location (fallback)';
-    }
-
-    // Clamp to safe ranges
-    latNum = Math.min(Math.max(latNum, -90), 90);
-    lngNum = Math.min(Math.max(lngNum, -180), 180);
-
-    // ----- CONTINUE WITH REVEAL -----
-    showFlatMapMode();
-    await sleep(300);
-
-    // Clear existing probes
-    if (earthMapInstance) {
-        earthMapInstance.eachLayer(l => {
-            if (l instanceof L.Marker && l.options?.probeMarker) {
-                earthMapInstance.removeLayer(l);
-            }
-        });
-    }
-
-    if (DOM.mapStatusText) DOM.mapStatusText.textContent = `🎯 Target acquired — ${name}...`;
-    if (DOM.pcScanning) DOM.pcScanning.textContent = `// PINPOINTING ${name.toUpperCase()}`;
-
-    // Stage 1: Global view
-    await flyEarthTo(latNum, lngNum, 2.5, 1400);
-    await sleep(500);
-
-    // Stage 2: Add marker
-    addProbeMarker(latNum, lngNum, true);
-
-    // Stage 3: Continental approach
-    await flyEarthTo(latNum, lngNum, 6, 1600);
-    await sleep(500);
-
-    // Stage 4: Regional approach
-    await flyEarthTo(latNum, lngNum, 11, 1500);
-    await sleep(500);
-
-    // Stage 5: Final landing
-    await flyEarthTo(latNum, lngNum, 15.5, 1700);
-    await sleep(900);
-
-    if (DOM.mapStatusText) {
-        DOM.mapStatusText.innerHTML = `<span class="target-found">🎯 ${name} — CONFIRMED!</span>`;
-    }
-}
 
     // ========== PROGRESS CARD ==========
     // The "Elapsed Xs" readout is always computed from the client's own wall
@@ -2452,6 +2482,7 @@ async function revealTarget(lat, lng, name) {
                     'Accept': 'application/json',
                     'X-CSRF-TOKEN': CSRF_TOKEN
                 },
+                credentials: 'same-origin' // ✅ ensures session cookie is sent
             })
             .then(r => {
                 if (!r.ok) return r.json().then(d => {
@@ -2495,18 +2526,23 @@ async function revealTarget(lat, lng, name) {
                         analysisComplete = true;
 
                         // ----- SMART COORDINATE EXTRACTION -----
-function parseSafeCoordinate(value, fallback = 48.8584) {
-    const parsed = parseFloat(value);
-    return !isNaN(parsed) && isFinite(parsed) && Math.abs(parsed) <= 180 ? parsed : fallback;
-}
+                        function parseSafeCoordinate(value, fallback = 48.8584) {
+                            const parsed = parseFloat(value);
+                            return !isNaN(parsed) && isFinite(parsed) && Math.abs(parsed) <= 180 ? parsed :
+                            fallback;
+                        }
 
-let tLat = parseSafeCoordinate(result.latitude ?? result.lat, 48.8584);
-let tLng = parseSafeCoordinate(result.longitude ?? result.lng, 2.2945);
-let tName = result.landmark_name || result.city || result.place || 'Unknown Location';
+                        let tLat = parseSafeCoordinate(result.latitude ?? result.lat, 48.8584);
+                        let tLng = parseSafeCoordinate(result.longitude ?? result.lng, 2.2945);
+                        let tName = result.landmark_name || result.city || result.place || 'Unknown Location';
 
-// Log what we found
-console.log('📍 Target coordinates extracted:', { tLat, tLng, tName });
-console.log('📦 Full result:', result);
+                        // Log what we found
+                        console.log('📍 Target coordinates extracted:', {
+                            tLat,
+                            tLng,
+                            tName
+                        });
+                        console.log('📦 Full result:', result);
 
                         // Give exploration a moment to reach its next checkpoint and exit, then reveal
                         setTimeout(async () => {
@@ -2548,12 +2584,26 @@ console.log('📦 Full result:', result);
     // ========== REVEAL RESULTS (Frame 7 & 8) ==========
     // Decorative AI-vision scan chips over the result photo (see comment
     // at the call site — not real per-object detection coordinates).
-    const VISION_CHIP_SPOTS = [
-        { top: '8%', left: '4%' },
-        { top: '8%', right: '4%' },
-        { top: '42%', left: '38%' },
-        { top: '68%', right: '6%' },
-        { top: '78%', left: '6%' },
+    const VISION_CHIP_SPOTS = [{
+            top: '8%',
+            left: '4%'
+        },
+        {
+            top: '8%',
+            right: '4%'
+        },
+        {
+            top: '42%',
+            left: '38%'
+        },
+        {
+            top: '68%',
+            right: '6%'
+        },
+        {
+            top: '78%',
+            left: '6%'
+        },
     ];
 
     function renderVisionChips(container, tags) {
@@ -2610,7 +2660,8 @@ console.log('📦 Full result:', result);
         }
         if (DOM.confPillText) DOM.confPillText.textContent = `${confidence}% Confidence`;
         const dot = DOM.confPill?.querySelector('.dot');
-        if (dot) dot.style.background = tier === 'high' ? 'var(--success)' : tier === 'medium' ? 'var(--warning)' : 'var(--danger)';
+        if (dot) dot.style.background = tier === 'high' ? 'var(--success)' : tier === 'medium' ? 'var(--warning)' :
+            'var(--danger)';
 
         // Photo — plus a decorative "AI vision scan" chip overlay. The backend
         // doesn't return real bounding-box detections, so these are stylistic
@@ -2665,7 +2716,7 @@ console.log('📦 Full result:', result);
                         .addTo(resultMapInstance)
                         .bindPopup(
                             `<strong>${data.landmark_name || 'Location'}</strong><br>${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}° ${lng>=0?'E':'W'}`
-                            )
+                        )
                         .openPopup();
                 }, 300);
                 setTimeout(() => {
@@ -2758,7 +2809,9 @@ console.log('📦 Full result:', result);
         }
 
         // Page-level actions
-        set('homeBtn', () => { window.location.href = '/'; });
+        set('homeBtn', () => {
+            window.location.href = '/';
+        });
         set('reuploadBtn', () => {
             sessionStorage.removeItem('analysisId');
             sessionStorage.removeItem('analysisResult');
@@ -2767,12 +2820,18 @@ console.log('📦 Full result:', result);
         });
         set('saveReportBtn', () => exportReport(data, lat, lng));
         set('shareBtn', async () => {
-            const summary = `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` — ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
+            const summary =
+                `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` — ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
             if (navigator.share) {
                 try {
-                    await navigator.share({ title: 'TraceGeo result', text: summary, url: window.location.href });
+                    await navigator.share({
+                        title: 'TraceGeo result',
+                        text: summary,
+                        url: window.location.href
+                    });
                     return;
-                } catch (e) { /* user cancelled — fall through to copy */ }
+                } catch (e) {
+                    /* user cancelled — fall through to copy */ }
             }
             navigator.clipboard?.writeText(summary);
             showToast('📋 Summary copied to clipboard!');
@@ -2792,7 +2851,8 @@ console.log('📦 Full result:', result);
                 showToast('❌ No image to search.');
                 return;
             }
-            window.open(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(uploadedImageURL)}`, '_blank');
+            window.open(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(uploadedImageURL)}`,
+                '_blank');
         });
         set('openOriginalBtn', () => {
             if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
@@ -2806,13 +2866,14 @@ console.log('📦 Full result:', result);
         const fullUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
 
         if (GOOGLE_MAPS_EMBED_KEY) {
-    const embedSrc = `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
-    wrap.innerHTML = `
+            const embedSrc =
+                `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
+            wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
         <iframe src="${embedSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allow="accelerometer; gyroscope; magnetometer; fullscreen"></iframe>
         <button class="street-open-full" id="streetOpenFullBtn"><i class="fas fa-expand"></i> Open Full Street View</button>
     `;
-}else {
+        } else {
             // No API key configured yet — rather than show a blank/broken
             // iframe, be upfront about it and take the person straight to
             // the real thing in a new tab. See the GOOGLE_MAPS_EMBED_KEY

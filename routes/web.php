@@ -1,11 +1,11 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\AnalysisController;
 use App\Http\Controllers\AuthController;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 /*
 |--------------------------------------------------------------------------
@@ -37,7 +37,8 @@ Route::get('/', [HomeController::class, 'index'])->name('home');
 // PROTECTED ROUTES (Requires Login)
 // ============================================
 
-Route::middleware(['auth'])->group(function () {
+// Explicitly use the 'web' guard to ensure session-based authentication
+Route::middleware(['web', 'auth:web'])->group(function () {
 
     // ---- HTML Views ----
     Route::get('/analysis', [AnalysisController::class, 'index'])->name('analysis.index');
@@ -86,7 +87,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/debug-jobs', function () {
         try {
             $hasTable = Schema::hasTable('jobs');
-$count = $hasTable ? DB::table('jobs')->count() : 0;
+            $count = $hasTable ? DB::table('jobs')->count() : 0;
             return response()->json([
                 'table_exists' => $hasTable,
                 'jobs_count' => $count,
@@ -105,11 +106,13 @@ $count = $hasTable ? DB::table('jobs')->count() : 0;
         }
         return response()->json(['error' => 'File not found'], 404);
     });
+
+    // Manual queue test (dispatch a job)
     Route::get('/test-queue', function () {
-    $job = new \App\Jobs\AnalyzeImageJob(1); // replace with a real ID
-    dispatch($job);
-    return 'Job dispatched. Check worker logs.';
-});
+        $job = new \App\Jobs\AnalyzeImageJob(1); // replace with a real ID
+        dispatch($job);
+        return 'Job dispatched. Check worker logs.';
+    });
 });
 
 // ============================================

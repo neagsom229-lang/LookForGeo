@@ -41,7 +41,7 @@ Route::get('/search', [LandmarkController::class, 'search']);
 // PROTECTED API ROUTES (Token-based auth:sanctum)
 // For mobile apps or external API clients.
 // ============================================================
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:web'])->group(function () {
     // 👤 User profile
     Route::get('/user', [AuthController::class, 'user']);
     Route::put('/profile', [AuthController::class, 'updateProfile']);
