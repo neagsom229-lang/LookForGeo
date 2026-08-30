@@ -113,6 +113,19 @@ Route::middleware(['web', 'auth:web'])->group(function () {
         dispatch($job);
         return 'Job dispatched. Check worker logs.';
     });
+
+    // ---- Clear caches (temporary debug) ----
+    Route::get('/clear-caches', function () {
+        try {
+            \Artisan::call('route:clear');
+            \Artisan::call('config:clear');
+            \Artisan::call('cache:clear');
+            \Artisan::call('view:clear');
+            return '✅ All caches cleared.';
+        } catch (\Exception $e) {
+            return '❌ Error: ' . $e->getMessage();
+        }
+    });
 });
 
 // ============================================
