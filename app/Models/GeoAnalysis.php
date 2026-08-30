@@ -218,7 +218,7 @@ class GeoAnalysis extends Model
         'stage_label' => self::STAGES[4],
         'progress' => 100,
         'result' => $result,
-        'image_url' => $result['image_url'] ?? $this->image_url, // ✅ update column
+        'image_url' => $result['image_url'] ?? $this->image_url, // ✅ must be present
         'finished_at' => now(),
         'error' => null,
     ]);

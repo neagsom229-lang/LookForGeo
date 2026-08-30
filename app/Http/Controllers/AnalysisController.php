@@ -187,6 +187,7 @@ class AnalysisController extends Controller
                     'confidence' => $result['confidence'] ?? 0,
                     'description' => $result['description'] ?? null,
                     'image_url' => $analysis->image_url,
+                    'result_image_url' => $result['image_url'] ?? null, // ✅ add this line
                     'tags' => $result['tags'] ?? [],
                     'reasoning' => $result['reasoning'] ?? null,
                 ];
