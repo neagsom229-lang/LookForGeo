@@ -132,7 +132,19 @@ Route::get('/test-gemini', function () {
         ], 500);
     }
 });
-
+Route::get('/debug-jobs', function () {
+    try {
+        $hasTable = \Schema::hasTable('jobs');
+        $count = $hasTable ? \DB::table('jobs')->count() : 0;
+        return response()->json([
+            'table_exists' => $hasTable,
+            'jobs_count' => $count,
+            'queue_connection' => config('queue.default'),
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()]);
+    }
+});
 // ============================================
 // TEMPORARY DB FIX ROUTE (remove after use)
 // ============================================

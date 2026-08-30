@@ -2,7 +2,7 @@ services:
   - type: web
     name: LookForGeo
     env: php
-    buildCommand: composer install --no-dev --optimize-autoloader && php artisan migrate --force && php artisan storage:link
+    buildCommand: composer install --no-dev --optimize-autoloader && composer dump-autoload && php artisan migrate --force && php artisan storage:link
     startCommand: php artisan serve --host=0.0.0.0 --port=$PORT
     envVars:
       - key: APP_ENV
@@ -21,18 +21,18 @@ services:
         value: file
       - key: QUEUE_CONNECTION
         value: database
-      # ⚠️ REPLACE THE VALUES BELOW WITH YOUR ACTUAL KEYS
+      # Secret keys – set actual values in Render Dashboard (Environment → Environment Variables)
       - key: GEMINI_API_KEY
-        value: your_actual_gemini_key
+        sync: false
       - key: GOOGLE_MAPS_EMBED_KEY
-        value: your_actual_google_maps_key
+        sync: false
       - key: CLOUDINARY_URL
-        value: cloudinary://189951824121921:rAj6ViiDqGd7oWKQsRQdMho6nLw/hyv3laps
+        sync: false
 
   - type: worker
     name: queue-worker
     env: php
-    buildCommand: composer install --no-dev --optimize-autoloader
+    buildCommand: composer install --no-dev --optimize-autoloader && composer dump-autoload
     startCommand: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
     envVars:
       - key: APP_ENV
@@ -49,10 +49,10 @@ services:
         value: file
       - key: QUEUE_CONNECTION
         value: database
-      # ⚠️ REPLACE THE VALUES BELOW WITH YOUR ACTUAL KEYS (same as above)
+      # Secret keys – set actual values in Render Dashboard (same as web service)
       - key: GEMINI_API_KEY
-    sync: false   # means "sync from dashboard"
-  - key: GOOGLE_MAPS_EMBED_KEY
-    sync: false
-  - key: CLOUDINARY_URL
-    sync: false
+        sync: false
+      - key: GOOGLE_MAPS_EMBED_KEY
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false
