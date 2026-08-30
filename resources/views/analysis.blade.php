@@ -2702,9 +2702,9 @@
         renderImage(imgUrl);
     } else {
         DOM.photoFrame.innerHTML = `<div class="no-photo"><i class="fas fa-image"></i></div>`;
-    }
+     }
+   }
 }
-
     // ========== CONTROLS ==========
     function setupControls(data, lat, lng, hasCoords) {
         const set = (id, fn) => {
