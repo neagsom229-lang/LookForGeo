@@ -68,10 +68,10 @@ class AnalysisController extends Controller
             'size' => $file->getSize()
         ]);
 
-        // Store the file locally
-        $path = $file->store('uploads/analyses', 'public');
-        $imageUrl = asset('storage/' . $path);
-        $fullPath = storage_path('app/public/' . $path);
+                // Store the file locally (Bypasses symlink - Saves directly to public/uploads)
+        $path = $file->store('uploads/analyses', 'public_uploads');
+        $imageUrl = asset('uploads/' . $path);
+        $fullPath = public_path('uploads/' . $path);
 
         Log::info('📁 File stored locally', [
             'path' => $path,
@@ -288,9 +288,9 @@ class AnalysisController extends Controller
                 ], 404);
             }
 
-            // Delete local file if exists
-            if ($analysis->image_path && Storage::disk('public')->exists($analysis->image_path)) {
-                Storage::disk('public')->delete($analysis->image_path);
+                        // Delete local file if exists
+            if ($analysis->image_path && Storage::disk('public_uploads')->exists($analysis->image_path)) {
+                Storage::disk('public_uploads')->delete($analysis->image_path);
             }
 
             $analysis->delete();
@@ -389,8 +389,8 @@ class AnalysisController extends Controller
             $file = $request->file('image');
             $filename = time() . '_' . $file->getClientOriginalName();
 
-            $path = $file->store('uploads/analyses', 'public');
-            $imageUrl = asset('storage/' . $path);
+                        $path = $file->store('uploads/analyses', 'public_uploads');
+            $imageUrl = asset('uploads/' . $path);
 
             $metadata = $this->extractFullMetadata($file);
             $imageData = $this->getImageData($file);

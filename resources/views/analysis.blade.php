@@ -1344,6 +1344,99 @@
             height: 100px;
         }
     }
+        /* 3D Globe & Street View Active State */
+    #globeBtnPane.active, #streetBtnPane.active {
+        background: rgba(45, 212, 191, 0.15) !important;
+        border-color: var(--success) !important;
+        color: var(--success) !important;
+        box-shadow: 0 0 10px rgba(45, 212, 191, 0.3);
+    }
+        /* ONE-BUTTON TOGGLE CSS */
+    .view-toggle-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+        background: rgba(8, 8, 14, 0.87);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border);
+        padding: 10px 24px;
+        border-radius: 20px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: 'Inter', sans-serif;
+        min-width: 160px;
+    }
+
+    .view-toggle-btn:hover {
+        border-color: var(--success);
+        background: rgba(45, 212, 191, 0.1);
+    }
+
+    .view-toggle-btn.active {
+        background: rgba(45, 212, 191, 0.15);
+        border-color: var(--success);
+        color: var(--success);
+        box-shadow: 0 0 10px rgba(45, 212, 191, 0.3);
+    }
+
+    .view-toggle-btn.street-mode {
+        background: rgba(34, 211, 238, 0.15);
+        border-color: var(--cyan);
+        color: var(--cyan);
+        box-shadow: 0 0 10px rgba(34, 211, 238, 0.3);
+    }
+        /* Professional Segmented Control */
+    .view-toggle-group {
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+        background: rgba(8, 8, 14, 0.87);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+    }
+
+    .view-toggle-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 12.5px;
+        font-weight: 600;
+        padding: 8px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        color: var(--text-secondary);
+        background: transparent;
+        border: 1px solid transparent;
+        transition: all 0.25s ease;
+        font-family: 'Inter', sans-serif;
+    }
+
+    /* 3D Globe Active State (Green - "Red Green" style) */
+    #globeToggleBtn.active {
+        background: rgba(45, 212, 191, 0.15);
+        border-color: var(--success);
+        color: var(--success);
+        box-shadow: 0 0 8px rgba(45, 212, 191, 0.3);
+    }
+
+    /* Street View Active State (Cyan - for the real-life look) */
+    #streetToggleBtn.active {
+        background: rgba(34, 211, 238, 0.15);
+        border-color: var(--cyan);
+        color: var(--cyan);
+        box-shadow: 0 0 8px rgba(34, 211, 238, 0.3);
+    }
+
+    .view-toggle-btn:hover:not(.active) {
+        color: var(--text);
+        border-color: var(--border);
+    }
     </style>
 </head>
 
@@ -1430,10 +1523,14 @@
                         <span class="dot" style="background:var(--success);"></span>
                         <span id="confPillText">100% Confidence</span>
                     </div>
-                    <div class="pane-actions">
-                        <button id="streetBtnPane"><i class="fas fa-street-view"></i> Street View</button>
-                        <button id="globeBtnPane"><i class="fas fa-globe-americas"></i> 3D Globe</button>
-                    </div>
+                   <div class="pane-actions view-toggle-group">
+    <button id="globeToggleBtn" class="view-toggle-btn active">
+        <i class="fas fa-globe-americas"></i> 3D Globe
+    </button>
+    <button id="streetToggleBtn" class="view-toggle-btn">
+        <i class="fas fa-street-view"></i> Street View
+    </button>
+</div>
                 </div>
                 <div class="data-pane" id="dataPane">
                     <div class="verified-pill high" id="verifiedPill">
@@ -2269,6 +2366,32 @@
         render();
         return render;
     }
+    function renderImage(url) {
+    let attempts = 0;
+    const MAX_RETRIES = 5;
+    const tryLoad = () => {
+        const img = new Image();
+        img.onload = () => {
+            DOM.photoFrame.innerHTML = `<img src="${url}" alt="source">`;
+            renderVisionChips(DOM.photoFrame, data.tags);
+        };
+        img.onerror = () => {
+            attempts++;
+            if (attempts < MAX_RETRIES) {
+                console.warn(`Retry ${attempts}/${MAX_RETRIES}...`);
+                setTimeout(() => {
+                    const separator = url.includes('?') ? '&' : '?';
+                    img.src = url + separator + 't=' + Date.now();
+                }, 2000);
+            } else {
+                DOM.photoFrame.innerHTML = `<div class="no-photo"><i class="fas fa-image"></i></div>
+                                            <p style="font-size:12px;color:var(--text-muted);">Image unavailable</p>`;
+            }
+        };
+        img.src = url;
+    };
+    tryLoad();
+}
 
     // ========== SWITCH BETWEEN FLAT MAP ↔ GLOBE ==========
     function showGlobeMode(statusText) {
@@ -2450,7 +2573,7 @@
     function clearSession() {
         sessionStorage.removeItem('analysisId');
         sessionStorage.removeItem('analysisResult');
-        sessionStorage.removeItem('uploadedImage');
+        // sessionStorage.removeItem('uploadedImage');
         if (pollTimer) {
             clearTimeout(pollTimer);
             pollTimer = null;
@@ -2620,12 +2743,12 @@
         });
     }
 
-    function revealResults(data) {
+        function revealResults(data) {
         if (DOM.progressCard) DOM.progressCard.style.display = 'none';
+          // ===== SHOW THE RESULTS SPLIT =====
+        if (DOM.resultsSplit) DOM.resultsSplit.classList.add('show');
 
-        // Briefly hold on a static globe (with the target pinned) before the
-        // interactive flat map fades in underneath — bridges the cinematic
-        // reveal into the results view instead of cutting straight to a map.
+        // Briefly hold on a static globe before the map fades in
         if (DOM.globeTransition && DOM.globeTransitionCanvas) {
             DOM.globeTransition.classList.remove('fade-out');
             DOM.globeTransition.style.display = 'block';
@@ -2662,64 +2785,133 @@
         if (dot) dot.style.background = tier === 'high' ? 'var(--success)' : tier === 'medium' ? 'var(--warning)' :
             'var(--danger)';
 
-        // Photo — plus a decorative "AI vision scan" chip overlay. The backend
-        // doesn't return real bounding-box detections, so these are stylistic
-        // labels (drawn from the returned tags when available) meant to evoke
-        // a vision pass over the image, not literal per-object coordinates.
+        // ✅ PROFESSIONAL IMAGE LOADING BLOCK
         if (DOM.photoFrame) {
-    let imgUrl = uploadedImageURL || sessionStorage.getItem('uploadedImage');
+            // Use the new backend URL, fallback to session, auto-fix old /storage/
+            let imgUrl = data.image_url || data.result?.image_url || data.result_image_url || uploadedImageURL || sessionStorage.getItem('uploadedImage');
+            console.log('🧪 Full imgUrl:', imgUrl);
 
-    // If the URL is local (starts with /storage/), try to get the Cloudinary URL
-    if (imgUrl && imgUrl.includes('/storage/')) {
-        // First from the result JSON (top-level 'result')
-        if (data.result && data.result.image_url) {
-            imgUrl = data.result.image_url;
+            // Safety net: Replace old /storage/ with new /uploads/
+            if (imgUrl && imgUrl.startsWith('/storage/')) {
+                imgUrl = imgUrl.replace('/storage/', '/uploads/');
+            }
+
+            // Init Result Map
+            if (!resultMapInstance) {
+                resultMapInstance = L.map('resultMap', {
+                    center: [lat, lng],
+                    zoom: 13,
+                    zoomControl: true,
+                    attributionControl: true
+                });
+                L.tileLayer(ROADS_URL, {
+                    attribution: ROADS_ATTR,
+                    maxZoom: 19
+                }).addTo(resultMapInstance);
+                setTimeout(() => resultMapInstance.invalidateSize(), 300);
+            } else {
+                resultMapInstance.setView([lat, lng], 13);
+            }
+
+            // Add marker
+            const markerIcon = L.divIcon({
+                html: `<div class="avatar-marker marker-drop">
+                         <div class="ring"></div><div class="ring2"></div>
+                         <div class="photo" style="background-image:url('${uploadedImageURL || ''}')">
+                         </div>
+                       </div>`,
+                className: '',
+                iconSize: [46, 46],
+                iconAnchor: [23, 23]
+            });
+            L.marker([lat, lng], { icon: markerIcon }).addTo(resultMapInstance);
+
+            // Render Image
+            const renderImage = (url) => {
+                let attempts = 0;
+                const MAX_RETRIES = 5;
+                const tryLoad = () => {
+                    const img = new Image();
+                    img.onload = () => {
+                        DOM.photoFrame.innerHTML = `<img src="${url}" alt="source">`;
+                        if (url) renderVisionChips(DOM.photoFrame, data.tags);
+                    };
+                    img.onerror = () => {
+                        attempts++;
+                        if (attempts < MAX_RETRIES) {
+                            console.warn(`Image retry ${attempts}/${MAX_RETRIES}...`);
+                            setTimeout(() => {
+                                const separator = url.includes('?') ? '&' : '?';
+                                img.src = url + separator + 't=' + Date.now();
+                            }, 2000);
+                        } else {
+                            console.error('Image failed after', MAX_RETRIES, 'attempts.');
+                            DOM.photoFrame.innerHTML = `
+                                <div class="no-photo"><i class="fas fa-image"></i></div>
+                                <p style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                                    Image unavailable
+                                </p>
+                            `;
+                        }
+                    };
+                    img.src = url;
+                };
+                tryLoad();
+            };
+
+            if (imgUrl) {
+                renderImage(imgUrl);
+            } else {
+                DOM.photoFrame.innerHTML = `<div class="no-photo"><i class="fas fa-image"></i></div>`;
+            }
+            setupControls(data, lat, lng, hasCoords);
         }
-        // Fallback to the dedicated result_image_url field
-        else if (data.result_image_url) {
-            imgUrl = data.result_image_url;
+        // ===== UPGRADED EVIDENCE-BASED REASONING (UI) =====
+        if (DOM.reasoningText) {
+            const reasoning = data.reasoning || 'No reasoning available.';
+            const latStr = hasCoords ? `${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}° ${lng>=0?'E':'W'}` : 'N/A';
+            
+            // Professional evidence chain HTML
+            DOM.reasoningText.innerHTML = `
+                <div style="margin-bottom:12px; padding:10px; border-left:3px solid var(--success); background:rgba(45,212,191,0.05);">
+                    <strong style="color:var(--success);">CONFIRMED LOCATION EVIDENCE</strong><br>
+                    <span style="color:var(--text-secondary);">Landmark: <strong>${data.landmark_name || data.city || 'Unknown'}</strong></span><br>
+                    <span style="color:var(--text-secondary);">Coordinates: <strong>${latStr}</strong></span><br>
+                    <span style="color:var(--text-secondary);">Confidence: <strong>${confidence}%</strong></span>
+                </div>
+                <div style="line-height:1.8;">
+                    <strong style="color:var(--accent);">AI Reasoning:</strong><br>
+                    ${reasoning}
+                </div>
+            `;
         }
-    }
-
-    // Render the image with a retry mechanism
-    const renderImage = (url) => {
-        const img = new Image();
-        img.onload = () => {
-            DOM.photoFrame.innerHTML = `<img src="${url}" alt="source">`;
-            if (url) renderVisionChips(DOM.photoFrame, data.tags);
-        };
-        img.onerror = () => {
-            console.warn('Image not ready, retrying in 2s...');
-            setTimeout(() => {
-                // Add cache‑bust to avoid browser caching
-                img.src = url + '?t=' + Date.now();
-            }, 2000);
-        };
-        img.src = url;
-    };
-
-    if (imgUrl) {
-        renderImage(imgUrl);
-    } else {
-        DOM.photoFrame.innerHTML = `<div class="no-photo"><i class="fas fa-image"></i></div>`;
-     }
-   }
-}
+    } // ← This closing bracket is vital! Make sure it's here!
     // ========== CONTROLS ==========
-    function setupControls(data, lat, lng, hasCoords) {
+         function setupControls(data, lat, lng, hasCoords) {
         const set = (id, fn) => {
             const el = document.getElementById(id);
             if (el) el.onclick = fn;
         };
 
+        // ===== COPY COORDINATES =====
         set('copyCoordsBtn', () => {
             if (!hasCoords) return;
             navigator.clipboard?.writeText(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
             showToast('📋 Coordinates copied!');
         });
 
+        // ===== MAP TILES (Roads / Terrain) =====
         const roadsBtn = document.getElementById('roadsToggle');
         const terrainBtn = document.getElementById('terrainToggle');
+        
+        // ===== SEGMENTED CONTROL BUTTONS =====
+        const globeBtn = document.getElementById('globeToggleBtn');
+        const streetBtn = document.getElementById('streetToggleBtn');
+
+        const removeStreetView = () => {
+            DOM.satPane.querySelector('.street-inline')?.remove();
+        };
+
         const setTile = (mode) => {
             currentTileMode = mode;
             if (roadsBtn) roadsBtn.classList.toggle('active', mode === 'roads');
@@ -2734,48 +2926,43 @@
                 }).addTo(resultMapInstance);
             }
         };
-        if (roadsBtn) roadsBtn.onclick = () => setTile('roads');
-        if (terrainBtn) terrainBtn.onclick = () => setTile('terrain');
 
-        const openGlobe = () => {
-            if (hasCoords) window.open(`https://earth.google.com/web/@${lat},${lng},0a,500d`, '_blank');
-            else showToast('❌ No coordinates.');
+        // ===== STRICT MODE SWITCHING (No mixing) =====
+        const switchTo3DGlobe = () => {
+            removeStreetView();
+            setTile('terrain'); // Satellite/3D look
+            
+            // Color states
+            globeBtn.classList.add('active');
+            streetBtn.classList.remove('active');
+            
+            showToast('🌐 3D Globe Mode Active');
         };
-        const openStreet = () => {
-            if (hasCoords) {
-                showStreetView(lat, lng);
-                const sw = document.getElementById('streetViewSwitch');
-                if (sw) sw.checked = true;
-            } else {
-                showToast('❌ No coordinates.');
-            }
+
+        const switchToStreetView = () => {
+            removeStreetView(); // Ensure clean start
+            showStreetView(lat, lng); // Load real-life 360 panorama
+            
+            // Color states
+            streetBtn.classList.add('active');
+            globeBtn.classList.remove('active');
+            
+            showToast('📸 Real-Time Street View Active');
         };
-        set('globeBtnPane', openGlobe);
-        set('streetBtnPane', openStreet);
 
-        // Single 3D Globe / Street View switch in the data pane. Unchecked =
-        // Globe (opens Google Earth in a new tab), checked = inline Street View.
-        const streetSwitch = document.getElementById('streetViewSwitch');
-        if (streetSwitch) {
-            streetSwitch.checked = false;
-            streetSwitch.onchange = () => {
-                if (streetSwitch.checked) {
-                    if (!hasCoords) {
-                        showToast('❌ No coordinates.');
-                        streetSwitch.checked = false;
-                        return;
-                    }
-                    showStreetView(lat, lng);
-                } else {
-                    DOM.satPane.querySelector('.street-inline')?.remove();
-                }
-            };
-        }
+        // Set initial states (Globe is active by default)
+        switchTo3DGlobe();
 
-        // Page-level actions
-        set('homeBtn', () => {
-            window.location.href = '/';
-        });
+        // Bind the 2 buttons
+        globeBtn.onclick = switchTo3DGlobe;
+        streetBtn.onclick = switchToStreetView;
+
+        // Setup Roads / Terrain buttons to reset to Globe mode
+        if (roadsBtn) roadsBtn.onclick = () => { setTile('roads'); switchTo3DGlobe(); };
+        if (terrainBtn) terrainBtn.onclick = () => { setTile('terrain'); switchTo3DGlobe(); };
+
+        // ===== PAGE-LEVEL ACTIONS =====
+        set('homeBtn', () => { window.location.href = '/'; });
         set('reuploadBtn', () => {
             sessionStorage.removeItem('analysisId');
             sessionStorage.removeItem('analysisResult');
@@ -2784,50 +2971,42 @@
         });
         set('saveReportBtn', () => exportReport(data, lat, lng));
         set('shareBtn', async () => {
-            const summary =
-                `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` — ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
+            const summary = `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` — ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
             if (navigator.share) {
                 try {
-                    await navigator.share({
-                        title: 'TraceGeo result',
-                        text: summary,
-                        url: window.location.href
-                    });
+                    await navigator.share({ title: 'TraceGeo result', text: summary, url: window.location.href });
                     return;
-                } catch (e) {
-                    /* user cancelled — fall through to copy */ }
+                } catch (e) { /* user cancelled */ }
             }
             navigator.clipboard?.writeText(summary);
             showToast('📋 Summary copied to clipboard!');
         });
 
-        // Photo actions
-        set('viewFullSizeBtn', () => {
-            if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
-        });
+        // ===== PHOTO ACTIONS =====
+        set('viewFullSizeBtn', () => { if (uploadedImageURL) window.open(uploadedImageURL, '_blank'); });
         set('fullscreenPhotoBtn', () => {
             const frame = DOM.photoFrame;
             if (frame?.requestFullscreen) frame.requestFullscreen();
             else if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
         });
         set('reverseSearchBtn', () => {
-            if (!uploadedImageURL) {
-                showToast('❌ No image to search.');
-                return;
-            }
-            window.open(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(uploadedImageURL)}`,
-                '_blank');
+            if (!uploadedImageURL) { showToast('❌ No image to search.'); return; }
+            window.open(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(uploadedImageURL)}`, '_blank');
         });
-        set('openOriginalBtn', () => {
-            if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
-        });
+        set('openOriginalBtn', () => { if (uploadedImageURL) window.open(uploadedImageURL, '_blank'); });
     }
 
-    function showStreetView(lat, lng) {
+        function showStreetView(lat, lng) {
         DOM.satPane.querySelector('.street-inline')?.remove();
         const wrap = document.createElement('div');
         wrap.className = 'street-inline';
         const fullUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
+
+        // Highlight the street view button, unhighlight Globe
+        const globeBtn = document.getElementById('globeBtnPane');
+        const streetBtn = document.getElementById('streetBtnPane');
+        if (globeBtn) globeBtn.classList.remove('active');
+        if (streetBtn) streetBtn.classList.add('active');
 
         if (GOOGLE_MAPS_EMBED_KEY) {
             const embedSrc =
@@ -2838,13 +3017,7 @@
         <button class="street-open-full" id="streetOpenFullBtn"><i class="fas fa-expand"></i> Open Full Street View</button>
     `;
         } else {
-            // No API key configured yet — rather than show a blank/broken
-            // iframe, be upfront about it and take the person straight to
-            // the real thing in a new tab. See the GOOGLE_MAPS_EMBED_KEY
-            // comment near the top of this script for the one-line fix:
-            // get a free key at https://console.cloud.google.com/google/maps-apis
-            // (Maps Embed API — no billing required for this specific API)
-            // and pass it in via config('services.google_maps.embed_key').
+            // No API key configured yet (Free key needed)
             wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
         <div class="street-setup-notice">
@@ -2859,17 +3032,29 @@
         }
 
         DOM.satPane.appendChild(wrap);
+
+        // Back button logic (Properly resets UI states)
         document.getElementById('streetBackBtn').onclick = () => {
             wrap.remove();
-            const sw = document.getElementById('streetViewSwitch');
-            if (sw) sw.checked = false;
+            // Reset button states to map mode
+            if (globeBtn) globeBtn.classList.remove('active');
+            if (streetBtn) streetBtn.classList.remove('active');
+            // Re-highlight roads or terrain based on currentTileMode
+            const roadsBtn = document.getElementById('roadsToggle');
+            const terrainBtn = document.getElementById('terrainToggle');
+            if (currentTileMode === 'terrain') terrainBtn?.classList.add('active');
+            else roadsBtn?.classList.add('active');
         };
         document.getElementById('streetOpenFullBtn')?.addEventListener('click', () => window.open(fullUrl, '_blank'));
         document.getElementById('streetOpenRealBtn')?.addEventListener('click', () => window.open(fullUrl, '_blank'));
     }
 
-    function exportReport(data, lat, lng) {
+       function exportReport(data, lat, lng) {
         const hasCoords = isValidCoord(lat, lng);
+        const latStr = hasCoords ? `${Math.abs(lat).toFixed(6)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(6)}° ${lng>=0?'E':'W'}` : 'N/A';
+        const confidence = data.confidence ?? 0;
+        const tier = confidence >= 80 ? 'HIGH' : confidence >= 50 ? 'MEDIUM' : 'LOW';
+
         const text = `TRACEGEO OSINT INTELLIGENCE REPORT
 ============================================
 Generated: ${new Date().toISOString()}
@@ -2877,14 +3062,18 @@ Generated: ${new Date().toISOString()}
 LOCATION
 --------------------------------------------
 Name:        ${data.landmark_name || 'Unknown'}
-Coordinates: ${hasCoords ? `${lat.toFixed(6)}, ${lng.toFixed(6)}` : 'N/A'}
-Confidence:  ${data.confidence || 0}%
+City:        ${data.city || 'N/A'}
 Country:     ${data.country || 'N/A'}
 Region:      ${data.region || 'N/A'}
+Coordinates: ${latStr}
+Confidence:  ${confidence}% (${tier})
 
-TAGS
+EVIDENCE CHAIN
 --------------------------------------------
-${(data.tags||[]).join(', ')}
+• Verified Landmark: ${data.landmark_name || 'Unknown'}
+• Latitude: ${latStr}
+• Visual markers matched: ${(data.tags || []).join(', ') || 'N/A'}
+• Image Source: ${uploadedImageURL || 'N/A'}
 
 AI REASONING
 --------------------------------------------
@@ -2892,12 +3081,11 @@ ${data.reasoning || 'No reasoning available.'}
 
 ============================================
 TraceGeo OSINT Intelligence`;
-        const blob = new Blob([text], {
-            type: 'text/plain'
-        });
+
+        const blob = new Blob([text], { type: 'text/plain' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `TraceGeo_${data.landmark_name || 'Report'}.txt`;
+        a.download = `TraceGeo_${(data.landmark_name || 'Report').replace(/\s+/g, '_')}.txt`;
         a.click();
         showToast('📄 Report exported!');
     }
@@ -2906,6 +3094,7 @@ TraceGeo OSINT Intelligence`;
     function startAnalysis(analysisId, imageUrl) {
         currentAnalysisId = analysisId;
         uploadedImageURL = imageUrl;
+        if (imageUrl) sessionStorage.setItem('uploadedImage', imageUrl);
         pollAttempts = 0;
         startTime = Date.now();
         analysisComplete = false;
