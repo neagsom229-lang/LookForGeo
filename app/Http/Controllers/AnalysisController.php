@@ -69,9 +69,9 @@ class AnalysisController extends Controller
         ]);
 
                 // Store the file locally (Bypasses symlink - Saves directly to public/uploads)
-        $path = $file->store('uploads/analyses', 'public_uploads');
-        $imageUrl = asset('uploads/' . $path);
-        $fullPath = public_path('uploads/' . $path);
+        $path = $file->store('uploads/analyses', 'public');
+$imageUrl = asset('storage/' . $path);
+$fullPath = storage_path('app/public/' . $path);
 
         Log::info('📁 File stored locally', [
             'path' => $path,
