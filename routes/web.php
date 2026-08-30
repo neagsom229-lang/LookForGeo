@@ -69,16 +69,46 @@ Route::middleware(['auth'])->group(function () {
         // ⚡ SYNC (legacy – optional)
         // Route::post('/analyze', [AnalysisController::class, 'analyze'])->name('api.analyze');
     });
+
+    // ------------------------------------------
+    // DEBUG ROUTES (Protected by Auth – safe for debugging)
+    // ------------------------------------------
+
+    // Check the jobs table (queue status)
+    Route::get('/debug-jobs', function () {
+        try {
+            $hasTable = \Schema::hasTable('jobs');
+            $count = $hasTable ? \DB::table('jobs')->count() : 0;
+            return response()->json([
+                'table_exists' => $hasTable,
+                'jobs_count' => $count,
+                'queue_connection' => config('queue.default'),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    });
+
+    // Check if a specific image file exists (useful for debugging 404s)
+    Route::get('/debug-file/{filename}', function ($filename) {
+        $path = storage_path('app/public/uploads/analyses/' . $filename);
+        if (file_exists($path)) {
+            return response()->file($path);
+        }
+        return response()->json(['error' => 'File not found'], 404);
+    });
 });
 
 // ============================================
-// DEBUG ROUTES (Safe to keep)
+// PUBLIC DEBUG ROUTES (No Auth – use cautiously)
 // ============================================
 
+// Basic API test (no sensitive data)
 Route::get('/debug/test-api', function () {
     return response()->json(['success' => true, 'message' => 'API is working!']);
 });
 
+// Check database tables (public – but only returns existence, not data)
 Route::get('/debug/db', function () {
     $tables = \DB::connection()->getSchemaBuilder()->getTableListing();
     return response()->json([
@@ -89,6 +119,7 @@ Route::get('/debug/db', function () {
     ]);
 });
 
+// Gemini API test – only shows key status and model info (no sensitive data)
 Route::get('/test-gemini', function () {
     try {
         $apiKey = config('services.gemini.key');
@@ -130,33 +161,5 @@ Route::get('/test-gemini', function () {
             'error' => $e->getMessage(),
             'trace' => $e->getTraceAsString()
         ], 500);
-    }
-});
-
-// ✅ Route to check the jobs table
-Route::get('/debug-jobs', function () {
-    try {
-        $hasTable = \Schema::hasTable('jobs');
-        $count = $hasTable ? \DB::table('jobs')->count() : 0;
-        return response()->json([
-            'table_exists' => $hasTable,
-            'jobs_count' => $count,
-            'queue_connection' => config('queue.default'),
-        ]);
-    } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()]);
-    }
-});
-
-// ✅ Temporary route to clear route and config caches (use once, then remove)
-Route::get('/clear-caches', function () {
-    try {
-        \Artisan::call('route:clear');
-        \Artisan::call('config:clear');
-        \Artisan::call('cache:clear');
-        \Artisan::call('view:clear');
-        return '✅ All caches cleared.';
-    } catch (\Exception $e) {
-        return '❌ Error: ' . $e->getMessage();
     }
 });
