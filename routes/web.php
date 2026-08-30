@@ -72,7 +72,7 @@ Route::middleware(['auth'])->group(function () {
 });
 
 // ============================================
-// DEBUG ROUTES
+// DEBUG ROUTES (Safe to keep)
 // ============================================
 
 Route::get('/debug/test-api', function () {
@@ -132,6 +132,8 @@ Route::get('/test-gemini', function () {
         ], 500);
     }
 });
+
+// ✅ Route to check the jobs table
 Route::get('/debug-jobs', function () {
     try {
         $hasTable = \Schema::hasTable('jobs');
@@ -145,21 +147,16 @@ Route::get('/debug-jobs', function () {
         return response()->json(['error' => $e->getMessage()]);
     }
 });
-// ============================================
-// TEMPORARY DB FIX ROUTE (remove after use)
-// ============================================
-// Route::get('/fix-db', function () {
-//     try {
-//         \DB::statement('ALTER TABLE geo_analyses ADD COLUMN IF NOT EXISTS user_id BIGINT NULL;');
-//     } catch (\Exception $e) {}
 
-//     try {
-//         \DB::statement('ALTER TABLE geo_analyses ADD CONSTRAINT geo_analyses_user_id_foreign FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;');
-//     } catch (\Exception $e) {}
-
-//     try {
-//         \DB::statement('CREATE INDEX IF NOT EXISTS geo_analyses_user_id_index ON geo_analyses(user_id);');
-//     } catch (\Exception $e) {}
-
-//     return '✅ Database fixed! user_id column added successfully.';
-// });
+// ✅ Temporary route to clear route and config caches (use once, then remove)
+Route::get('/clear-caches', function () {
+    try {
+        \Artisan::call('route:clear');
+        \Artisan::call('config:clear');
+        \Artisan::call('cache:clear');
+        \Artisan::call('view:clear');
+        return '✅ All caches cleared.';
+    } catch (\Exception $e) {
+        return '❌ Error: ' . $e->getMessage();
+    }
+});

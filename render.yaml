@@ -2,7 +2,7 @@ services:
   - type: web
     name: LookForGeo
     env: php
-    buildCommand: composer install --no-dev --optimize-autoloader && composer dump-autoload && php artisan migrate --force && php artisan storage:link
+    buildCommand: composer install --no-dev --optimize-autoloader && composer dump-autoload && php artisan route:clear && php artisan config:clear && php artisan migrate --force && php artisan storage:link
     startCommand: php artisan serve --host=0.0.0.0 --port=$PORT
     envVars:
       - key: APP_ENV
@@ -32,7 +32,7 @@ services:
   - type: worker
     name: queue-worker
     env: php
-    buildCommand: composer install --no-dev --optimize-autoloader && composer dump-autoload
+    buildCommand: composer install --no-dev --optimize-autoloader && composer dump-autoload && php artisan route:clear && php artisan config:clear
     startCommand: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
     envVars:
       - key: APP_ENV
