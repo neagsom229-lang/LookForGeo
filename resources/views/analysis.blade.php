@@ -2667,82 +2667,43 @@
         // labels (drawn from the returned tags when available) meant to evoke
         // a vision pass over the image, not literal per-object coordinates.
         if (DOM.photoFrame) {
-            let imgUrl = uploadedImageURL || sessionStorage.getItem('uploadedImage');
-// If the URL is local (starts with /storage/) and the result contains a Cloudinary URL, use that
-if (imgUrl && imgUrl.includes('/storage/') && data.result && data.result.image_url) {
-    imgUrl = data.result.image_url;
-}
-            DOM.photoFrame.innerHTML = imgUrl ?
-                `<img src="${imgUrl}" alt="source">` :
-                `<div class="no-photo"><i class="fas fa-image"></i></div>`;
-            if (imgUrl) renderVisionChips(DOM.photoFrame, data.tags);
+    let imgUrl = uploadedImageURL || sessionStorage.getItem('uploadedImage');
+
+    // If the URL is local (starts with /storage/), try to get the Cloudinary URL
+    if (imgUrl && imgUrl.includes('/storage/')) {
+        // First from the result JSON (top-level 'result')
+        if (data.result && data.result.image_url) {
+            imgUrl = data.result.image_url;
         }
-
-        if (DOM.tagPills) DOM.tagPills.innerHTML = (data.tags || []).map(t => `<span class="tag-pill">${t}</span>`)
-            .join('');
-        if (DOM.reasoningText) DOM.reasoningText.textContent = data.reasoning || 'No reasoning available.';
-
-        // Build result map (satellite, Frame 7)
-        const satEl = document.getElementById('resultMap');
-        if (satEl) {
-            satEl.innerHTML = '';
-            DOM.satPane.querySelector('.street-inline')?.remove();
-            if (hasCoords) {
-                try {
-                    if (resultMapInstance) resultMapInstance.remove();
-                } catch (e) {}
-                resultMapInstance = L.map('resultMap', {
-                    center: [lat, lng],
-                    zoom: 14,
-                    zoomControl: false,
-                    attributionControl: false,
-                });
-                L.tileLayer(currentTileMode === 'terrain' ? SAT_URL : ROADS_URL, {
-                    attribution: currentTileMode === 'terrain' ? SAT_ATTR : ROADS_ATTR,
-                    maxZoom: 19
-                }).addTo(resultMapInstance);
-
-                const iconHtml = `<div class="avatar-marker marker-drop">
-                <div class="ring"></div><div class="ring2"></div>
-                <div class="photo" style="background:#2dd4bf;font-size:20px;">📍</div>
-            </div>`;
-                const icon = L.divIcon({
-                    html: iconHtml,
-                    className: '',
-                    iconSize: [46, 46],
-                    iconAnchor: [23, 23]
-                });
-                setTimeout(() => {
-                    L.marker([lat, lng], {
-                            icon
-                        })
-                        .addTo(resultMapInstance)
-                        .bindPopup(
-                            `<strong>${data.landmark_name || 'Location'}</strong><br>${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}° ${lng>=0?'E':'W'}`
-                        )
-                        .openPopup();
-                }, 300);
-                setTimeout(() => {
-                    resultMapInstance.invalidateSize();
-                    resultMapInstance.flyTo([lat, lng], 15, {
-                        duration: 1.2
-                    });
-                }, 200);
-            } else {
-                satEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#6b7280;flex-direction:column;gap:12px;">
-                <i class="fas fa-map-marked-alt" style="font-size:48px;opacity:0.25;"></i>
-                <span>No coordinates available</span></div>`;
-            }
+        // Fallback to the dedicated result_image_url field
+        else if (data.result_image_url) {
+            imgUrl = data.result_image_url;
         }
-
-        setupControls(data, lat, lng, hasCoords);
-        if (DOM.resultsSplit) DOM.resultsSplit.classList.add('show');
-        if (DOM.statusDot) {
-            DOM.statusDot.style.background = 'var(--success)';
-            DOM.statusDot.style.boxShadow = '0 0 20px var(--success)';
-        }
-        showToast('✅ Analysis Complete — ' + (data.landmark_name || data.city || 'Location found'));
     }
+
+    // Render the image with a retry mechanism
+    const renderImage = (url) => {
+        const img = new Image();
+        img.onload = () => {
+            DOM.photoFrame.innerHTML = `<img src="${url}" alt="source">`;
+            if (url) renderVisionChips(DOM.photoFrame, data.tags);
+        };
+        img.onerror = () => {
+            console.warn('Image not ready, retrying in 2s...');
+            setTimeout(() => {
+                // Add cache‑bust to avoid browser caching
+                img.src = url + '?t=' + Date.now();
+            }, 2000);
+        };
+        img.src = url;
+    };
+
+    if (imgUrl) {
+        renderImage(imgUrl);
+    } else {
+        DOM.photoFrame.innerHTML = `<div class="no-photo"><i class="fas fa-image"></i></div>`;
+    }
+}
 
     // ========== CONTROLS ==========
     function setupControls(data, lat, lng, hasCoords) {
