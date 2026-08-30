@@ -4,6 +4,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\AnalysisController;
 use App\Http\Controllers\AuthController;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /*
 |--------------------------------------------------------------------------
@@ -83,8 +85,8 @@ Route::middleware(['auth'])->group(function () {
     // Check the jobs table (queue status)
     Route::get('/debug-jobs', function () {
         try {
-            $hasTable = \Schema::hasTable('jobs');
-            $count = $hasTable ? \DB::table('jobs')->count() : 0;
+            $hasTable = Schema::hasTable('jobs');
+$count = $hasTable ? DB::table('jobs')->count() : 0;
             return response()->json([
                 'table_exists' => $hasTable,
                 'jobs_count' => $count,
@@ -103,6 +105,11 @@ Route::middleware(['auth'])->group(function () {
         }
         return response()->json(['error' => 'File not found'], 404);
     });
+    Route::get('/test-queue', function () {
+    $job = new \App\Jobs\AnalyzeImageJob(1); // replace with a real ID
+    dispatch($job);
+    return 'Job dispatched. Check worker logs.';
+});
 });
 
 // ============================================
@@ -116,12 +123,12 @@ Route::get('/debug/test-api', function () {
 
 // Check database table existence (safe – no data returned)
 Route::get('/debug/db', function () {
-    $tables = \DB::connection()->getSchemaBuilder()->getTableListing();
+    $tables = DB::connection()->getSchemaBuilder()->getTableListing();
     return response()->json([
         'success' => true,
         'tables' => $tables,
-        'users_exists' => \Schema::hasTable('users'),
-        'analyses_exists' => \Schema::hasTable('analyses'),
+        'users_exists' => Schema::hasTable('users'),
+        'analyses_exists' => Schema::hasTable('analyses'),
     ]);
 });
 
