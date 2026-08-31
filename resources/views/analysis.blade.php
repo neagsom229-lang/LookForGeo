@@ -197,7 +197,7 @@
     }
 
     /* ===== STARFIELD GLOBE (Frame 3 & 5) ===== */
-    #starfieldCanvas {
+        #starfieldCanvas {
         position: absolute;
         inset: 0;
         width: 100%;
@@ -206,6 +206,9 @@
         opacity: 0;
         transition: opacity 0.8s ease;
         pointer-events: none;
+        margin: 0;
+        padding: 0;
+        display: block;
     }
 
     #starfieldCanvas.visible {
@@ -2214,13 +2217,16 @@ function buildEarthScene(canvas) {
     });
 
     function resize() {
-        const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
+        // Use getBoundingClientRect for absolute precision (avoids 0x0 bugs on hidden elements)
+        const rect = canvas.getBoundingClientRect();
+        const w = rect.width || 1;
+        const h = rect.height || 1;
         renderer.setSize(w, h, false);
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
     }
     resize();
-       // ✅ NEW: Add a focusOn method to the scene
+
     function focusOn(lat, lng) {
         // Stop manual spinning and rotate the Earth so the point faces the camera
         earth.rotation.y = (lng * Math.PI) / 180;
@@ -2230,7 +2236,8 @@ function buildEarthScene(canvas) {
         clouds.rotation.x = earth.rotation.x;
     }
 
-    return { renderer, scene, camera, earth, clouds, resize };
+    // ✅ CRITICAL: Add focusOn to the returned object
+    return { renderer, scene, camera, earth, clouds, resize, focusOn };
 }
 
 let earthScene = null;
@@ -2240,8 +2247,14 @@ let globeMarkerMesh = null;
 function initStarfield() {
     if (!earthScene) {
         earthScene = buildEarthScene(DOM.starfieldCanvas);
-        // window.addEventListener('resize', earthScene.resize);
+        
+        // ✅ SUPERIOR RESPONSIVENESS: Observe the canvas itself and force a resize
+        const globeResizeObserver = new ResizeObserver(() => {
+            if (earthScene) earthScene.resize();
+        });
+        globeResizeObserver.observe(DOM.starfieldCanvas);
     }
+    
     const { renderer, scene, camera, earth, clouds, resize } = earthScene;
     function frame() {
         resize();
@@ -2867,7 +2880,6 @@ function drawStaticGlobe(canvas) {
         };
 
         // ===== STRICT MODE SWITCHING (No mixing) =====
-        // ===== STRICT MODE SWITCHING (Real 3D Globe vs Street View) =====
         const switchTo3DGlobe = () => {
             removeStreetView();
             
@@ -2876,10 +2888,11 @@ function drawStaticGlobe(canvas) {
             if (resultMapDiv) resultMapDiv.style.display = 'none';
             showGlobeMode('🌐 Real 3D Globe Mode Active');
              
-            // ✅ FOCUS THE EARTH ON THE RESULT LOCATION
+            // ✅ FOCUS AND RESIZE THE EARTH ON THE RESULT LOCATION
             if (earthScene) {
                 earthScene.focusOn(lat, lng); 
                 setGlobeMarker(lat, lng, true);
+                earthScene.resize(); // Force resize right when it appears
             }
 
             // Color states
