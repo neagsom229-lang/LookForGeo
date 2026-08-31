@@ -152,30 +152,25 @@ class AnalyzeImageJob implements ShouldQueue
     /**
      * Load image data from various sources.
      */
-    private function loadImageData(GeoAnalysis $analysis)
+        private function loadImageData(GeoAnalysis $analysis)
     {
-        // Check passed path
+        // 1. Check the passed absolute path (Most reliable)
         if ($this->localPath && file_exists($this->localPath)) {
             Log::info('📁 Loading from passed path: ' . $this->localPath);
             return file_get_contents($this->localPath);
         }
 
-        // Check storage path (full path)
+        // 2. Check via Storage Disk (Bulletproof for Docker/Queue Workers)
         if ($analysis->image_path) {
-            $fullPath = storage_path('app/public/' . $analysis->image_path);
-            if (file_exists($fullPath)) {
-                Log::info('📁 Loading from storage path: ' . $fullPath);
+            $disk = Storage::disk('public');
+            if ($disk->exists($analysis->image_path)) {
+                $fullPath = $disk->path($analysis->image_path);
+                Log::info('📁 Loading from Storage Disk: ' . $fullPath);
                 return file_get_contents($fullPath);
             }
         }
 
-        // Check Laravel Storage
-        if ($analysis->image_path && Storage::disk('public')->exists($analysis->image_path)) {
-            Log::info('📁 Loading from Laravel Storage: ' . $analysis->image_path);
-            return Storage::disk('public')->get($analysis->image_path);
-        }
-
-        // Check URL
+        // 3. Check URL (Last resort)
         if ($analysis->image_url) {
             Log::info('📸 Loading from URL: ' . $analysis->image_url);
             $data = @file_get_contents($analysis->image_url);
@@ -184,6 +179,22 @@ class AnalyzeImageJob implements ShouldQueue
             }
         }
 
+        return null;
+    }
+        /**
+     * Gets the absolute path reliably across both the web server and queue worker.
+     */
+    private function getAbsolutePath(GeoAnalysis $analysis)
+    {
+        if ($this->localPath && file_exists($this->localPath)) {
+            return $this->localPath;
+        }
+        if ($analysis->image_path) {
+            $disk = Storage::disk('public');
+            if ($disk->exists($analysis->image_path)) {
+                return $disk->path($analysis->image_path);
+            }
+        }
         return null;
     }
 
@@ -195,14 +206,7 @@ class AnalyzeImageJob implements ShouldQueue
         $data = [];
         $filePath = null;
 
-        if ($this->localPath && file_exists($this->localPath)) {
-            $filePath = $this->localPath;
-        } elseif ($analysis->image_path) {
-            $fullPath = storage_path('app/public/' . $analysis->image_path);
-            if (file_exists($fullPath)) {
-                $filePath = $fullPath;
-            }
-        }
+        $filePath = $this->getAbsolutePath($analysis);
 
         if (!$filePath) {
             return $data;
@@ -260,14 +264,7 @@ class AnalyzeImageJob implements ShouldQueue
     {
         $localFile = null;
 
-        if ($this->localPath && file_exists($this->localPath)) {
-            $localFile = $this->localPath;
-        } elseif ($analysis->image_path) {
-            $fullPath = storage_path('app/public/' . $analysis->image_path);
-            if (file_exists($fullPath)) {
-                $localFile = $fullPath;
-            }
-        }
+                $localFile = $this->getAbsolutePath($analysis);
 
         if (!$localFile) {
             Log::warning('☁️ No local file to upload to Cloudinary');
