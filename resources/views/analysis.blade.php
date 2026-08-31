@@ -3184,6 +3184,21 @@ isExploring = false;
     console.log('🗺️  Flat map ↔ 3D starfield globe alternation enabled');
     console.log('⌨️  Press ESC to cancel.');
     </script>
+    <script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then((reg) => {
+          console.log('Service Worker registered.');
+          // Enable navigation preload (specifically to fix your exact warning!)
+          if ('navigationPreload' in reg) {
+            reg.navigationPreload.enable();
+          }
+        })
+        .catch((err) => console.log('SW registration failed: ', err));
+    });
+  }
+</script>
 </body>
 
 </html>
