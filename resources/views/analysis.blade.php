@@ -1594,7 +1594,7 @@
 
         </div>
     </div>
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
@@ -1622,8 +1622,7 @@
     // above showStreetView() further down). Put it here, or better, render it
     // from a Blade variable — e.g. '{{ config('services.google_maps.embed_key') }}'
     // — so it isn't hardcoded into a public file.
-    const GOOGLE_MAPS_EMBED_KEY = '{{ config('
-    services.google_maps.embed_key ') }}';
+    const GOOGLE_MAPS_EMBED_KEY = '{{ config("services.google_maps.embed_key") }}';
 
     const DARK_TILE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
     const DARK_ATTR = '&copy; <a href="https://carto.com/attributions">CARTO</a>';
@@ -1940,9 +1939,9 @@
     let lastProgress = 0;
 
     // Starfield state
-    let starfieldAnim = null;
-    let stars = [];
-    let globeAngle = 0;
+    // let starfieldAnim = null;
+    // let stars = [];
+    // let globeAngle = 0;
 
     // ========== HELPERS ==========
     function isValidCoord(lat, lng) {
@@ -2096,282 +2095,149 @@
         }).addTo(earthMapInstance);
     }
 
-    // ========== STARFIELD + 3D GLOBE (Frame 3 & 5) ==========
-    function initStarfield() {
-        const canvas = DOM.starfieldCanvas;
-        const ctx = canvas.getContext('2d');
-        stars = [];
+ // ========== REAL 3D EARTH (Three.js) ==========
+const EARTH_TEXTURE_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_atmos_2048.jpg';
+const EARTH_SPEC_URL    = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_specular_2048.jpg';
+const EARTH_CLOUDS_URL  = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_clouds_1024.png';
+const EARTH_NORMAL_URL  = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_normal_2048.jpg';
 
-        function resize() {
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-        }
+const textureLoader = new THREE.TextureLoader();
+let cachedEarthTex, cachedSpecTex, cachedCloudsTex, cachedNormalTex, texturesLoading = null;
+
+function loadEarthTextures() {
+    if (texturesLoading) return texturesLoading;
+    texturesLoading = Promise.all([
+        new Promise(res => textureLoader.load(EARTH_TEXTURE_URL, t => { cachedEarthTex = t; res(); }, undefined, () => res())),
+        new Promise(res => textureLoader.load(EARTH_SPEC_URL, t => { cachedSpecTex = t; res(); }, undefined, () => res())),
+        new Promise(res => textureLoader.load(EARTH_CLOUDS_URL, t => { cachedCloudsTex = t; res(); }, undefined, () => res())),
+        new Promise(res => textureLoader.load(EARTH_NORMAL_URL, t => { cachedNormalTex = t; res(); }, undefined, () => res())),
+    ]);
+    return texturesLoading;
+}
+
+function latLngToVector3(lat, lng, radius) {
+    const phi = (90 - lat) * (Math.PI / 180);
+    const theta = (lng + 180) * (Math.PI / 180);
+    return new THREE.Vector3(
+        -radius * Math.sin(phi) * Math.cos(theta),
+        radius * Math.cos(phi),
+        radius * Math.sin(phi) * Math.sin(theta)
+    );
+}
+
+function buildEarthScene(canvas) {
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+    camera.position.z = 2.6;
+
+    const starGeo = new THREE.BufferGeometry();
+    const starCount = 1800;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+        const r = 60 + Math.random() * 40;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos((Math.random() * 2) - 1);
+        starPositions[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+        starPositions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+        starPositions[i*3+2] = r * Math.cos(phi);
+    }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09, transparent: true, opacity: 0.75 })));
+
+    const sun = new THREE.DirectionalLight(0xffffff, 1.15);
+    sun.position.set(5, 2, 5);
+    scene.add(sun);
+    scene.add(new THREE.AmbientLight(0x404040, 0.55));
+
+    const earthMat = new THREE.MeshPhongMaterial({ shininess: 12 });
+    const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 64), earthMat);
+    scene.add(earth);
+
+    const cloudMat = new THREE.MeshPhongMaterial({ transparent: true, opacity: 0.5, depthWrite: false });
+    const clouds = new THREE.Mesh(new THREE.SphereGeometry(1.008, 64, 64), cloudMat);
+    scene.add(clouds);
+
+    const atmoMat = new THREE.ShaderMaterial({
+        transparent: true,
+        side: THREE.BackSide,
+        vertexShader: `varying vec3 vNormal; void main() { vNormal = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `varying vec3 vNormal; void main() { float i = pow(0.68 - dot(vNormal, vec3(0.0,0.0,1.0)), 3.0); gl_FragColor = vec4(0.35,0.75,1.0,1.0) * i; }`,
+    });
+    scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.09, 64, 64), atmoMat));
+
+    loadEarthTextures().then(() => {
+        if (cachedEarthTex) earthMat.map = cachedEarthTex;
+        if (cachedNormalTex) earthMat.normalMap = cachedNormalTex;
+        if (cachedSpecTex) { earthMat.specularMap = cachedSpecTex; earthMat.specular = new THREE.Color(0x222222); }
+        earthMat.needsUpdate = true;
+        if (cachedCloudsTex) { cloudMat.map = cachedCloudsTex; cloudMat.needsUpdate = true; }
+    });
+
+    function resize() {
+        const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+    }
+    resize();
+
+    return { renderer, scene, camera, earth, clouds, resize };
+}
+
+let earthScene = null;
+let earthAnimId = null;
+let globeMarkerMesh = null;
+
+function initStarfield() {
+    if (!earthScene) {
+        earthScene = buildEarthScene(DOM.starfieldCanvas);
+        window.addEventListener('resize', earthScene.resize);
+    }
+    const { renderer, scene, camera, earth, clouds, resize } = earthScene;
+    function frame() {
         resize();
-        window.addEventListener('resize', resize);
-
-        // Generate stars
-        for (let i = 0; i < 320; i++) {
-            stars.push({
-                x: Math.random() * canvas.width,
-                y: Math.random() * canvas.height,
-                r: Math.random() * 1.4 + 0.2,
-                alpha: Math.random() * 0.7 + 0.2,
-                twinkleSpeed: Math.random() * 0.02 + 0.005,
-                twinkleDir: Math.random() > 0.5 ? 1 : -1,
-            });
+        if (!prefersReducedMotion) {
+            earth.rotation.y += 0.0016;
+            clouds.rotation.y += 0.0021;
         }
-
-        function drawGlobe(cx, cy, radius, angle) {
-            // Globe shadow
-            const grd = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.3, radius * 0.05, cx, cy, radius);
-            grd.addColorStop(0, 'rgba(28,28,55,0.95)');
-            grd.addColorStop(0.6, 'rgba(10,10,24,0.97)');
-            grd.addColorStop(1, 'rgba(5,5,12,0.99)');
-
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-            ctx.fillStyle = grd;
-            ctx.fill();
-
-            // Clip to sphere for continent lines
-            ctx.clip();
-
-            // Draw simple continent outlines as arcs (stylized, not precise)
-            const continents = [{
-                    ox: 0.18,
-                    oy: -0.15,
-                    w: 0.28,
-                    h: 0.22,
-                    label: 'NORTH AM'
-                },
-                {
-                    ox: 0.08,
-                    oy: 0.22,
-                    w: 0.18,
-                    h: 0.28,
-                    label: 'SOUTH AM'
-                },
-                {
-                    ox: -0.12,
-                    oy: -0.08,
-                    w: 0.22,
-                    h: 0.35,
-                    label: 'AFRICA'
-                },
-                {
-                    ox: -0.22,
-                    oy: -0.25,
-                    w: 0.20,
-                    h: 0.18,
-                    label: 'EUROPE'
-                },
-                {
-                    ox: 0.18,
-                    oy: -0.18,
-                    w: 0.38,
-                    h: 0.28,
-                    label: 'ASIA'
-                },
-                {
-                    ox: 0.32,
-                    oy: 0.18,
-                    w: 0.22,
-                    h: 0.20,
-                    label: 'AUSTRALIA'
-                },
-            ];
-
-            ctx.strokeStyle = 'rgba(34,211,238,0.18)';
-            ctx.lineWidth = 0.8;
-
-            continents.forEach(c => {
-                const rx = cx + (c.ox + Math.sin(angle) * 0.06) * radius * 2;
-                const ry = cy + c.oy * radius * 2;
-                ctx.beginPath();
-                ctx.ellipse(rx, ry, c.w * radius, c.h * radius, angle * 0.3, 0, Math.PI * 2);
-                ctx.stroke();
-            });
-
-            // Latitude lines
-            ctx.strokeStyle = 'rgba(201,138,70,0.14)';
-            ctx.lineWidth = 0.6;
-            for (let i = -3; i <= 3; i++) {
-                const latY = cy + (i / 4) * radius;
-                const latR = Math.sqrt(Math.max(0, radius * radius - (latY - cy) * (latY - cy)));
-                if (latR > 0) {
-                    ctx.beginPath();
-                    ctx.ellipse(cx, latY, latR, latR * 0.25, 0, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-            }
-
-            // Longitude lines
-            ctx.strokeStyle = 'rgba(201,138,70,0.10)';
-            for (let i = 0; i < 8; i++) {
-                const a = angle + (i / 8) * Math.PI * 2;
-                ctx.beginPath();
-                ctx.ellipse(cx, cy, radius * Math.abs(Math.cos(a)), radius, 0, 0, Math.PI * 2);
-                ctx.stroke();
-            }
-
-            // Atmosphere glow
-            ctx.restore();
-            const atmo = ctx.createRadialGradient(cx, cy, radius * 0.88, cx, cy, radius * 1.12);
-            atmo.addColorStop(0, 'rgba(34,211,238,0.14)');
-            atmo.addColorStop(0.5, 'rgba(201,138,70,0.06)');
-            atmo.addColorStop(1, 'rgba(34,211,238,0)');
-            ctx.beginPath();
-            ctx.arc(cx, cy, radius * 1.12, 0, Math.PI * 2);
-            ctx.fillStyle = atmo;
-            ctx.fill();
-
-            // Specular highlight
-            const spec = ctx.createRadialGradient(cx - radius * 0.35, cy - radius * 0.35, 0, cx - radius * 0.35, cy -
-                radius * 0.35, radius * 0.55);
-            spec.addColorStop(0, 'rgba(255,255,255,0.07)');
-            spec.addColorStop(1, 'rgba(255,255,255,0)');
-            ctx.beginPath();
-            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-            ctx.fillStyle = spec;
-            ctx.fill();
-
-            // City dots
-            const cityDots = [{
-                    x: 0.22,
-                    y: -0.18
-                }, {
-                    x: -0.18,
-                    y: -0.22
-                }, {
-                    x: -0.08,
-                    y: -0.05
-                },
-                {
-                    x: 0.32,
-                    y: -0.10
-                }, {
-                    x: 0.10,
-                    y: 0.28
-                }, {
-                    x: 0.35,
-                    y: 0.15
-                },
-            ];
-            cityDots.forEach((d, i) => {
-                const px = cx + (d.x + Math.sin(angle + i) * 0.04) * radius * 2.1;
-                const py = cy + d.y * radius * 2;
-                if (Math.abs(px - cx) < radius && Math.abs(py - cy) < radius) {
-                    ctx.beginPath();
-                    ctx.arc(px, py, 2, 0, Math.PI * 2);
-                    ctx.fillStyle = i % 2 === 0 ? 'rgba(34,211,238,0.7)' : 'rgba(251,191,36,0.6)';
-                    ctx.fill();
-                }
-            });
-        }
-
-        function frame() {
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Deep space bg
-            ctx.fillStyle = '#05050a';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            // Stars
-            stars.forEach(s => {
-                s.alpha += s.twinkleSpeed * s.twinkleDir;
-                if (s.alpha > 0.9 || s.alpha < 0.1) s.twinkleDir *= -1;
-                ctx.beginPath();
-                ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(255,255,255,${s.alpha})`;
-                ctx.fill();
-            });
-
-            // Globe
-            const cx = canvas.width * 0.5;
-            const cy = canvas.height * 0.5;
-            const radius = Math.min(canvas.width, canvas.height) * 0.30;
-            if (!prefersReducedMotion) globeAngle += 0.006;
-            drawGlobe(cx, cy, radius, globeAngle);
-
-            starfieldAnim = requestAnimationFrame(frame);
-        }
-
-        frame();
+        renderer.render(scene, camera);
+        earthAnimId = requestAnimationFrame(frame);
     }
+    frame();
+}
 
-    function stopStarfield() {
-        if (starfieldAnim) {
-            cancelAnimationFrame(starfieldAnim);
-            starfieldAnim = null;
-        }
-    }
+function stopStarfield() {
+    if (earthAnimId) { cancelAnimationFrame(earthAnimId); earthAnimId = null; }
+}
 
-    // ========== STATIC GLOBE SNAPSHOT (results-pane reveal crossfade) ==========
-    // A lighter, non-animated relative of drawGlobe() above — just enough of a
-    // sphere-with-target to bridge the cinematic globe view into the flat
-    // interactive result map without needing a real 3D globe library.
-    function drawStaticGlobe(canvas) {
-        if (!canvas) return () => {};
-        const ctx = canvas.getContext('2d');
+function setGlobeMarker(lat, lng, isTarget = false) {
+    if (!earthScene) return;
+    const { earth } = earthScene;
+    if (globeMarkerMesh) { earth.remove(globeMarkerMesh); globeMarkerMesh = null; }
+    const pos = latLngToVector3(lat, lng, 1.02);
+    globeMarkerMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.018, 16, 16),
+        new THREE.MeshBasicMaterial({ color: isTarget ? 0x2dd4bf : 0x22d3ee })
+    );
+    globeMarkerMesh.position.copy(pos);
+    earth.add(globeMarkerMesh);
+}
 
-        function render() {
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-            const cx = canvas.width / 2;
-            const cy = canvas.height / 2;
-            const radius = Math.min(canvas.width, canvas.height) * 0.34;
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#05050a';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            const grd = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.3, radius * 0.05, cx, cy, radius);
-            grd.addColorStop(0, 'rgba(30,40,55,0.95)');
-            grd.addColorStop(0.6, 'rgba(10,14,22,0.97)');
-            grd.addColorStop(1, 'rgba(5,6,10,0.99)');
-            ctx.beginPath();
-            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-            ctx.fillStyle = grd;
-            ctx.fill();
-
-            ctx.save();
-            ctx.clip();
-            ctx.strokeStyle = 'rgba(34,211,238,0.16)';
-            ctx.lineWidth = 0.7;
-            for (let i = -3; i <= 3; i++) {
-                const latY = cy + (i / 4) * radius;
-                const latR = Math.sqrt(Math.max(0, radius * radius - (latY - cy) * (latY - cy)));
-                if (latR > 0) {
-                    ctx.beginPath();
-                    ctx.ellipse(cx, latY, latR, latR * 0.25, 0, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-            }
-            for (let i = 0; i < 8; i++) {
-                const a = (i / 8) * Math.PI * 2;
-                ctx.beginPath();
-                ctx.ellipse(cx, cy, radius * Math.abs(Math.cos(a)), radius, 0, 0, Math.PI * 2);
-                ctx.stroke();
-            }
-            ctx.restore();
-
-            const atmo = ctx.createRadialGradient(cx, cy, radius * 0.88, cx, cy, radius * 1.14);
-            atmo.addColorStop(0, 'rgba(45,212,191,0.18)');
-            atmo.addColorStop(0.5, 'rgba(201,138,70,0.06)');
-            atmo.addColorStop(1, 'rgba(45,212,191,0)');
-            ctx.beginPath();
-            ctx.arc(cx, cy, radius * 1.14, 0, Math.PI * 2);
-            ctx.fillStyle = atmo;
-            ctx.fill();
-        }
-
-        render();
-        return render;
-    }
+function drawStaticGlobe(canvas) {
+    if (!canvas) return () => {};
+    const t = buildEarthScene(canvas);
+    let animId = null;
+    (function frame() {
+        t.resize();
+        if (!prefersReducedMotion) t.earth.rotation.y += 0.003;
+        t.renderer.render(t.scene, t.camera);
+        animId = requestAnimationFrame(frame);
+    })();
+    return () => { if (animId) cancelAnimationFrame(animId); };
+}
 
     function renderImage(url) {
         let attempts = 0;
@@ -2419,19 +2285,19 @@
     // ========== EXPLORATION SEQUENCE ==========
     // Alternates: flat map zoom → globe → flat map zoom → globe ...
     async function runExplorationSequence(waypoints) {
+        while (!analysisComplete) {
         randomWaypoints = shuffleArray(waypoints).slice(0, 12);
         totalWaypoints = randomWaypoints.length;
-        explorationIndex = 0;
 
         for (let i = 0; i < totalWaypoints; i++) {
-            if (analysisComplete) break;
-
+            if (analysisComplete) return;
             const wp = randomWaypoints[i];
             explorationIndex = i;
 
             // ── ODD index → GLOBE MODE (Frame 3, 5, ...) ──
             if (i % 2 === 1) {
                 showGlobeMode(`🌐 Scanning ${wp.name}...`);
+                setGlobeMarker(wp.lat, wp.lng, false);   // ← add this line
                 if (DOM.pcScanning) DOM.pcScanning.textContent = `// SCANNING ${wp.name.toUpperCase()}`;
                 await sleep(3200); // Let the globe spin
                 if (analysisComplete) break;
@@ -2466,6 +2332,7 @@
             if (analysisComplete) break;
             await sleep(500);
         }
+      }
     }
 
     // ========== CINEMATIC TARGET REVEAL ==========
@@ -2578,23 +2445,16 @@
 
     // ========== SESSION ==========
     function clearSession() {
-        sessionStorage.removeItem('analysisId');
-        sessionStorage.removeItem('analysisResult');
-        // sessionStorage.removeItem('uploadedImage');
-        if (pollTimer) {
-            clearTimeout(pollTimer);
-            pollTimer = null;
-        }
-        if (elapsedInterval) {
-            clearInterval(elapsedInterval);
-            elapsedInterval = null;
-        }
-        currentAnalysisId = null;
-        pollAttempts = 0;
-        consecutiveErrors = 0;
-        analysisComplete = false;
-        isExploring = false;
-    }
+    sessionStorage.removeItem('analysisId');
+    sessionStorage.removeItem('analysisResult');
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    if (elapsedInterval) { clearInterval(elapsedInterval); elapsedInterval = null; }
+    currentAnalysisId = null;
+    pollAttempts = 0;
+    consecutiveErrors = 0;
+    analysisComplete = true;   // ← changed: clearSession always means "stop exploring"
+    isExploring = false;
+}
 
     // ========== POLL BACKEND ==========
     function pollStatus() {
@@ -2760,12 +2620,15 @@
 
         // Briefly hold on a static globe before the map fades in
         if (DOM.globeTransition && DOM.globeTransitionCanvas) {
-            DOM.globeTransition.classList.remove('fade-out');
-            DOM.globeTransition.style.display = 'block';
-            drawStaticGlobe(DOM.globeTransitionCanvas);
-            const holdMs = prefersReducedMotion ? 0 : 1100;
-            setTimeout(() => DOM.globeTransition.classList.add('fade-out'), holdMs);
-        }
+    DOM.globeTransition.classList.remove('fade-out');
+    DOM.globeTransition.style.display = 'block';
+    const stopTransitionGlobe = drawStaticGlobe(DOM.globeTransitionCanvas);
+    const holdMs = prefersReducedMotion ? 0 : 1100;
+    setTimeout(() => {
+        DOM.globeTransition.classList.add('fade-out');
+        setTimeout(stopTransitionGlobe, 700);
+    }, holdMs);
+}
 
         const lat = parseFloat(data.latitude ?? data.lat);
         const lng = parseFloat(data.longitude ?? data.lng);
@@ -2943,20 +2806,32 @@
         };
 
         // ===== STRICT MODE SWITCHING (No mixing) =====
+        // ===== STRICT MODE SWITCHING (Real 3D Globe vs Street View) =====
         const switchTo3DGlobe = () => {
             removeStreetView();
-            setTile('terrain'); // Satellite/3D look
+            
+            // Hide the Flat Map and show the REAL 3D Globe (starfieldCanvas)
+            const resultMapDiv = document.getElementById('resultMap');
+            if (resultMapDiv) resultMapDiv.style.display = 'none';
+            showGlobeMode('🌐 Real 3D Globe Mode Active');
 
             // Color states
             globeBtn.classList.add('active');
             streetBtn.classList.remove('active');
 
-            showToast('🌐 3D Globe Mode Active');
+            showToast('🌐 Real 3D Globe Mode Active');
         };
 
         const switchToStreetView = () => {
-            removeStreetView(); // Ensure clean start
-            showStreetView(lat, lng); // Load real-life 360 panorama
+            removeStreetView();
+            
+            // Hide the 3D Globe and show the Flat Map (resultMap)
+            const resultMapDiv = document.getElementById('resultMap');
+            if (resultMapDiv) resultMapDiv.style.display = 'block';
+            showFlatMapMode();
+            
+            // Load real-life 360 panorama
+            showStreetView(lat, lng);
 
             // Color states
             streetBtn.classList.add('active');
@@ -3136,9 +3011,9 @@ TraceGeo OSINT Intelligence`;
         uploadedImageURL = imageUrl;
         if (imageUrl) sessionStorage.setItem('uploadedImage', imageUrl);
         pollAttempts = 0;
-        startTime = Date.now();
-        analysisComplete = false;
-        isExploring = false;
+startTime = Date.now();
+analysisComplete = false;
+isExploring = false;
 
         if (DOM.progressCard) DOM.progressCard.style.display = 'block';
         if (DOM.pcError) DOM.pcError.style.display = 'none';
@@ -3213,8 +3088,8 @@ TraceGeo OSINT Intelligence`;
             DOM.statusDot.style.boxShadow = '0 0 20px var(--success)';
         }
         showToast('⏹️ Analysis cancelled');
-        analysisComplete = false;
-        isExploring = false;
+        // analysisComplete = false;
+        // isExploring = false;
     });
 
     console.log('✅ TraceGeo loaded — storyboard-accurate sequence active');
