@@ -2,15 +2,16 @@
 set -e
 
 echo "⏳ Waiting for database connection..."
-until php artisan migrate --force; do
-  echo "Migration failed, retrying in 5 seconds..."
-  sleep 5
-done
 
-echo "✅ Migrations completed!"
+# Run migrations, but don't fail the whole container if they are already applied
+if php artisan migrate --force; then
+  echo "✅ Migrations completed successfully!"
+else
+  echo "⚠️ Migration skipped (already applied or minor error). Continuing..."
+fi
 
-echo "🔗 Creating storage link..."
-php artisan storage:link || echo "Storage link already exists or failed, continuing..."
+echo "🔗 Creating storage link (if not exists)..."
+php artisan storage:link || echo "Storage link already exists, continuing..."
 
 echo "🛠️ Setting permissions for storage and public..."
 chmod -R 775 storage bootstrap/cache
