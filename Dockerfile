@@ -3,11 +3,11 @@ FROM php:8.2-apache
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     git curl libpng-dev libonig-dev libxml2-dev zip unzip libpq-dev \
-    nodejs npm \
+    supervisor \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
-RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd pgsql pdo_pgsql
+RUN docker-php-ext-install pdo_pgsql mbstring exif pcntl bcmath gd
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -17,38 +17,29 @@ WORKDIR /var/www/html
 # Copy application files
 COPY . /var/www/html
 
-# Create bootstrap/cache before composer install
-RUN mkdir -p bootstrap/cache && chmod -R 775 bootstrap
+# Create directories and set permissions
+RUN mkdir -p bootstrap/cache storage/framework/views storage/framework/cache storage/framework/sessions storage/logs \
+    && chmod -R 775 storage bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache
 
-# Install dependencies
+# Install dependencies (no npm needed for pure PHP apps, skip if not required)
 RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
-
-# Install npm dependencies
-RUN npm install --legacy-peer-deps
-
-# Build assets
-RUN npm run build || echo "No build script found"
-
-# Create storage directories
-RUN mkdir -p storage/framework/views \
-    && mkdir -p storage/framework/cache \
-    && mkdir -p storage/framework/sessions \
-    && mkdir -p storage/logs
-
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
-    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
 # Enable Apache mod_rewrite
 RUN a2enmod rewrite
 
-# Configure Apache
+# Configure Apache to serve from /public
 RUN sed -i 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
-# Copy start script
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
+# Copy Supervisor config
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+# Copy entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Expose port 8080 (Render maps this automatically)
 EXPOSE 8080
-CMD ["/start.sh"]
+
+CMD ["/usr/local/bin/entrypoint.sh"]
