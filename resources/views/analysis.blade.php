@@ -1441,6 +1441,43 @@
         color: var(--text);
         border-color: var(--border);
     }
+
+    /* ===== MOBILE & RESPONSIVENESS IMPROVEMENTS (Block 1,2,4,7) ===== */
+
+/* Block 1: Let the data pane shrink on mobile */
+@media (max-width: 900px) {
+    .data-pane {
+        min-width: 0 !important; /* Force it to shrink to 100% */
+    }
+}
+
+/* Block 2: Dynamic viewport for mobile browsers */
+body {
+    min-height: 100vh;      /* Fallback */
+    min-height: 100dvh;     /* Actual visible viewport on mobile */
+}
+
+/* Block 4: Prevent view-toggle buttons from overflowing on small screens */
+@media (max-width: 480px) {
+    .view-toggle-group {
+        flex-wrap: wrap; /* Allow buttons to wrap if needed */
+        justify-content: center;
+    }
+    .view-toggle-btn {
+        min-width: 0;
+        padding: 8px 12px;
+        font-size: 11px;
+    }
+}
+
+/* Block 7: Larger touch targets for mobile */
+@media (max-width: 900px) {
+    .action-row button,
+    .photo-icon-row button {
+        padding: 12px;
+        min-height: 44px;
+    }
+}
     </style>
 </head>
 
@@ -2183,6 +2220,15 @@ function buildEarthScene(canvas) {
         camera.updateProjectionMatrix();
     }
     resize();
+       // ✅ NEW: Add a focusOn method to the scene
+    function focusOn(lat, lng) {
+        // Stop manual spinning and rotate the Earth so the point faces the camera
+        earth.rotation.y = (lng * Math.PI) / 180;
+        earth.rotation.x = (lat * Math.PI) / 180 - Math.PI / 2; // Adjust for viewing angle
+        // Sync clouds with earth's rotation
+        clouds.rotation.y = earth.rotation.y;
+        clouds.rotation.x = earth.rotation.x;
+    }
 
     return { renderer, scene, camera, earth, clouds, resize };
 }
@@ -2194,7 +2240,7 @@ let globeMarkerMesh = null;
 function initStarfield() {
     if (!earthScene) {
         earthScene = buildEarthScene(DOM.starfieldCanvas);
-        window.addEventListener('resize', earthScene.resize);
+        // window.addEventListener('resize', earthScene.resize);
     }
     const { renderer, scene, camera, earth, clouds, resize } = earthScene;
     function frame() {
@@ -2239,32 +2285,33 @@ function drawStaticGlobe(canvas) {
     return () => { if (animId) cancelAnimationFrame(animId); };
 }
 
-    function renderImage(url) {
-        let attempts = 0;
-        const MAX_RETRIES = 5;
-        const tryLoad = () => {
-            const img = new Image();
-            img.onload = () => {
-                DOM.photoFrame.innerHTML = `<img src="${url}" alt="source">`;
-                renderVisionChips(DOM.photoFrame, data.tags);
-            };
-            img.onerror = () => {
-                attempts++;
-                if (attempts < MAX_RETRIES) {
-                    console.warn(`Retry ${attempts}/${MAX_RETRIES}...`);
-                    setTimeout(() => {
-                        const separator = url.includes('?') ? '&' : '?';
-                        img.src = url + separator + 't=' + Date.now();
-                    }, 2000);
-                } else {
-                    DOM.photoFrame.innerHTML = `<div class="no-photo"><i class="fas fa-image"></i></div>
-                                            <p style="font-size:12px;color:var(--text-muted);">Image unavailable</p>`;
-                }
-            };
-            img.src = url;
-        };
-        tryLoad();
-    }
+// Clean global utility (only keep if you plan to use it elsewhere)
+// function renderImage(url, tags = []) {
+//     let attempts = 0;
+//     const MAX_RETRIES = 5;
+//     const tryLoad = () => {
+//         const img = new Image();
+//         img.onload = () => {
+//             DOM.photoFrame.innerHTML = `<img src="${url}" alt="source">`;
+//             renderVisionChips(DOM.photoFrame, tags); // ✅ Uses 'tags' parameter, not undefined 'data'
+//         };
+//         img.onerror = () => {
+//             attempts++;
+//             if (attempts < MAX_RETRIES) {
+//                 console.warn(`Retry ${attempts}/${MAX_RETRIES}...`);
+//                 setTimeout(() => {
+//                     const separator = url.includes('?') ? '&' : '?';
+//                     img.src = url + separator + 't=' + Date.now();
+//                 }, 2000);
+//             } else {
+//                 DOM.photoFrame.innerHTML = `<div class="no-photo"><i class="fas fa-image"></i></div>
+//                                             <p style="font-size:12px;color:var(--text-muted);">Image unavailable</p>`;
+//             }
+//         };
+//         img.src = url;
+//     };
+//     tryLoad();
+// }
 
     // ========== SWITCH BETWEEN FLAT MAP ↔ GLOBE ==========
     function showGlobeMode(statusText) {
@@ -2789,11 +2836,25 @@ function drawStaticGlobe(canvas) {
         const removeStreetView = () => {
             DOM.satPane.querySelector('.street-inline')?.remove();
         };
+                // ===== REMOVE THE OLD CONFUSING CHECKBOX =====
+        const oldSwitch = document.getElementById('streetViewSwitch');
+        if (oldSwitch) oldSwitch.parentElement.style.display = 'none';
 
         const setTile = (mode) => {
             currentTileMode = mode;
             if (roadsBtn) roadsBtn.classList.toggle('active', mode === 'roads');
             if (terrainBtn) terrainBtn.classList.toggle('active', mode === 'terrain');
+            
+            // ✅ FIX: Always reset to the Flat Map when changing tiles
+            removeStreetView();
+            const resultMapDiv = document.getElementById('resultMap');
+            if (resultMapDiv) resultMapDiv.style.display = 'block';
+            showFlatMapMode(); // Hides the 3D starfield and shows the flat earth map
+            
+            // Also reset the Globe/Street buttons
+            if (globeBtn) globeBtn.classList.remove('active');
+            if (streetBtn) streetBtn.classList.remove('active');
+            
             if (resultMapInstance) {
                 resultMapInstance.eachLayer(l => {
                     if (l instanceof L.TileLayer) resultMapInstance.removeLayer(l);
@@ -2810,10 +2871,16 @@ function drawStaticGlobe(canvas) {
         const switchTo3DGlobe = () => {
             removeStreetView();
             
-            // Hide the Flat Map and show the REAL 3D Globe (starfieldCanvas)
+            // Hide the Flat Map and show the REAL 3D Globe
             const resultMapDiv = document.getElementById('resultMap');
             if (resultMapDiv) resultMapDiv.style.display = 'none';
             showGlobeMode('🌐 Real 3D Globe Mode Active');
+             
+            // ✅ FOCUS THE EARTH ON THE RESULT LOCATION
+            if (earthScene) {
+                earthScene.focusOn(lat, lng); 
+                setGlobeMarker(lat, lng, true);
+            }
 
             // Color states
             globeBtn.classList.add('active');
@@ -2848,14 +2915,8 @@ function drawStaticGlobe(canvas) {
         streetBtn.onclick = switchToStreetView;
 
         // Setup Roads / Terrain buttons to reset to Globe mode
-        if (roadsBtn) roadsBtn.onclick = () => {
-            setTile('roads');
-            switchTo3DGlobe();
-        };
-        if (terrainBtn) terrainBtn.onclick = () => {
-            setTile('terrain');
-            switchTo3DGlobe();
-        };
+        if (roadsBtn) roadsBtn.onclick = () => { setTile('roads'); };
+        if (terrainBtn) terrainBtn.onclick = () => { setTile('terrain'); };
 
         // ===== PAGE-LEVEL ACTIONS =====
         set('homeBtn', () => {
@@ -2914,22 +2975,22 @@ function drawStaticGlobe(canvas) {
         wrap.className = 'street-inline';
         const fullUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
 
-        // Highlight the street view button, unhighlight Globe
-        const globeBtn = document.getElementById('globeBtnPane');
-        const streetBtn = document.getElementById('streetBtnPane');
+        // ✅ FIX: Use the correct IDs from your HTML
+        const globeBtn = document.getElementById('globeToggleBtn');
+        const streetBtn = document.getElementById('streetToggleBtn');
+        
         if (globeBtn) globeBtn.classList.remove('active');
         if (streetBtn) streetBtn.classList.add('active');
 
         if (GOOGLE_MAPS_EMBED_KEY) {
-            const embedSrc =
-                `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
+            // ... (Your existing embed code) ...
             wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
         <iframe src="${embedSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allow="accelerometer; gyroscope; magnetometer; fullscreen"></iframe>
         <button class="street-open-full" id="streetOpenFullBtn"><i class="fas fa-expand"></i> Open Full Street View</button>
     `;
         } else {
-            // No API key configured yet (Free key needed)
+            // ... (Your existing API key code) ...
             wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
         <div class="street-setup-notice">
@@ -2945,12 +3006,12 @@ function drawStaticGlobe(canvas) {
 
         DOM.satPane.appendChild(wrap);
 
-        // Back button logic (Properly resets UI states)
+        // Back button logic (Properly resets UI states using the correct IDs)
         document.getElementById('streetBackBtn').onclick = () => {
             wrap.remove();
-            // Reset button states to map mode
             if (globeBtn) globeBtn.classList.remove('active');
             if (streetBtn) streetBtn.classList.remove('active');
+            
             // Re-highlight roads or terrain based on currentTileMode
             const roadsBtn = document.getElementById('roadsToggle');
             const terrainBtn = document.getElementById('terrainToggle');
@@ -3059,15 +3120,32 @@ isExploring = false;
         }
     });
 
-    // Resize handlers
+    // ========== COORDINATED RESIZE & LAYOUT HANDLING (Block 3, 5, 6) ==========
     let resizeTmr;
-    window.addEventListener('resize', () => {
+
+    function syncStageTop() {
+        const nav = document.querySelector('.navbar');
+        const stage = document.getElementById('stageFrame');
+        if (nav && stage) {
+            stage.style.top = (nav.getBoundingClientRect().height + 8) + 'px';
+        }
+    }
+
+    function handleResize() {
         clearTimeout(resizeTmr);
         resizeTmr = setTimeout(() => {
             resultMapInstance?.invalidateSize();
             earthMapInstance?.invalidateSize();
-        }, 200);
-    });
+            if (earthScene) earthScene.resize();
+            syncStageTop();
+        }, 150);
+    }
+
+    const stageResizeObserver = new ResizeObserver(() => handleResize());
+    stageResizeObserver.observe(document.getElementById('stageFrame'));
+
+    window.addEventListener('resize', handleResize);
+    syncStageTop();
 
     // ESC to cancel
     document.addEventListener('keydown', e => {
@@ -3088,8 +3166,6 @@ isExploring = false;
             DOM.statusDot.style.boxShadow = '0 0 20px var(--success)';
         }
         showToast('⏹️ Analysis cancelled');
-        // analysisComplete = false;
-        // isExploring = false;
     });
 
     console.log('✅ TraceGeo loaded — storyboard-accurate sequence active');
