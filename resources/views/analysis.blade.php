@@ -2996,14 +2996,16 @@ function drawStaticGlobe(canvas) {
         if (streetBtn) streetBtn.classList.add('active');
 
         if (GOOGLE_MAPS_EMBED_KEY) {
-            // ... (Your existing embed code) ...
+            // ✅ THE FIX: Declare embedSrc here, BEFORE using it!
+            const embedSrc = `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
+
             wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
         <iframe src="${embedSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allow="accelerometer; gyroscope; magnetometer; fullscreen"></iframe>
         <button class="street-open-full" id="streetOpenFullBtn"><i class="fas fa-expand"></i> Open Full Street View</button>
     `;
         } else {
-            // ... (Your existing API key code) ...
+            // No API key configured, show the setup notice
             wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
         <div class="street-setup-notice">
