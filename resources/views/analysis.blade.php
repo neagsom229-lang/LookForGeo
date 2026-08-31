@@ -2996,7 +2996,6 @@ function drawStaticGlobe(canvas) {
         if (streetBtn) streetBtn.classList.add('active');
 
         if (GOOGLE_MAPS_EMBED_KEY) {
-            // ✅ THE FIX: Declare embedSrc here, BEFORE using it!
             const embedSrc = `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
 
             wrap.innerHTML = `
@@ -3005,14 +3004,13 @@ function drawStaticGlobe(canvas) {
         <button class="street-open-full" id="streetOpenFullBtn"><i class="fas fa-expand"></i> Open Full Street View</button>
     `;
         } else {
-            // No API key configured, show the setup notice
+            // No API key configured
             wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
         <div class="street-setup-notice">
             <i class="fas fa-street-view"></i>
             <h4>Street View needs one setup step</h4>
-            <p>Inline Street View requires a free Google Maps Embed API key —
-               it isn't configured yet, so it can't show the real panorama here.</p>
+            <p>Inline Street View requires a free Google Maps Embed API key — it isn't configured yet, so it can't show the real panorama here.</p>
             <button class="street-setup-cta" id="streetOpenRealBtn">
                 <i class="fas fa-up-right-from-square"></i> Open real Street View
             </button>
@@ -3021,13 +3019,12 @@ function drawStaticGlobe(canvas) {
 
         DOM.satPane.appendChild(wrap);
 
-        // Back button logic (Properly resets UI states using the correct IDs)
+        // Back button logic
         document.getElementById('streetBackBtn').onclick = () => {
             wrap.remove();
             if (globeBtn) globeBtn.classList.remove('active');
             if (streetBtn) streetBtn.classList.remove('active');
             
-            // Re-highlight roads or terrain based on currentTileMode
             const roadsBtn = document.getElementById('roadsToggle');
             const terrainBtn = document.getElementById('terrainToggle');
             if (currentTileMode === 'terrain') terrainBtn?.classList.add('active');
