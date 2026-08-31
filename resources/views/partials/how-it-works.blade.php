@@ -233,45 +233,72 @@ details p {
             to uncover the exact location of any photo.</p>
     </div>
 
-    <!-- 3 Step Cards -->
+    <!-- 3 Step Cards (Client-Focused Copy) -->
     <div class="hiw-grid">
         <div class="hiw-card">
             <div class="hiw-icon"><i class="fas fa-magnifying-glass"></i></div>
             <h3>1. Visual Evidence Scan</h3>
-            <p>Extracts geolocation clues from imagery, metadata, and visual markers like architecture, signage, and
-                vegetation.</p>
+            <p>Upload any photo. Our AI scans visual clues—landmarks, street signs, architecture, and even vegetation—to
+                build a profile of where the photo was taken.</p>
         </div>
         <div class="hiw-card">
             <div class="hiw-icon"><i class="fas fa-location-dot"></i></div>
             <h3>2. Coordinate Recovery</h3>
-            <p>Pinpoints exact latitude and longitude coordinates with a confidence score and supporting evidence chain.
-            </p>
+            <p>The engine pinpoints exact latitude and longitude coordinates, coupled with a confidence score, letting
+                you verify the accuracy of the result instantly.</p>
         </div>
         <div class="hiw-card">
             <div class="hiw-icon"><i class="fas fa-brain"></i></div>
             <h3>3. AI Reasoning</h3>
-            <p>Explains its call by analyzing the architecture, vegetation, signage, and lighting conditions present in
-                the image.</p>
+            <p>We don't just give you a dot on the map. TraceGeo explains its deduction, breaking down the visual
+                evidence used to reach the conclusion.</p>
         </div>
     </div>
 
-    <!-- FAQ Section -->
+    <!-- FAQ Section (7 Comprehensive Questions) -->
     <div class="hiw-faq">
         <h2>Frequently Asked Questions</h2>
+
         <details>
             <summary>What is TraceGeo?</summary>
-            <p>TraceGeo is an AI-powered geolocation tool that analyzes visual clues in a photo to determine exactly
-                where it was taken.</p>
+            <p>TraceGeo is an AI-powered geolocation tool. It analyzes the visual clues in a photo—like buildings,
+                street signs, terrain, and lighting—to determine exactly where it was taken.</p>
         </details>
+
         <details>
             <summary>How accurate is the location?</summary>
             <p>Accuracy depends on the number of visible landmarks and metadata in the image. We provide a confidence
                 score (0-100%) so you always know how reliable the result is.</p>
         </details>
+
         <details>
-            <summary>Is my image data stored?</summary>
+            <summary>How long does the analysis take?</summary>
+            <p>Most photos are analyzed in under 30 seconds. Our system runs in the background, so you can watch the
+                progress bar in real-time.</p>
+        </details>
+
+        <details>
+            <summary>What image formats and sizes are supported?</summary>
+            <p>We currently support JPG, PNG, GIF, and WebP files up to 20MB. For best results, use clear,
+                high-resolution photos.</p>
+        </details>
+
+        <details>
+            <summary>Is my image data stored or shared?</summary>
             <p>Images are uploaded to Cloudinary to generate temporary URLs for display. Your images are never shared
-                publicly, and you can delete them at any time.</p>
+                publicly, and you can delete them from your history at any time.</p>
+        </details>
+
+        <details>
+            <summary>Do I need an account or subscription?</summary>
+            <p>Yes, creating a free account is required to run analyses. This allows us to save your history and ensure
+                the AI isn't being abused by bots.</p>
+        </details>
+
+        <details>
+            <summary>Can I use TraceGeo on my mobile phone?</summary>
+            <p>Absolutely! TraceGeo is fully responsive and works perfectly on any mobile browser, tablet, or desktop.
+            </p>
         </details>
     </div>
 </div>

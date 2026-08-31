@@ -1359,6 +1359,19 @@
         scroll-margin-top: 90px;
         /* Adjust based on your navbar height */
     }
+
+    /* ============================================
+   FULL WIDTH: HOW IT WORKS
+   ============================================ */
+    .full-width-section {
+        max-width: 1200px;
+        /* Matches your hero and content sections */
+        margin: 0 auto;
+        padding: 20px 48px;
+        /* Matches your other sections */
+        position: relative;
+        z-index: 5;
+    }
     </style>
 </head>
 
@@ -1531,728 +1544,759 @@
         </div>
 
     </section>
-
-    <<!-- CONTENT -->
-        <section class="content" id="how-it-works">
-            <div>
-                <!-- ✅ Correct include path for the partial -->
-                @include('partials.how-it-works')
+    <!-- FIRST: POPULAR & RECENT ANALYSES (2-column grid) -->
+    <section class="content">
+        <!-- LEFT COLUMN -->
+        <div>
+            <div class="section-header">
+                <h2>Popular Landmarks</h2>
             </div>
-            <!-- (Right column with Recent Analyses and Popular Landmarks) -->
-            <div>
-                <div class="section-header">
-                    <h2>Recent Analyses</h2>
-                    <a href="/history">View all →</a>
-                </div>
-                <div id="recentGrid">
-                    @auth
-                    <div class="empty-state">
-                        <i class="fas fa-inbox"></i>
-                        <p>No recent analyses yet.<br>Upload your first photo to get started!</p>
-                    </div>
-                    @else
-                    <div class="empty-state">
-                        <i class="fas fa-lock"></i>
-                        <p><a href="/login" style="color:var(--accent);">Sign in</a> to see your recent analyses</p>
-                    </div>
-                    @endauth
+            <div id="popularGrid">
+                <div class="empty-state">
+                    <i class="fas fa-globe"></i>
+                    <p>No popular landmarks yet.</p>
                 </div>
             </div>
+        </div>
 
-        </section>
-        <!-- FOOTER -->
-        <footer class="footer">
-            <p><i class="fas fa-globe-americas" style="color:var(--accent);"></i> AI-POWERED GEOLOCATION</p>
-            <div class="links">
-                <a href="#">Privacy</a>
-                <a href="#">Terms</a>
-                <a href="#">Documentation</a>
+        <!-- RIGHT COLUMN -->
+        <div>
+            <div class="section-header">
+                <h2>Recent Analyses</h2>
+                <a href="/history">View all →</a>
+            </div>
+            <div id="recentGrid">
                 @auth
-                <a href="/analysis">Start Identifying</a>
+                <div class="empty-state">
+                    <i class="fas fa-inbox"></i>
+                    <p>No recent analyses yet.<br>Upload your first photo to get started!</p>
+                </div>
                 @else
-                <a href="/login">Start Identifying</a>
+                <div class="empty-state">
+                    <i class="fas fa-lock"></i>
+                    <p><a href="/login" style="color:var(--accent);">Sign in</a> to see your recent analyses</p>
+                </div>
                 @endauth
             </div>
-        </footer>
+        </div>
+    </section>
+    <!-- ⬆️ CLOSE THE 2-COLUMN GRID HERE -->
 
-        <script>
-        // ============================================================
-        //  TRACEGEO - ENHANCED HOMEPAGE (async upload)
-        // ============================================================
+    <!-- SECOND: FULL WIDTH HOW IT WORKS (BELOW) -->
+    <section class="full-width-section" id="how-it-works">
+        <!-- ✅ This now takes 100% of the screen width, under the other section -->
+        @include('partials.how-it-works')
+    </section>
+    <!-- FOOTER -->
+    <footer class="footer">
+        <p><i class="fas fa-globe-americas" style="color:var(--accent);"></i> AI-POWERED GEOLOCATION</p>
+        <div class="links">
+            <a href="#">Privacy</a>
+            <a href="#">Terms</a>
+            <a href="/docs">Documentation</a>
+            @auth
+            <a href="/">Start Identifying</a>
+            @else
+            <a href="/login">Start Identifying</a>
+            @endauth
+        </div>
+    </footer>
 
-        const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
-        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    <script>
+    // ============================================================
+    //  TRACEGEO - ENHANCED HOMEPAGE (async upload)
+    // ============================================================
 
-        // Global XSS Helper
-        function escapeHtml(str) {
-            if (!str) return '';
-            return str.replace(/[&<>"']/g, function(m) {
-                return {
-                    '&': '&amp;',
-                    '<': '&lt;',
-                    '>': '&gt;',
-                    '"': '&quot;',
-                    "'": '&#039;'
-                } [m];
-            });
-        }
+    const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        console.log('🚀 TraceGeo Homepage loaded');
-
-        // ============================================
-        // TOAST SYSTEM
-        // ============================================
-        function showToast(message, type = 'success') {
-            const toast = document.getElementById('toast');
-            const icon = document.getElementById('toastIcon');
-            const msg = document.getElementById('toastMessage');
-
-            const icons = {
-                success: 'fa-circle-check',
-                error: 'fa-circle-exclamation',
-                info: 'fa-circle-info',
-                warning: 'fa-triangle-exclamation'
-            };
-            icon.innerHTML = `<i class="fas ${icons[type] || icons.success}"></i>`;
-            icon.className = `icon ${type}`;
-            msg.textContent = message;
-            toast.classList.add('show');
-
-            clearTimeout(toast._hideTimeout);
-            toast._hideTimeout = setTimeout(() => {
-                toast.classList.remove('show');
-            }, 4000);
-        }
-
-        document.getElementById('toastClose')?.addEventListener('click', () => {
-            document.getElementById('toast')?.classList.remove('show');
+    // Global XSS Helper
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>"']/g, function(m) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            } [m];
         });
+    }
 
-        // ============================================
-        // DOM REFS
-        // ============================================
-        const DOM = {
-            uploadArea: document.getElementById('uploadArea'),
-            uploadTrigger: document.getElementById('uploadTrigger'),
-            uploadDropdown: document.getElementById('uploadDropdown'),
-            imageInput: document.getElementById('imageInput'),
-            browseBtn: document.getElementById('browseBtn'),
-            urlInput: document.getElementById('imageUrlInput'),
-            urlAnalyzeBtn: document.getElementById('urlAnalyzeBtn'),
-            uploadProgress: document.getElementById('uploadProgress'),
-            uploadProgressFill: document.getElementById('uploadProgressFill'),
-            uploadStatusText: document.getElementById('uploadStatusText'),
-            uploadPercent: document.getElementById('uploadPercent'),
-            fileNameText: document.getElementById('fileNameText'),
+    console.log('🚀 TraceGeo Homepage loaded');
+
+    // ============================================
+    // TOAST SYSTEM
+    // ============================================
+    function showToast(message, type = 'success') {
+        const toast = document.getElementById('toast');
+        const icon = document.getElementById('toastIcon');
+        const msg = document.getElementById('toastMessage');
+
+        const icons = {
+            success: 'fa-circle-check',
+            error: 'fa-circle-exclamation',
+            info: 'fa-circle-info',
+            warning: 'fa-triangle-exclamation'
         };
+        icon.innerHTML = `<i class="fas ${icons[type] || icons.success}"></i>`;
+        icon.className = `icon ${type}`;
+        msg.textContent = message;
+        toast.classList.add('show');
 
-        let dropdownOpen = false;
+        clearTimeout(toast._hideTimeout);
+        toast._hideTimeout = setTimeout(() => {
+            toast.classList.remove('show');
+        }, 4000);
+    }
 
-        // ============================================
-        // DROPDOWN TOGGLE
-        // ============================================
-        function toggleDropdown(e) {
-            if (e) e.stopPropagation();
-            if (!DOM.uploadDropdown) return;
-            dropdownOpen = !dropdownOpen;
-            DOM.uploadDropdown.classList.toggle('show', dropdownOpen);
-        }
+    document.getElementById('toastClose')?.addEventListener('click', () => {
+        document.getElementById('toast')?.classList.remove('show');
+    });
 
-        function closeDropdown() {
-            if (!DOM.uploadDropdown) return;
-            dropdownOpen = false;
-            DOM.uploadDropdown.classList.remove('show');
-        }
+    // ============================================
+    // DOM REFS
+    // ============================================
+    const DOM = {
+        uploadArea: document.getElementById('uploadArea'),
+        uploadTrigger: document.getElementById('uploadTrigger'),
+        uploadDropdown: document.getElementById('uploadDropdown'),
+        imageInput: document.getElementById('imageInput'),
+        browseBtn: document.getElementById('browseBtn'),
+        urlInput: document.getElementById('imageUrlInput'),
+        urlAnalyzeBtn: document.getElementById('urlAnalyzeBtn'),
+        uploadProgress: document.getElementById('uploadProgress'),
+        uploadProgressFill: document.getElementById('uploadProgressFill'),
+        uploadStatusText: document.getElementById('uploadStatusText'),
+        uploadPercent: document.getElementById('uploadPercent'),
+        fileNameText: document.getElementById('fileNameText'),
+    };
 
-        // ============================================
-        // DROPDOWN EVENTS
-        // ============================================
-        if (DOM.uploadTrigger) {
-            DOM.uploadTrigger.addEventListener('click', toggleDropdown);
-        }
+    let dropdownOpen = false;
 
-        if (DOM.uploadArea) {
-            DOM.uploadArea.querySelector('.icon')?.addEventListener('click', toggleDropdown);
-        }
+    // ============================================
+    // DROPDOWN TOGGLE
+    // ============================================
+    function toggleDropdown(e) {
+        if (e) e.stopPropagation();
+        if (!DOM.uploadDropdown) return;
+        dropdownOpen = !dropdownOpen;
+        DOM.uploadDropdown.classList.toggle('show', dropdownOpen);
+    }
 
-        document.addEventListener('click', function(e) {
-            if (!DOM.uploadArea?.contains(e.target)) {
-                closeDropdown();
-            }
-        });
+    function closeDropdown() {
+        if (!DOM.uploadDropdown) return;
+        dropdownOpen = false;
+        DOM.uploadDropdown.classList.remove('show');
+    }
 
-        // ============================================
-        // DROPDOWN OPTIONS
-        // ============================================
-        document.querySelector('.option[data-action="file"]')?.addEventListener('click', function(e) {
-            e.stopPropagation();
+    // ============================================
+    // DROPDOWN EVENTS
+    // ============================================
+    if (DOM.uploadTrigger) {
+        DOM.uploadTrigger.addEventListener('click', toggleDropdown);
+    }
+
+    if (DOM.uploadArea) {
+        DOM.uploadArea.querySelector('.icon')?.addEventListener('click', toggleDropdown);
+    }
+
+    document.addEventListener('click', function(e) {
+        if (!DOM.uploadArea?.contains(e.target)) {
             closeDropdown();
-            setTimeout(() => DOM.imageInput?.click(), 100);
-        });
-
-        document.querySelector('.option[data-action="url"]')?.addEventListener('click', function(e) {
-            e.stopPropagation();
-            closeDropdown();
-            setTimeout(() => DOM.urlInput?.focus(), 100);
-        });
-
-        document.querySelector('.option[data-action="drag"]')?.addEventListener('click', function(e) {
-            e.stopPropagation();
-            closeDropdown();
-            showToast('Drag & drop an image file anywhere on the page.', 'info');
-        });
-
-        // ============================================
-        // DRAG & DROP
-        // ============================================
-        if (DOM.uploadArea) {
-            DOM.uploadArea.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                DOM.uploadArea.classList.add('dragover');
-                closeDropdown();
-            });
-
-            DOM.uploadArea.addEventListener('dragleave', () => {
-                DOM.uploadArea.classList.remove('dragover');
-            });
-
-            DOM.uploadArea.addEventListener('drop', (e) => {
-                e.preventDefault();
-                DOM.uploadArea.classList.remove('dragover');
-                const files = e.dataTransfer.files;
-                if (files.length > 0) {
-                    const file = files[0];
-                    if (file.type.startsWith('image/')) {
-                        handleFileUpload(file);
-                    } else {
-                        showToast('Please drop an image file.', 'error');
-                    }
-                }
-            });
         }
+    });
 
-        // ============================================
-        // CHOOSE IMAGE BUTTON
-        // ============================================
-        DOM.browseBtn?.addEventListener('click', function(e) {
-            e.stopPropagation();
+    // ============================================
+    // DROPDOWN OPTIONS
+    // ============================================
+    document.querySelector('.option[data-action="file"]')?.addEventListener('click', function(e) {
+        e.stopPropagation();
+        closeDropdown();
+        setTimeout(() => DOM.imageInput?.click(), 100);
+    });
+
+    document.querySelector('.option[data-action="url"]')?.addEventListener('click', function(e) {
+        e.stopPropagation();
+        closeDropdown();
+        setTimeout(() => DOM.urlInput?.focus(), 100);
+    });
+
+    document.querySelector('.option[data-action="drag"]')?.addEventListener('click', function(e) {
+        e.stopPropagation();
+        closeDropdown();
+        showToast('Drag & drop an image file anywhere on the page.', 'info');
+    });
+
+    // ============================================
+    // DRAG & DROP
+    // ============================================
+    if (DOM.uploadArea) {
+        DOM.uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
+            DOM.uploadArea.classList.add('dragover');
             closeDropdown();
-            DOM.imageInput?.click();
         });
 
-        // ============================================
-        // FILE INPUT CHANGE
-        // ============================================
-        DOM.imageInput?.addEventListener('change', function(e) {
-            if (this.files.length > 0) {
-                const file = this.files[0];
-                handleFileUpload(file);
-            }
-            this.value = '';
+        DOM.uploadArea.addEventListener('dragleave', () => {
+            DOM.uploadArea.classList.remove('dragover');
         });
 
-        // ============================================
-        // URL ANALYZE
-        // ============================================
-        DOM.urlAnalyzeBtn?.addEventListener('click', function() {
-            const url = DOM.urlInput?.value.trim();
-            if (!url) {
-                showToast('Please paste an image URL.', 'error');
-                return;
-            }
-            closeDropdown();
-            handleUrlUpload(url);
-        });
-
-        DOM.urlInput?.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                DOM.urlAnalyzeBtn?.click();
-            }
-        });
-
-        // ============================================
-        // ✅ HANDLE FILE UPLOAD (ASYNC)
-        // ============================================
-        function handleFileUpload(file) {
-            if (!file.type.startsWith('image/')) {
-                showToast('Please upload an image file.', 'error');
-                return;
-            }
-            if (file.size > 20 * 1024 * 1024) {
-                showToast('Image must be under 20MB.', 'error');
-                return;
-            }
-
-            console.log('📸 Uploading file:', file.name, (file.size / 1024).toFixed(0), 'KB');
-
-            // Show progress
-            if (DOM.uploadProgress) DOM.uploadProgress.style.display = 'block';
-            if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '0%';
-            if (DOM.uploadPercent) DOM.uploadPercent.textContent = '0%';
-            if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Preparing upload...';
-            if (DOM.fileNameText) DOM.fileNameText.textContent = `${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
-
-            const formData = new FormData();
-            formData.append('image', file);
-
-            if (DOM.urlAnalyzeBtn) {
-                DOM.urlAnalyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-                DOM.urlAnalyzeBtn.disabled = true;
-            }
-            const contextInput = document.getElementById('contextInput');
-            if (contextInput && contextInput.value.trim()) {
-                formData.append('context', contextInput.value.trim());
-            }
-
-            let progress = 0;
-            const progressInterval = setInterval(() => {
-                progress += Math.random() * 8;
-                if (progress > 90) progress = 90;
-                if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = progress + '%';
-                if (DOM.uploadPercent) DOM.uploadPercent.textContent = Math.round(progress) + '%';
-                if (DOM.uploadStatusText) {
-                    if (progress > 30) DOM.uploadStatusText.textContent = 'Uploading...';
-                    if (progress > 60) DOM.uploadStatusText.textContent = 'AI analyzing...';
+        DOM.uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            DOM.uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type.startsWith('image/')) {
+                    handleFileUpload(file);
+                } else {
+                    showToast('Please drop an image file.', 'error');
                 }
-            }, 300);
+            }
+        });
+    }
 
-            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    // ============================================
+    // CHOOSE IMAGE BUTTON
+    // ============================================
+    DOM.browseBtn?.addEventListener('click', function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        closeDropdown();
+        DOM.imageInput?.click();
+    });
 
-            // ✅ ASYNC endpoint – returns immediately with ID
-            fetch('/api/analyze/store', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRF-TOKEN': csrfToken || '',
-                        'Accept': 'application/json',
-                    },
-                    body: formData,
-                })
-                .then(async res => {
-                    const contentType = res.headers.get('content-type');
-                    if (!contentType || !contentType.includes('application/json')) {
-                        if (res.status === 419) {
-                            throw new Error('Session expired. Please refresh and try again.');
-                        } else if (res.status === 401 || res.status === 302) {
-                            throw new Error('Please login to upload images.');
-                        } else {
-                            throw new Error('Server error. Please try again.');
-                        }
-                    }
-                    return res.json();
-                })
-                .then(data => {
-                    clearInterval(progressInterval);
-                    console.log('📦 Upload response:', data);
+    // ============================================
+    // FILE INPUT CHANGE
+    // ============================================
+    DOM.imageInput?.addEventListener('change', function(e) {
+        if (this.files.length > 0) {
+            const file = this.files[0];
+            handleFileUpload(file);
+        }
+        this.value = '';
+    });
 
-                    if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '100%';
-                    if (DOM.uploadPercent) DOM.uploadPercent.textContent = '100%';
-                    if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Starting analysis...';
+    // ============================================
+    // URL ANALYZE
+    // ============================================
+    DOM.urlAnalyzeBtn?.addEventListener('click', function() {
+        const url = DOM.urlInput?.value.trim();
+        if (!url) {
+            showToast('Please paste an image URL.', 'error');
+            return;
+        }
+        closeDropdown();
+        handleUrlUpload(url);
+    });
 
-                    if (data.success && data.id) {
-                        sessionStorage.setItem('analysisId', data.id);
-                        sessionStorage.setItem('uploadedFileName', file.name);
+    DOM.urlInput?.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            DOM.urlAnalyzeBtn?.click();
+        }
+    });
 
-                        if (data.data?.image_url) {
-                            sessionStorage.setItem('uploadedImage', data.data.image_url);
-                        }
-
-                        showToast('Analysis started — redirecting...', 'success');
-
-                        setTimeout(() => {
-                            window.location.href = '/analysis';
-                        }, 1000);
-                    } else {
-                        showToast(data.message || 'Analysis failed. Please try again.', 'error');
-                        resetUploadUI();
-                    }
-                })
-                .catch(err => {
-                    clearInterval(progressInterval);
-                    console.error('❌ Upload error:', err);
-                    showToast(err.message || 'Network error. Please try again.', 'error');
-                    resetUploadUI();
-                });
+    // ============================================
+    // ✅ HANDLE FILE UPLOAD (ASYNC)
+    // ============================================
+    function handleFileUpload(file) {
+        if (!file.type.startsWith('image/')) {
+            showToast('Please upload an image file.', 'error');
+            return;
+        }
+        if (file.size > 20 * 1024 * 1024) {
+            showToast('Image must be under 20MB.', 'error');
+            return;
         }
 
-        // ============================================
-        // ✅ HANDLE URL UPLOAD (ASYNC)
-        // ============================================
-        function handleUrlUpload(url) {
-            console.log('🔗 Fetching URL:', url);
+        console.log('📸 Uploading file:', file.name, (file.size / 1024).toFixed(0), 'KB');
 
-            if (DOM.uploadProgress) DOM.uploadProgress.style.display = 'block';
-            if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '0%';
-            if (DOM.uploadPercent) DOM.uploadPercent.textContent = '0%';
-            if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Fetching image from URL...';
-            if (DOM.fileNameText) DOM.fileNameText.textContent = `${url.substring(0, 50)}...`;
+        // Show progress
+        if (DOM.uploadProgress) DOM.uploadProgress.style.display = 'block';
+        if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '0%';
+        if (DOM.uploadPercent) DOM.uploadPercent.textContent = '0%';
+        if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Preparing upload...';
+        if (DOM.fileNameText) DOM.fileNameText.textContent = `${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
 
-            if (DOM.urlAnalyzeBtn) {
-                DOM.urlAnalyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-                DOM.urlAnalyzeBtn.disabled = true;
+        const formData = new FormData();
+        formData.append('image', file);
+
+        if (DOM.urlAnalyzeBtn) {
+            DOM.urlAnalyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            DOM.urlAnalyzeBtn.disabled = true;
+        }
+        const contextInput = document.getElementById('contextInput');
+        if (contextInput && contextInput.value.trim()) {
+            formData.append('context', contextInput.value.trim());
+        }
+
+        let progress = 0;
+        const progressInterval = setInterval(() => {
+            progress += Math.random() * 8;
+            if (progress > 90) progress = 90;
+            if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = progress + '%';
+            if (DOM.uploadPercent) DOM.uploadPercent.textContent = Math.round(progress) + '%';
+            if (DOM.uploadStatusText) {
+                if (progress > 30) DOM.uploadStatusText.textContent = 'Uploading...';
+                if (progress > 60) DOM.uploadStatusText.textContent = 'AI analyzing...';
             }
+        }, 300);
 
-            let progress = 0;
-            const progressInterval = setInterval(() => {
-                progress += Math.random() * 10;
-                if (progress > 50) progress = 50;
-                if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = progress + '%';
-                if (DOM.uploadPercent) DOM.uploadPercent.textContent = Math.round(progress) + '%';
-            }, 200);
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
-            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-
-            fetch('/api/fetch-image?url=' + encodeURIComponent(url), {
-                    method: 'GET',
-                    headers: {
-                        'X-CSRF-TOKEN': csrfToken || '',
-                        'Accept': 'application/json',
-                    },
-                })
-                .then(async res => {
-                    const contentType = res.headers.get('content-type');
-                    if (!contentType || !contentType.includes('application/json')) {
-                        if (res.status === 419) {
-                            throw new Error('Session expired. Please refresh and try again.');
-                        } else if (res.status === 401 || res.status === 302) {
-                            throw new Error('Please login to upload images.');
-                        } else {
-                            throw new Error('Server error. Please try again.');
-                        }
+        // ✅ ASYNC endpoint – returns immediately with ID
+        fetch('/api/analyze/store', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'Accept': 'application/json',
+                },
+                body: formData,
+            })
+            .then(async res => {
+                const contentType = res.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (res.status === 419) {
+                        throw new Error('Session expired. Please refresh and try again.');
+                    } else if (res.status === 401 || res.status === 302) {
+                        throw new Error('Please login to upload images.');
+                    } else {
+                        throw new Error('Server error. Please try again.');
                     }
-                    return res.json();
-                })
-                .then(data => {
-                    clearInterval(progressInterval);
-                    console.log('📦 Fetch response:', data);
+                }
+                return res.json();
+            })
+            .then(data => {
+                clearInterval(progressInterval);
+                console.log('📦 Upload response:', data);
 
-                    if (data.success && data.image_data) {
-                        if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '60%';
-                        if (DOM.uploadPercent) DOM.uploadPercent.textContent = '60%';
-                        if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Processing image...';
+                if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '100%';
+                if (DOM.uploadPercent) DOM.uploadPercent.textContent = '100%';
+                if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Starting analysis...';
 
-                        const byteCharacters = atob(data.image_data);
-                        const byteNumbers = new Array(byteCharacters.length);
-                        for (let i = 0; i < byteCharacters.length; i++) {
-                            byteNumbers[i] = byteCharacters.charCodeAt(i);
-                        }
-                        const byteArray = new Uint8Array(byteNumbers);
-                        const blob = new Blob([byteArray], {
-                            type: data.mime_type || 'image/jpeg'
-                        });
-                        const fileName = data.filename || 'image.jpg';
-                        const file = new File([blob], fileName, {
-                            type: data.mime_type || 'image/jpeg'
-                        });
+                if (data.success && data.id) {
+                    sessionStorage.setItem('analysisId', data.id);
+                    sessionStorage.setItem('uploadedFileName', file.name);
 
-                        if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '80%';
-                        if (DOM.uploadPercent) DOM.uploadPercent.textContent = '80%';
-                        if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'AI analyzing...';
+                    if (data.data?.image_url) {
+                        sessionStorage.setItem('uploadedImage', data.data.image_url);
+                    }
 
-                        const formData = new FormData();
-                        formData.append('image', file);
+                    showToast('Analysis started — redirecting...', 'success');
 
-                        fetch('/api/analyze/store', {
-                                method: 'POST',
-                                headers: {
-                                    'X-CSRF-TOKEN': csrfToken || '',
-                                    'Accept': 'application/json',
-                                },
-                                body: formData,
-                            })
-                            .then(async res => {
-                                const contentType = res.headers.get('content-type');
-                                if (!contentType || !contentType.includes('application/json')) {
-                                    if (res.status === 419) {
-                                        throw new Error('Session expired. Please refresh and try again.');
-                                    } else if (res.status === 401 || res.status === 302) {
-                                        throw new Error('Please login to upload images.');
-                                    } else {
-                                        throw new Error('Server error. Please try again.');
-                                    }
-                                }
-                                return res.json();
-                            })
-                            .then(analysisData => {
-                                console.log('📦 Analysis response:', analysisData);
+                    setTimeout(() => {
+                        window.location.href = '/analysis';
+                    }, 1000);
+                } else {
+                    showToast(data.message || 'Analysis failed. Please try again.', 'error');
+                    resetUploadUI();
+                }
+            })
+            .catch(err => {
+                clearInterval(progressInterval);
+                console.error('❌ Upload error:', err);
+                showToast(err.message || 'Network error. Please try again.', 'error');
+                resetUploadUI();
+            });
+    }
 
-                                if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '100%';
-                                if (DOM.uploadPercent) DOM.uploadPercent.textContent = '100%';
-                                if (DOM.uploadStatusText) DOM.uploadStatusText.textContent =
-                                    'Starting analysis...';
+    // ============================================
+    // ✅ HANDLE URL UPLOAD (ASYNC)
+    // ============================================
+    function handleUrlUpload(url) {
+        console.log('🔗 Fetching URL:', url);
 
-                                if (analysisData.success && analysisData.id) {
-                                    sessionStorage.setItem('analysisId', analysisData.id);
-                                    sessionStorage.setItem('uploadedFileName', fileName);
+        if (DOM.uploadProgress) DOM.uploadProgress.style.display = 'block';
+        if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '0%';
+        if (DOM.uploadPercent) DOM.uploadPercent.textContent = '0%';
+        if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Fetching image from URL...';
+        if (DOM.fileNameText) DOM.fileNameText.textContent = `${url.substring(0, 50)}...`;
 
-                                    if (analysisData.data?.image_url) {
-                                        sessionStorage.setItem('uploadedImage', analysisData.data.image_url);
-                                    }
+        if (DOM.urlAnalyzeBtn) {
+            DOM.urlAnalyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            DOM.urlAnalyzeBtn.disabled = true;
+        }
 
-                                    showToast('Analysis started — redirecting...', 'success');
+        let progress = 0;
+        const progressInterval = setInterval(() => {
+            progress += Math.random() * 10;
+            if (progress > 50) progress = 50;
+            if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = progress + '%';
+            if (DOM.uploadPercent) DOM.uploadPercent.textContent = Math.round(progress) + '%';
+        }, 200);
 
-                                    setTimeout(() => {
-                                        window.location.href = '/analysis';
-                                    }, 1000);
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+        fetch('/api/fetch-image?url=' + encodeURIComponent(url), {
+                method: 'GET',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'Accept': 'application/json',
+                },
+            })
+            .then(async res => {
+                const contentType = res.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (res.status === 419) {
+                        throw new Error('Session expired. Please refresh and try again.');
+                    } else if (res.status === 401 || res.status === 302) {
+                        throw new Error('Please login to upload images.');
+                    } else {
+                        throw new Error('Server error. Please try again.');
+                    }
+                }
+                return res.json();
+            })
+            .then(data => {
+                clearInterval(progressInterval);
+                console.log('📦 Fetch response:', data);
+
+                if (data.success && data.image_data) {
+                    if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '60%';
+                    if (DOM.uploadPercent) DOM.uploadPercent.textContent = '60%';
+                    if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'Processing image...';
+
+                    const byteCharacters = atob(data.image_data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {
+                        type: data.mime_type || 'image/jpeg'
+                    });
+                    const fileName = data.filename || 'image.jpg';
+                    const file = new File([blob], fileName, {
+                        type: data.mime_type || 'image/jpeg'
+                    });
+
+                    if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '80%';
+                    if (DOM.uploadPercent) DOM.uploadPercent.textContent = '80%';
+                    if (DOM.uploadStatusText) DOM.uploadStatusText.textContent = 'AI analyzing...';
+
+                    const formData = new FormData();
+                    formData.append('image', file);
+
+                    fetch('/api/analyze/store', {
+                            method: 'POST',
+                            headers: {
+                                'X-CSRF-TOKEN': csrfToken || '',
+                                'Accept': 'application/json',
+                            },
+                            body: formData,
+                        })
+                        .then(async res => {
+                            const contentType = res.headers.get('content-type');
+                            if (!contentType || !contentType.includes('application/json')) {
+                                if (res.status === 419) {
+                                    throw new Error('Session expired. Please refresh and try again.');
+                                } else if (res.status === 401 || res.status === 302) {
+                                    throw new Error('Please login to upload images.');
                                 } else {
-                                    showToast(analysisData.message || 'Analysis failed.', 'error');
-                                    resetUploadUI();
+                                    throw new Error('Server error. Please try again.');
                                 }
-                            })
-                            .catch(err => {
-                                console.error('Analysis error:', err);
-                                showToast(err.message || 'Analysis failed. Please try again.', 'error');
+                            }
+                            return res.json();
+                        })
+                        .then(analysisData => {
+                            console.log('📦 Analysis response:', analysisData);
+
+                            if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '100%';
+                            if (DOM.uploadPercent) DOM.uploadPercent.textContent = '100%';
+                            if (DOM.uploadStatusText) DOM.uploadStatusText.textContent =
+                                'Starting analysis...';
+
+                            if (analysisData.success && analysisData.id) {
+                                sessionStorage.setItem('analysisId', analysisData.id);
+                                sessionStorage.setItem('uploadedFileName', fileName);
+
+                                if (analysisData.data?.image_url) {
+                                    sessionStorage.setItem('uploadedImage', analysisData.data.image_url);
+                                }
+
+                                showToast('Analysis started — redirecting...', 'success');
+
+                                setTimeout(() => {
+                                    window.location.href = '/analysis';
+                                }, 1000);
+                            } else {
+                                showToast(analysisData.message || 'Analysis failed.', 'error');
                                 resetUploadUI();
-                            });
-                    } else {
-                        showToast(data.message || 'Could not fetch image from URL.', 'error');
-                        resetUploadUI();
-                    }
-                })
-                .catch(err => {
-                    clearInterval(progressInterval);
-                    console.error('URL fetch error:', err);
-                    showToast(err.message || 'Could not fetch image from URL. Please check the URL.', 'error');
+                            }
+                        })
+                        .catch(err => {
+                            console.error('Analysis error:', err);
+                            showToast(err.message || 'Analysis failed. Please try again.', 'error');
+                            resetUploadUI();
+                        });
+                } else {
+                    showToast(data.message || 'Could not fetch image from URL.', 'error');
                     resetUploadUI();
-                });
+                }
+            })
+            .catch(err => {
+                clearInterval(progressInterval);
+                console.error('URL fetch error:', err);
+                showToast(err.message || 'Could not fetch image from URL. Please check the URL.', 'error');
+                resetUploadUI();
+            });
+    }
+
+    // ============================================
+    // RESET UI
+    // ============================================
+    function resetUploadUI() {
+        if (DOM.uploadProgress) DOM.uploadProgress.style.display = 'none';
+        if (DOM.urlAnalyzeBtn) {
+            DOM.urlAnalyzeBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Analyze';
+            DOM.urlAnalyzeBtn.disabled = false;
         }
+        if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '0%';
+        if (DOM.uploadPercent) DOM.uploadPercent.textContent = '0%';
+    }
 
-        // ============================================
-        // RESET UI
-        // ============================================
-        function resetUploadUI() {
-            if (DOM.uploadProgress) DOM.uploadProgress.style.display = 'none';
-            if (DOM.urlAnalyzeBtn) {
-                DOM.urlAnalyzeBtn.innerHTML = '<i class="fas fa-arrow-right"></i> Analyze';
-                DOM.urlAnalyzeBtn.disabled = false;
-            }
-            if (DOM.uploadProgressFill) DOM.uploadProgressFill.style.width = '0%';
-            if (DOM.uploadPercent) DOM.uploadPercent.textContent = '0%';
-        }
+    // ============================================
+    // LOAD DASHBOARD DATA
+    // ============================================
+    @auth
 
-        // ============================================
-        // LOAD DASHBOARD DATA
-        // ============================================
-        @auth
+    async function loadDashboardData() {
+        try {
+            const response = await fetch('/api/dashboard-data');
+            const data = await response.json();
 
-        async function loadDashboardData() {
-            try {
-                const response = await fetch('/api/dashboard-data');
-                const data = await response.json();
+            if (data.success) {
+                animateNumber('totalAnalyses', data.stats?.total_analyses || 0);
+                animateNumber('uniqueLocations', data.stats?.unique_locations || 0);
+                animateNumber('avgConfidence', data.stats?.avg_confidence || 0, '%');
 
-                if (data.success) {
-                    animateNumber('totalAnalyses', data.stats?.total_analyses || 0);
-                    animateNumber('uniqueLocations', data.stats?.unique_locations || 0);
-                    animateNumber('avgConfidence', data.stats?.avg_confidence || 0, '%');
+                // XSS Protection Helper
+                function escapeHtml(str) {
+                    if (!str) return '';
+                    return str.replace(/[&<>"']/g, function(m) {
+                        return {
+                            '&': '&amp;',
+                            '<': '&lt;',
+                            '>': '&gt;',
+                            '"': '&quot;',
+                            "'": '&#039;'
+                        } [m];
+                    });
+                }
 
+                // ✅ SAFE CHECK for Recent Grid
+                const recentGrid = document.getElementById('recentGrid');
+                if (recentGrid) {
+                    if (data.recent && data.recent.length > 0) {
+                        recentGrid.innerHTML = data.recent.map(item => {
+                            let imageUrl = item.image_url;
+                            if (!imageUrl && item.image_path) {
+                                imageUrl = (item.image_path.startsWith('http://') || item.image_path
+                                        .startsWith('https://')) ?
+                                    item.image_path :
+                                    '/storage/' + item.image_path;
+                            }
 
-                    const recentGrid = document.getElementById('recentGrid');
-                    if (recentGrid) {
-                        if (data.recent && data.recent.length > 0) {
-                            recentGrid.innerHTML = data.recent.map(item => {
-                                let imageUrl = item.image_url;
-                                if (!imageUrl && item.image_path) {
-                                    // Safely check if it's a full URL or a local path
-                                    imageUrl = (item.image_path.startsWith('http://') || item.image_path
-                                            .startsWith('https://')) ?
-                                        item.image_path :
-                                        '/storage/' + item.image_path;
-                                }
+                            const landmark = escapeHtml(item.landmark_name || 'Unknown');
+                            const city = escapeHtml(item.city || '');
+                            const country = escapeHtml(item.country || '');
+                            const location = [city, country].filter(Boolean).join(', ');
 
-                                // ✅ SECURITY: Escape all text fields to prevent XSS attacks
-                                const landmark = escapeHtml(item.landmark_name || 'Unknown');
-                                const city = escapeHtml(item.city || '');
-                                const country = escapeHtml(item.country || '');
-                                const location = [city, country].filter(Boolean).join(', ');
-
-                                return `
-                        <a href="/analysis" class="recent-item" data-id="${item.id}">
-                            <div class="thumb">
-                                ${imageUrl ? `<img src="${imageUrl}" alt="${landmark}" loading="lazy">` : '<i class="fas fa-image"></i>'}
-                            </div>
-                            <div class="name">${landmark}</div>
-                            <div class="loc">${location || '<span style="color:var(--text-muted);font-style:italic;">Location unknown</span>'}</div>
-                            <div class="conf">${escapeHtml(String(item.confidence || 0))}%</div>
-                        </a>
-                    `;
-                            }).join('');
-                        } else {
-                            // ✅ UX: Define a clean empty state if no data is returned
-                            recentGrid.innerHTML =
-                                '<div class="empty-state"><i class="fas fa-inbox"></i><p>No recent analyses yet.<br>Upload your first photo to get started!</p></div>';
-                        }
+                            return `
+                                <a href="/analysis" class="recent-item" data-id="${item.id}">
+                                    <div class="thumb">
+                                        ${imageUrl ? `<img src="${imageUrl}" alt="${landmark}" loading="lazy">` : '<i class="fas fa-image"></i>'}
+                                    </div>
+                                    <div class="name">${landmark}</div>
+                                    <div class="loc">${location || 'Location unknown'}</div>
+                                    <div class="conf">${escapeHtml(String(item.confidence || 0))}%</div>
+                                </a>
+                            `;
+                        }).join('');
+                    } else {
+                        recentGrid.innerHTML =
+                            '<div class="empty-state"><i class="fas fa-inbox"></i><p>No recent analyses yet.</p></div>';
                     }
+                }
 
-                    const popularGrid = document.getElementById('popularGrid');
+                // ✅ FIX: Added null check for Popular Grid (This was the crash!)
+                const popularGrid = document.getElementById('popularGrid');
+                if (popularGrid) {
                     if (data.popular && data.popular.length > 0) {
                         popularGrid.innerHTML = data.popular.map((item, index) => `
                             <div class="popular-item">
                                 <span class="rank">#${index + 1}</span>
                                 <div class="info">
-                                    <div class="name">${item.landmark_name || 'Unknown'}</div>
-                                    <div class="country">${item.country || ''}</div>
+                                    <div class="name">${escapeHtml(item.landmark_name || 'Unknown')}</div>
+                                    <div class="country">${escapeHtml(item.country || '')}</div>
                                 </div>
                                 <span class="count">${item.count || 0}×</span>
                             </div>
                         `).join('');
+                    } else {
+                        popularGrid.innerHTML =
+                            '<div class="empty-state"><i class="fas fa-globe"></i><p>No popular landmarks yet.</p></div>';
                     }
                 }
-            } catch (error) {
-                console.error('Failed to load dashboard data:', error);
             }
+        } catch (error) {
+            console.error('Failed to load dashboard data:', error);
         }
-        @endauth
-        document.getElementById('recentGrid')?.addEventListener('click', function(e) {
-            const card = e.target.closest('.recent-item');
-            if (card) {
-                e.preventDefault();
-                sessionStorage.setItem('analysisId', card.dataset.id);
-                window.location.href = '/analysis';
-            }
-        });
-        // ============================================
-        // ANIMATE NUMBER
-        // ============================================
-        function animateNumber(elementId, target, suffix = '') {
-            const el = document.getElementById(elementId);
-            if (!el) return;
-            if (prefersReducedMotion) {
-                el.textContent = Math.round(target) + suffix;
-                return;
-            }
-            let current = 0;
-            const duration = 1000;
-            const steps = 30;
-            const increment = target / steps;
-            const interval = setInterval(() => {
-                current += increment;
-                if (current >= target) {
-                    current = target;
-                    clearInterval(interval);
-                }
-                el.textContent = Math.round(current) + suffix;
-            }, duration / steps);
-        }
-
-        // ============================================
-        // COSMETIC: HERO COORDINATE READOUT
-        // ============================================
-        (function animateCoordReadout() {
-            const el = document.getElementById('coordReadout');
-            if (!el || prefersReducedMotion) return;
-            const targetLat = 48.8584,
-                targetLng = 2.2945;
-            let t = 0;
-            const steps = 40;
-            const interval = setInterval(() => {
-                t++;
-                const progress = Math.min(t / steps, 1);
-                const lat = (targetLat * progress).toFixed(4);
-                const lng = (targetLng * progress).toFixed(4);
-                el.textContent = `${lat}, ${lng}`;
-                if (progress >= 1) clearInterval(interval);
-            }, 60);
-        })();
-
-        // ============================================
-        // SCROLL-REVEAL FOR FEATURE CARDS
-        // ============================================
-        (function initReveal() {
-            const items = document.querySelectorAll('.reveal');
-            if (!items.length) return;
-            if (prefersReducedMotion || !('IntersectionObserver' in window)) {
-                items.forEach(el => el.classList.add('in-view'));
-                return;
-            }
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach((entry, i) => {
-                    if (entry.isIntersecting) {
-                        setTimeout(() => entry.target.classList.add('in-view'), i * 80);
-                        observer.unobserve(entry.target);
-                    }
-                });
-            }, {
-                threshold: 0.15
-            });
-            items.forEach(el => observer.observe(el));
-        })();
-
-        // ============================================
-        // CHECK FOR RETURNING FROM ANALYSIS
-        // ============================================
-        const result = sessionStorage.getItem('analysisResult');
-        if (result) {
-            try {
-                const data = JSON.parse(result);
-                const fileName = sessionStorage.getItem('uploadedFileName') || 'image';
-                showToast(`Found: ${data.landmark_name || 'Location'} from ${fileName}`, 'success');
-                setTimeout(() => sessionStorage.removeItem('analysisResult'), 5000);
-            } catch (e) {}
-        }
-
-        // ============================================
-        // LOGOUT
-        // ============================================
-        document.getElementById('logoutBtn')?.addEventListener('click', async function(e) {
+    }
+    @endauth
+    document.getElementById('recentGrid')?.addEventListener('click', function(e) {
+        const card = e.target.closest('.recent-item');
+        if (card) {
             e.preventDefault();
+            sessionStorage.setItem('analysisId', card.dataset.id);
+            window.location.href = '/analysis';
+        }
+    });
+    // ============================================
+    // ANIMATE NUMBER
+    // ============================================
+    function animateNumber(elementId, target, suffix = '') {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        if (prefersReducedMotion) {
+            el.textContent = Math.round(target) + suffix;
+            return;
+        }
+        let current = 0;
+        const duration = 1000;
+        const steps = 30;
+        const increment = target / steps;
+        const interval = setInterval(() => {
+            current += increment;
+            if (current >= target) {
+                current = target;
+                clearInterval(interval);
+            }
+            el.textContent = Math.round(current) + suffix;
+        }, duration / steps);
+    }
 
-            try {
-                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute(
-                    'content');
+    // ============================================
+    // COSMETIC: HERO COORDINATE READOUT
+    // ============================================
+    (function animateCoordReadout() {
+        const el = document.getElementById('coordReadout');
+        if (!el || prefersReducedMotion) return;
+        const targetLat = 48.8584,
+            targetLng = 2.2945;
+        let t = 0;
+        const steps = 40;
+        const interval = setInterval(() => {
+            t++;
+            const progress = Math.min(t / steps, 1);
+            const lat = (targetLat * progress).toFixed(4);
+            const lng = (targetLng * progress).toFixed(4);
+            el.textContent = `${lat}, ${lng}`;
+            if (progress >= 1) clearInterval(interval);
+        }, 60);
+    })();
 
-                const response = await fetch('/logout', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRF-TOKEN': csrfToken || '',
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                    },
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    showToast('Logged out successfully!', 'success');
-                    setTimeout(() => window.location.reload(), 500);
+    // ============================================
+    // SCROLL-REVEAL FOR FEATURE CARDS
+    // ============================================
+    (function initReveal() {
+        const items = document.querySelectorAll('.reveal');
+        if (!items.length) return;
+        if (prefersReducedMotion || !('IntersectionObserver' in window)) {
+            items.forEach(el => el.classList.add('in-view'));
+            return;
+        }
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry, i) => {
+                if (entry.isIntersecting) {
+                    setTimeout(() => entry.target.classList.add('in-view'), i * 80);
+                    observer.unobserve(entry.target);
                 }
-            } catch (error) {
-                console.error('Logout error:', error);
+            });
+        }, {
+            threshold: 0.15
+        });
+        items.forEach(el => observer.observe(el));
+    })();
+
+    // ============================================
+    // CHECK FOR RETURNING FROM ANALYSIS
+    // ============================================
+    const result = sessionStorage.getItem('analysisResult');
+    if (result) {
+        try {
+            const data = JSON.parse(result);
+            const fileName = sessionStorage.getItem('uploadedFileName') || 'image';
+            showToast(`Found: ${data.landmark_name || 'Location'} from ${fileName}`, 'success');
+            setTimeout(() => sessionStorage.removeItem('analysisResult'), 5000);
+        } catch (e) {}
+    }
+
+    // ============================================
+    // LOGOUT
+    // ============================================
+    document.getElementById('logoutBtn')?.addEventListener('click', async function(e) {
+        e.preventDefault();
+
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute(
+                'content');
+
+            const response = await fetch('/logout', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            const result = await response.json();
+            if (result.success) {
                 showToast('Logged out successfully!', 'success');
                 setTimeout(() => window.location.reload(), 500);
             }
-        });
+        } catch (error) {
+            console.error('Logout error:', error);
+            showToast('Logged out successfully!', 'success');
+            setTimeout(() => window.location.reload(), 500);
+        }
+    });
 
-        // ============================================
-        // KEYBOARD SHORTCUTS
-        // ============================================
-        document.addEventListener('keydown', function(e) {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
-                e.preventDefault();
-                closeDropdown();
-                DOM.imageInput?.click();
-            }
-            if (e.key === 'Escape') {
-                closeDropdown();
-            }
-        });
+    // ============================================
+    // KEYBOARD SHORTCUTS
+    // ============================================
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
+            e.preventDefault();
+            closeDropdown();
+            DOM.imageInput?.click();
+        }
+        if (e.key === 'Escape') {
+            closeDropdown();
+        }
+    });
 
 
-        // ============================================
-        // INIT
-        // ============================================
-        @auth
-        loadDashboardData();
-        console.log('✅ TraceGeo homepage loaded. User is logged in.');
-        console.log('📸 Upload options:');
-        console.log('   📁 Upload File - Click "Choose Image" or Ctrl+U');
-        console.log('   🔗 Paste URL - Enter URL and click Analyze');
-        console.log('   🔄 Drag & Drop - Drop image anywhere');
-        console.log('🔄 Upload redirects to /analysis with auto-start');
-        console.log('✅ Ready!');
-        @else
-        console.log('✅ TraceGeo homepage loaded. User is not logged in.');
-        console.log('📸 Please login or register to use the analysis features.');
-        @endauth
-        </script>
+    // ============================================
+    // INIT
+    // ============================================
+    @auth
+    loadDashboardData();
+    console.log('✅ TraceGeo homepage loaded. User is logged in.');
+    console.log('📸 Upload options:');
+    console.log('   📁 Upload File - Click "Choose Image" or Ctrl+U');
+    console.log('   🔗 Paste URL - Enter URL and click Analyze');
+    console.log('   🔄 Drag & Drop - Drop image anywhere');
+    console.log('🔄 Upload redirects to /analysis with auto-start');
+    console.log('✅ Ready!');
+    @else
+    console.log('✅ TraceGeo homepage loaded. User is not logged in.');
+    console.log('📸 Please login or register to use the analysis features.');
+    @endauth
+    </script>
 
 </body>
 
