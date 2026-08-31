@@ -3,9 +3,10 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\LandmarkController;
 use App\Http\Controllers\TestController;
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\GeminiController;
 use App\Http\Controllers\AnalysisController;
+use App\Http\Controllers\Api\AnalysisApiController;
+use Illuminate\Support\Facades\Route;
 
 // ============================================================
 // TEST ROUTES
@@ -22,10 +23,10 @@ Route::post('/web-register', [AuthController::class, 'webRegister']);
 Route::post('/web-logout', [AuthController::class, 'webLogout'])->middleware('auth');
 
 // ============================================================
-// API LOGIN/REGISTER (Stateless) - For API Clients (Mobile/3rd-party)
+// API LOGIN/REGISTER (Stateless) - For Mobile/3rd-party Clients
 // ============================================================
 Route::post('/register', [AuthController::class, 'apiRegister']);
-Route::post('/login', [AuthController::class, 'apiLogin']);
+Route::post('/login', [AuthController::class, 'apiLogin']); // ✅ public
 Route::get('/verify/{token}', [AuthController::class, 'verifyEmail']);
 
 // ============================================================
@@ -38,10 +39,15 @@ Route::get('/nearby', [LandmarkController::class, 'nearby']);
 Route::get('/search', [LandmarkController::class, 'search']);
 
 // ============================================================
+// PUBLIC HEALTH CHECK (Works without any token!)
+// ============================================================
+Route::get('/health', [AnalysisApiController::class, 'health']);
+
+// ============================================================
 // PROTECTED API ROUTES (Token-based auth:sanctum)
 // For mobile apps or external API clients.
 // ============================================================
-Route::middleware(['auth:web'])->group(function () {
+Route::middleware('auth:sanctum')->group(function () {
     // 👤 User profile
     Route::get('/user', [AuthController::class, 'user']);
     Route::put('/profile', [AuthController::class, 'updateProfile']);
@@ -57,4 +63,8 @@ Route::middleware(['auth:web'])->group(function () {
 
     // 🧹 Clear cache
     Route::post('/clear-cache', [AnalysisController::class, 'clearCache'])->name('api.clear-cache');
+
+    // 🚀 TraceGeo Analytics API
+    Route::get('/history', [AnalysisApiController::class, 'history']);
+    Route::post('/analyze', [AnalysisApiController::class, 'analyze'])->middleware('throttle:60,1');
 });

@@ -30,7 +30,6 @@
         --text-muted: #6b7280;
         --accent: #8b5cf6;
         --accent-soft: rgba(139, 92, 246, 0.12);
-        --accent-hover: #7c3aed;
         --success: #34d399;
         --danger: #f87171;
         --warning: #fbbf24;
@@ -245,6 +244,9 @@
         color: inherit;
         position: relative;
         animation: cardAppear 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
     }
 
     .card:nth-child(1) {
@@ -313,7 +315,6 @@
         justify-content: center;
         font-size: 48px;
         color: var(--text-muted);
-        opacity: 0.3;
         overflow: hidden;
         position: relative;
     }
@@ -323,6 +324,20 @@
         height: 100%;
         object-fit: cover;
         transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        /* Skeleton loading effect */
+        background: linear-gradient(90deg, var(--bg-input) 25%, #222 50%, var(--bg-input) 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+    }
+
+    @keyframes shimmer {
+        0% {
+            background-position: 200% 0;
+        }
+
+        100% {
+            background-position: -200% 0;
+        }
     }
 
     .card:hover .thumb img {
@@ -340,6 +355,7 @@
         text-transform: uppercase;
         letter-spacing: 0.06em;
         backdrop-filter: blur(10px);
+        z-index: 10;
     }
 
     .status-badge.completed {
@@ -372,6 +388,7 @@
 
     .card .body {
         padding: 16px 20px 20px;
+        flex-grow: 1;
     }
 
     .card .body .name {
@@ -379,6 +396,7 @@
         font-weight: 600;
         font-family: 'Space Grotesk', sans-serif;
         margin-bottom: 2px;
+        color: var(--text);
     }
 
     .card .body .location {
@@ -394,6 +412,7 @@
         font-size: 12px;
         color: var(--text-muted);
         flex-wrap: wrap;
+        justify-content: space-between;
     }
 
     .card .body .meta .conf {
@@ -451,7 +470,7 @@
         margin: 0 auto 20px;
     }
 
-    /* ===== PAGINATION ===== */
+    /* ===== PAGINATION (Laravel Default Styling Override) ===== */
     .pagination {
         display: flex;
         gap: 8px;
@@ -583,26 +602,28 @@
         <div class="grid" id="historyGrid">
             @forelse($analyses ?? [] as $analysis)
             @php
-            // ✅ Use model accessors (or fallback to manual parsing)
+            // ✅ Safely extract all data using Laravel's data_get helper
             $result = $analysis->result ?? null;
             if (is_string($result)) {
             $result = json_decode($result, true);
             }
 
-            $landmark = $result['landmark_name'] ?? $analysis->landmark_name ?? 'Unknown Location';
-            $city = $result['city'] ?? $analysis->city ?? '';
-            $country = $result['country'] ?? $analysis->country ?? '';
-            $confidence = $result['confidence'] ?? $analysis->confidence ?? 0;
+            $landmark = data_get($result, 'landmark_name') ?? 'Unknown Location';
+            $city = data_get($result, 'city') ?? '';
+            $country = data_get($result, 'country') ?? '';
+            $confidence = data_get($result, 'confidence') ?? 0;
             $status = $analysis->status ?? 'pending';
-            $imageUrl = $analysis->image_url_display ?? null;
+            // ✅ FIX: Use the actual image_url attribute (Cloudinary URL)
+            $imageUrl = $analysis->image_url ?? null;
             $createdAt = $analysis->created_at ?? null;
+            $id = $analysis->id ?? null;
             @endphp
 
-            <a href="/analysis" onclick="sessionStorage.setItem('analysisId', '{{ $analysis->id }}')" class="card"
-                data-status="{{ $status }}">
+            <a href="/analysis" class="card" data-status="{{ $status }}" data-id="{{ $id }}">
                 <div class="thumb">
                     @if($imageUrl)
-                    <img src="{{ $imageUrl }}" alt="{{ $landmark }}">
+                    <img src="{{ $imageUrl }}" alt="{{ $landmark }}" loading="lazy"
+                        onerror="this.parentElement.innerHTML='<i class=\'fas fa-image\'></i>';">
                     @else
                     <i class="fas fa-image"></i>
                     @endif
@@ -677,12 +698,28 @@
 
                 cards.forEach(card => {
                     if (filter === 'all') {
-                        card.style.display = 'block';
+                        card.style.display = 'flex';
                     } else {
                         const status = card.dataset.status;
-                        card.style.display = status === filter ? 'block' : 'none';
+                        card.style.display = status === filter ? 'flex' : 'none';
                     }
                 });
+            });
+        });
+    });
+
+    // ============================================
+    // CARD CLICK HANDLER (Professional approach)
+    // ============================================
+    document.addEventListener('DOMContentLoaded', function() {
+        const cards = document.querySelectorAll('.card[data-id]');
+
+        cards.forEach(card => {
+            card.addEventListener('click', function(e) {
+                e.preventDefault();
+                const id = this.dataset.id;
+                sessionStorage.setItem('analysisId', id);
+                window.location.href = '/analysis';
             });
         });
     });

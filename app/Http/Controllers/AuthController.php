@@ -7,13 +7,13 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use App\Models\User;
+use Laravel\Sanctum\HasApiTokens;
 
 class AuthController extends Controller
 {
     // ============================================
     // SHOW LOGIN/REGISTER PAGES
     // ============================================
-
     public function showLogin()
     {
         return view('auth.login');
@@ -27,7 +27,6 @@ class AuthController extends Controller
     // ============================================
     // WEB LOGIN - REAL DATABASE AUTHENTICATION
     // ============================================
-
     public function webLogin(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -56,7 +55,6 @@ class AuthController extends Controller
     // ============================================
     // WEB REGISTER - REAL DATABASE CREATION
     // ============================================
-
     public function webRegister(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -94,23 +92,18 @@ class AuthController extends Controller
     // ============================================
     // WEB LOGOUT - Returns JSON for AJAX
     // ============================================
-
     public function webLogout(Request $request)
     {
-        if ($request->expectsJson()) {
-            Auth::logout();
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
+        Auth::logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
+        if ($request->expectsJson()) {
             return response()->json([
                 'success' => true,
                 'message' => 'Logged out successfully!'
             ]);
         }
-
-        Auth::logout();
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
 
         return redirect('/login')->with('success', 'Logged out successfully!');
     }
@@ -118,7 +111,6 @@ class AuthController extends Controller
     // ============================================
     // API METHODS (Stateless)
     // ============================================
-
     public function apiLogin(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -133,24 +125,26 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $credentials = $request->only('email', 'password');
+        // Manual credential check (no web session side effects)
+        $user = User::where('email', $request->email)->first();
 
-        if (Auth::attempt($credentials, $request->remember_me ?? false)) {
-            $user = Auth::user();
-            $token = $user->createToken('auth_token')->plainTextToken;
-            
+        if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
-                'success' => true,
-                'message' => 'Login successful!',
-                'user' => $user,
-                'token' => $token
-            ]);
+                'success' => false,
+                'message' => 'Invalid email or password.'
+            ], 401);
         }
 
+        // Revoke old tokens and create a fresh one
+        $user->tokens()->delete();
+        $token = $user->createToken('auth_token')->plainTextToken;
+
         return response()->json([
-            'success' => false,
-            'message' => 'Invalid email or password.'
-        ], 401);
+            'success' => true,
+            'message' => 'Login successful!',
+            'user' => $user,
+            'token' => $token
+        ]);
     }
 
     public function apiRegister(Request $request)
@@ -195,10 +189,9 @@ class AuthController extends Controller
 
     public function apiLogout(Request $request)
     {
-        if ($request->user()) {
-            $request->user()->currentAccessToken()->delete();
-        }
-        
+        // Delete the current access token
+        $request->user()->currentAccessToken()->delete();
+
         return response()->json([
             'success' => true,
             'message' => 'Logged out successfully!'
