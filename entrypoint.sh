@@ -2,13 +2,13 @@
 set -e
 
 echo "⏳ Waiting for database connection..."
+# Retry loop until migration succeeds (handles initial DB warm-up)
+until php artisan migrate --force; do
+  echo "Migration failed, retrying in 5 seconds..."
+  sleep 5
+done
 
-# Run migrations, but don't fail the whole container if they are already applied
-if php artisan migrate --force; then
-  echo "✅ Migrations completed successfully!"
-else
-  echo "⚠️ Migration skipped (already applied or minor error). Continuing..."
-fi
+echo "✅ Migrations completed!"
 
 echo "🔗 Creating storage link (if not exists)..."
 php artisan storage:link || echo "Storage link already exists, continuing..."

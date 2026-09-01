@@ -26,9 +26,14 @@ class AnalysisController extends Controller
      * Show the analysis page
      */
     public function index()
-    {
-        return view('analysis');
+{
+    $googleMapsEmbedKey = config('services.google_maps.embed_key');
+    // Ensure it's a string
+    if (!is_string($googleMapsEmbedKey)) {
+        $googleMapsEmbedKey = '';
     }
+    return view('analysis', ['googleMapsEmbedKey' => $googleMapsEmbedKey]);
+}
 
     /**
      * Show history page (filtered by logged-in user)
