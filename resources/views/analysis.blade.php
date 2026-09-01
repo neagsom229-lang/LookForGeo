@@ -1389,6 +1389,33 @@ body {
         padding: 12px;
         min-height: 44px;
     }
+
+}
+.globe-label {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(8, 8, 14, 0.9);
+    border: 1px solid var(--success);
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: 'Space Grotesk', sans-serif;
+    transform: translate(-50%, -100%);
+    z-index: 10;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+    display: none; /* Hidden by default */
+}
+.globe-label::after {
+    content: '';
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 6px 6px 0;
+    border-style: solid;
+    border-color: var(--success) transparent transparent transparent;
 }
     </style>
 </head>
@@ -1464,6 +1491,7 @@ body {
                 <div class="sat-pane" id="satPane">
                     <div id="resultMap"></div>
                     <canvas class="result-globe-canvas" id="resultGlobeCanvas"></canvas>
+                    <div id="resultGlobeLabel" class="globe-label"></div>
                     <div class="globe-transition" id="globeTransition">
                         <canvas id="globeTransitionCanvas"></canvas>
                         <div class="probe-marker target" id="globeTransitionMarker">
@@ -1477,14 +1505,7 @@ body {
                         <span class="dot" style="background:var(--success);"></span>
                         <span id="confPillText">100% Confidence</span>
                     </div>
-                    <div class="pane-actions view-toggle-group">
-                        <button id="globeToggleBtn" class="view-toggle-btn active">
-                            <i class="fas fa-globe-americas"></i> 3D Globe
-                        </button>
-                        <button id="streetToggleBtn" class="view-toggle-btn">
-                            <i class="fas fa-street-view"></i> Street View
-                        </button>
-                    </div>
+                    
                 </div>
                 <div class="data-pane" id="dataPane">
                     <div class="verified-pill high" id="verifiedPill">
@@ -1507,10 +1528,17 @@ body {
                         <button id="shareBtn" title="Share"><i class="fas fa-share-nodes"></i></button>
                     </div>
 
-                    <div class="pane-toggle-row" id="baseLayerToggleRow">
-                        <button class="active" id="roadsToggle"><i class="fas fa-route"></i> Roads</button>
-                        <button id="terrainToggle"><i class="fas fa-satellite"></i> Terrain</button>
-                    </div>
+<div class="pane-toggle-row" id="baseLayerToggleRow">
+    <!-- Map Layers -->
+    <button class="active" id="roadsToggle"><i class="fas fa-route"></i> Roads</button>
+    <button id="terrainToggle"><i class="fas fa-satellite"></i> Terrain</button>
+</div>
+
+<!-- NEW ROW: 3D Globe & Street View under the map layers -->
+<div class="pane-toggle-row" id="viewModeToggleRow" style="margin-top: 8px;">
+    <button class="active" id="globeToggleBtn"><i class="fas fa-globe-americas"></i> 3D Globe</button>
+    <button id="streetToggleBtn"><i class="fas fa-street-view"></i> Street View</button>
+</div>
 
                     <div class="photo-label">Your Image</div>
                     <div class="photo-frame" id="photoFrame">
@@ -1537,6 +1565,7 @@ body {
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
     <script>
     // ============================================================
@@ -2134,7 +2163,16 @@ body {
             clouds.rotation.x = earth.rotation.x;
         }
 
-        return { renderer, scene, camera, earth, clouds, resize, focusOn };
+                // Add OrbitControls for rotation, zoom, and panning
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.enableZoom = true;
+        controls.enablePan = true;
+        controls.maxDistance = 8;
+        controls.minDistance = 1.5;
+
+        return { renderer, scene, camera, earth, clouds, resize, focusOn, controls };
     }
 
     let earthScene = null;
@@ -2200,32 +2238,87 @@ body {
     // so toggling "3D Globe" after results appeared visually did nothing;
     // the flat map underneath just kept showing. This is a separate scene
     // bound to #resultGlobeCanvas, which lives *inside* #satPane.
+    // let resultEarthScene = null;
+    // let resultEarthAnimId = null;
+    // let resultGlobeMarkerMesh = null;
+
+    // ---- Dedicated 3D globe instance for the RESULTS panel ----
     let resultEarthScene = null;
     let resultEarthAnimId = null;
     let resultGlobeMarkerMesh = null;
+    let targetName = '';
 
-    function startResultGlobe(lat, lng) {
+    function startResultGlobe(lat, lng, name) {
         if (!DOM.resultGlobeCanvas) return;
+        targetName = name || 'Target Location';
+        
         if (!resultEarthScene) {
             resultEarthScene = buildEarthScene(DOM.resultGlobeCanvas);
         }
+        
         resultEarthScene.focusOn(lat, lng);
+        
+        // Remove old marker if exists
         if (resultGlobeMarkerMesh) {
             resultEarthScene.earth.remove(resultGlobeMarkerMesh);
             resultGlobeMarkerMesh = null;
         }
+        
+        // Create a glowing 3D goal pin (Cone pointing down + Sphere tip)
+        const group = new THREE.Group();
+        
+        // The Pin Shaft (Cone pointing down)
+        const coneGeo = new THREE.ConeGeometry(0.025, 0.08, 16);
+        const coneMat = new THREE.MeshBasicMaterial({ color: 0x2dd4bf });
+        const cone = new THREE.Mesh(coneGeo, coneMat);
+        cone.rotation.x = Math.PI; // Point down
+        cone.position.y = 0.04; 
+        group.add(cone);
+        
+        // The Glowing Tip (Sphere)
+        const sphereGeo = new THREE.SphereGeometry(0.02, 16, 16);
+        const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+        sphere.position.y = 0.02;
+        group.add(sphere);
+        
+        // Set the pin on the surface
         const pos = latLngToVector3(lat, lng, 1.02);
-        resultGlobeMarkerMesh = new THREE.Mesh(
-            new THREE.SphereGeometry(0.02, 16, 16),
-            new THREE.MeshBasicMaterial({ color: 0x2dd4bf })
-        );
-        resultGlobeMarkerMesh.position.copy(pos);
+        group.position.copy(pos);
+        
+        // Orient the pin to face outward
+        group.lookAt(new THREE.Vector3(0, 0, 0));
+        
+        resultGlobeMarkerMesh = group;
         resultEarthScene.earth.add(resultGlobeMarkerMesh);
 
         stopResultGlobeAnim();
-        const { renderer, scene, camera, resize } = resultEarthScene;
+        
+        const { renderer, scene, camera, resize, controls } = resultEarthScene;
+        const label = document.getElementById('resultGlobeLabel');
+        
+        function updateLabel() {
+            if (!label || !resultGlobeMarkerMesh) return;
+            
+            // Get the marker's 3D position and project it to 2D screen space
+            const vector = resultGlobeMarkerMesh.position.clone();
+            vector.project(camera);
+            
+            // Convert to pixels
+            const x = (vector.x * 0.5 + 0.5) * DOM.resultGlobeCanvas.clientWidth;
+            const y = (-vector.y * 0.5 + 0.5) * DOM.resultGlobeCanvas.clientHeight;
+            
+            // Update label position
+            label.style.left = x + 'px';
+            label.style.top = y + 'px';
+            label.style.display = 'block';
+            label.textContent = '📍 ' + targetName;
+        }
+
         function frame() {
             resize();
+            controls.update(); // Update controls for smooth pan/zoom
+            updateLabel();     // Update the label position
             renderer.render(scene, camera);
             resultEarthAnimId = requestAnimationFrame(frame);
         }
@@ -2237,8 +2330,9 @@ body {
             cancelAnimationFrame(resultEarthAnimId);
             resultEarthAnimId = null;
         }
+        const label = document.getElementById('resultGlobeLabel');
+        if (label) label.style.display = 'none';
     }
-
     // ========== SWITCH BETWEEN FLAT MAP ↔ GLOBE (pre-results exploration) ==========
     function showGlobeMode(statusText) {
         DOM.mapEarthContainer.classList.add('hidden');
@@ -2700,6 +2794,7 @@ body {
             if (el) el.onclick = fn;
         };
 
+        // ===== COPY COORDINATES =====
         set('copyCoordsBtn', () => {
             if (!hasCoords) return;
             navigator.clipboard?.writeText(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
@@ -2715,17 +2810,13 @@ body {
             DOM.satPane.querySelector('.street-inline')?.remove();
         };
 
-        // FIX: the confusing duplicate "3D Globe / Street View" checkbox row
-        // that used to live in the data pane has been removed from the HTML
-        // entirely (see markup) instead of being hidden at runtime, since the
-        // runtime hide never actually worked and left a dead toggle visible
-        // in the recorded run.
-
+        // ===== SET TILE (Roads / Terrain) =====
         const setTile = (mode) => {
             currentTileMode = mode;
             if (roadsBtn) roadsBtn.classList.toggle('active', mode === 'roads');
             if (terrainBtn) terrainBtn.classList.toggle('active', mode === 'terrain');
 
+            // Hide 3D Globe and Street View when switching to map
             removeStreetView();
             stopResultGlobeAnim();
             if (DOM.resultGlobeCanvas) DOM.resultGlobeCanvas.classList.remove('active');
@@ -2747,22 +2838,21 @@ body {
             }
         };
 
-        // ===== STRICT MODE SWITCHING (No mixing) =====
-        // FIX: this now actually shows the dedicated in-pane 3D globe canvas
-        // (#resultGlobeCanvas) instead of a canvas that renders outside the
-        // results panel's visible stacking context.
+        // ===== STRICT MODE SWITCHING =====
         const switchTo3DGlobe = () => {
             removeStreetView();
-
+            
+            // Hide Flat Map, show 3D Globe
             const resultMapDiv = document.getElementById('resultMap');
             if (resultMapDiv) resultMapDiv.style.display = 'none';
             if (DOM.resultGlobeCanvas) DOM.resultGlobeCanvas.classList.add('active');
 
-            startResultGlobe(lat, lng);
+            startResultGlobe(lat, lng, data.landmark_name || data.city || 'Target');
 
             globeBtn.classList.add('active');
             streetBtn.classList.remove('active');
-
+            roadsBtn.classList.remove('active');
+            terrainBtn.classList.remove('active');
             showToast('🌐 Real 3D Globe Mode Active');
         };
 
@@ -2771,6 +2861,7 @@ body {
             stopResultGlobeAnim();
             if (DOM.resultGlobeCanvas) DOM.resultGlobeCanvas.classList.remove('active');
 
+            // Show Flat Map (to load Street View)
             const resultMapDiv = document.getElementById('resultMap');
             if (resultMapDiv) resultMapDiv.style.display = 'block';
 
@@ -2778,21 +2869,21 @@ body {
 
             streetBtn.classList.add('active');
             globeBtn.classList.remove('active');
-
+            roadsBtn.classList.remove('active');
+            terrainBtn.classList.remove('active');
             showToast('📸 Real-Time Street View Active');
         };
 
         switchTo3DGlobe();
 
+        // Bind the 4 buttons
         globeBtn.onclick = switchTo3DGlobe;
         streetBtn.onclick = switchToStreetView;
-
         if (roadsBtn) roadsBtn.onclick = () => { setTile('roads'); };
         if (terrainBtn) terrainBtn.onclick = () => { setTile('terrain'); };
 
-        set('homeBtn', () => {
-            window.location.href = '/';
-        });
+        // ===== PAGE-LEVEL ACTIONS =====
+        set('homeBtn', () => { window.location.href = '/'; });
         set('reuploadBtn', () => {
             sessionStorage.removeItem('analysisId');
             sessionStorage.removeItem('analysisResult');
@@ -2801,42 +2892,29 @@ body {
         });
         set('saveReportBtn', () => exportReport(data, lat, lng));
         set('shareBtn', async () => {
-            const summary =
-                `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` — ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
+            const summary = `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` — ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
             if (navigator.share) {
                 try {
-                    await navigator.share({
-                        title: 'TraceGeo result',
-                        text: summary,
-                        url: window.location.href
-                    });
+                    await navigator.share({ title: 'TraceGeo result', text: summary, url: window.location.href });
                     return;
-                } catch (e) {
-                    /* user cancelled */ }
+                } catch (e) { /* user cancelled */ }
             }
             navigator.clipboard?.writeText(summary);
             showToast('📋 Summary copied to clipboard!');
         });
 
-        set('viewFullSizeBtn', () => {
-            if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
-        });
+        // ===== PHOTO ACTIONS =====
+        set('viewFullSizeBtn', () => { if (uploadedImageURL) window.open(uploadedImageURL, '_blank'); });
         set('fullscreenPhotoBtn', () => {
             const frame = DOM.photoFrame;
             if (frame?.requestFullscreen) frame.requestFullscreen();
             else if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
         });
         set('reverseSearchBtn', () => {
-            if (!uploadedImageURL) {
-                showToast('❌ No image to search.');
-                return;
-            }
-            window.open(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(uploadedImageURL)}`,
-                '_blank');
+            if (!uploadedImageURL) { showToast('❌ No image to search.'); return; }
+            window.open(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(uploadedImageURL)}`, '_blank');
         });
-        set('openOriginalBtn', () => {
-            if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
-        });
+        set('openOriginalBtn', () => { if (uploadedImageURL) window.open(uploadedImageURL, '_blank'); });
     }
 
     // FIX: Street View used to get permanently stuck on Google's own
