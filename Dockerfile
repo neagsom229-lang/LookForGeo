@@ -25,15 +25,18 @@ RUN mkdir -p bootstrap/cache storage/framework/views storage/framework/cache sto
 # Install dependencies (no npm needed for pure PHP apps, skip if not required)
 RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
-# Enable Apache mod_rewrite and mod_headers (though we won't use .htaccess for CSP)
+# Enable Apache mod_rewrite and mod_headers
 RUN a2enmod rewrite headers
 
 # Configure Apache to serve from /public
 RUN sed -i 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
-# Allow .htaccess overrides (optional, but keep for other rewrite rules)
+# Allow .htaccess overrides (optional)
 RUN sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/sites-available/000-default.conf
+
+# 🔥 INJECT THE CSP HEADER DIRECTLY INTO APACHE CONFIG (unconditional)
+RUN echo "Header always set Content-Security-Policy \"script-src 'self' https://cdnjs.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src * data:;\"" >> /etc/apache2/apache2.conf
 
 # Copy Supervisor config
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
