@@ -88,13 +88,17 @@ class AnalyzeImageJob implements ShouldQueue
             $analysis->markStage(2, 40);
             Log::info('🤖 Calling Gemini API...');
 
-            $aiResult = $geminiService->analyzeGeolocation($imageData, $metadata);
+                      $aiResult = $geminiService->analyzeGeolocation($imageData, $metadata);
 
-            // Check for 503 (service unavailable) – release job for retry
-            if (isset($aiResult['error']) && str_contains($aiResult['message'] ?? '', '503')) {
-                Log::warning('⚠️ Gemini service unavailable (503), releasing job for retry...');
-                $this->release(30);
-                return;
+            // ✅ Check for 503 or "Service Unavailable" - release for retry
+            if (isset($aiResult['error']) || isset($aiResult['is_error'])) {
+                $errMsg = $aiResult['error_message'] ?? $aiResult['message'] ?? '';
+                
+                if (str_contains($errMsg, '503') || str_contains($errMsg, 'Service Unavailable') || str_contains($errMsg, 'Resource has been exhausted')) {
+                    Log::warning('⚠️ Gemini temporarily unavailable, releasing job in 45 seconds...');
+                    $this->release(45); // Try again in 45 seconds
+                    return;
+                }
             }
 
             // Check for other AI errors (including is_error flag)
