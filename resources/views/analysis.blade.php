@@ -1255,6 +1255,7 @@
         .photo-frame {
             height: 100px;
         }
+        .navbar .btn-ghost { padding: 10px 14px; }
     }
 
     /* 3D Globe & Street View Active State */
