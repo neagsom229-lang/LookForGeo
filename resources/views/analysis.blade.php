@@ -2291,17 +2291,17 @@ body {
         const { renderer, scene, camera, resize, controls } = resultEarthScene;
         const label = document.getElementById('resultGlobeLabel');
         
-        // ===== ZOOM TO MAP THRESHOLD =====
-        // Adjust this number to set how close you want to zoom before switching
+        // ===== CORRECT ZOOM TO MAP THRESHOLD =====
         const ZOOM_TO_MAP_THRESHOLD = 2.3; 
         let hasTriggered = false;
 
         // Listen for when the user stops interacting (zoom/rotate/pan)
         controls.addEventListener('end', () => {
-            if (!hasTriggered && controls.getDistance() < ZOOM_TO_MAP_THRESHOLD) {
+            // ✅ USE THIS: camera.position.distanceTo(controls.target)
+            const distance = camera.position.distanceTo(controls.target);
+            
+            if (!hasTriggered && distance < ZOOM_TO_MAP_THRESHOLD) {
                 hasTriggered = true;
-                
-                // Trigger the 2D Map and center on the exact goal location
                 switchFromGlobeToMap(lat, lng);
             }
         });
@@ -2843,7 +2843,8 @@ body {
         };
 
          // ===== AUTO-SWITCH FROM 3D GLOBE TO MAP =====
-         window.switchFromGlobeToMap = (targetLat, targetLng) => {
+                 // ===== AUTO-SWITCH FROM 3D GLOBE TO MAP =====
+        window.switchFromGlobeToMap = (targetLat, targetLng) => {
             removeStreetView();
             stopResultGlobeAnim();
             if (DOM.resultGlobeCanvas) DOM.resultGlobeCanvas.classList.remove('active');
@@ -2853,7 +2854,6 @@ body {
             // Set map to specific target and zoom in
             if (resultMapInstance) {
                 resultMapInstance.setView([targetLat, targetLng], 15); // Zoom level 15
-                // ✅ FIX: Add this to ensure map resizes perfectly!
                 setTimeout(() => resultMapInstance.invalidateSize(), 200);
             }
 
