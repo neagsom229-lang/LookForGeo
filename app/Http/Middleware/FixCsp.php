@@ -11,8 +11,7 @@ class FixCsp
     {
         $response = $next($request);
 
-        // Override the restrictive CSP with a permissive one
-        $response->headers->set('Content-Security-Policy', "script-src 'self' https://cdnjs.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src * data:;");
+        $response->headers->set('Content-Security-Policy', "script-src 'self' https://cdnjs.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src * data:;");
 
         return $response;
     }
