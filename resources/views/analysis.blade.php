@@ -197,7 +197,7 @@
     }
 
     /* ===== STARFIELD GLOBE (Frame 3 & 5) ===== */
-        #starfieldCanvas {
+    #starfieldCanvas {
         position: absolute;
         inset: 0;
         width: 100%;
@@ -816,7 +816,9 @@
     }
 
     @keyframes spin {
-        to { transform: rotate(360deg); }
+        to {
+            transform: rotate(360deg);
+        }
     }
 
     .street-loading-notice p {
@@ -1255,7 +1257,10 @@
         .photo-frame {
             height: 100px;
         }
-        .navbar .btn-ghost { padding: 10px 14px; }
+
+        .navbar .btn-ghost {
+            padding: 10px 14px;
+        }
     }
 
     /* 3D Globe & Street View Active State */
@@ -1357,67 +1362,76 @@
 
     /* ===== MOBILE & RESPONSIVENESS IMPROVEMENTS (Block 1,2,4,7) ===== */
 
-/* Block 1: Let the data pane shrink on mobile */
-@media (max-width: 900px) {
-    .data-pane {
-        min-width: 0 !important; /* Force it to shrink to 100% */
-    }
-}
-
-/* Block 2: Dynamic viewport for mobile browsers */
-body {
-    min-height: 100vh;      /* Fallback */
-    min-height: 100dvh;     /* Actual visible viewport on mobile */
-}
-
-/* Block 4: Prevent view-toggle buttons from overflowing on small screens */
-@media (max-width: 480px) {
-    .view-toggle-group {
-        flex-wrap: wrap; /* Allow buttons to wrap if needed */
-        justify-content: center;
-    }
-    .view-toggle-btn {
-        min-width: 0;
-        padding: 8px 12px;
-        font-size: 11px;
-    }
-}
-
-/* Block 7: Larger touch targets for mobile */
-@media (max-width: 900px) {
-    .action-row button,
-    .photo-icon-row button {
-        padding: 12px;
-        min-height: 44px;
+    /* Block 1: Let the data pane shrink on mobile */
+    @media (max-width: 900px) {
+        .data-pane {
+            min-width: 0 !important;
+            /* Force it to shrink to 100% */
+        }
     }
 
-}
-.globe-label {
-    position: absolute;
-    pointer-events: none;
-    background: rgba(8, 8, 14, 0.9);
-    border: 1px solid var(--success);
-    color: #fff;
-    padding: 5px 10px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-family: 'Space Grotesk', sans-serif;
-    transform: translate(-50%, -100%);
-    z-index: 10;
-    white-space: nowrap;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
-    display: none; /* Hidden by default */
-}
-.globe-label::after {
-    content: '';
-    position: absolute;
-    bottom: -6px;
-    left: 50%;
-    transform: translateX(-50%);
-    border-width: 6px 6px 0;
-    border-style: solid;
-    border-color: var(--success) transparent transparent transparent;
-}
+    /* Block 2: Dynamic viewport for mobile browsers */
+    body {
+        min-height: 100vh;
+        /* Fallback */
+        min-height: 100dvh;
+        /* Actual visible viewport on mobile */
+    }
+
+    /* Block 4: Prevent view-toggle buttons from overflowing on small screens */
+    @media (max-width: 480px) {
+        .view-toggle-group {
+            flex-wrap: wrap;
+            /* Allow buttons to wrap if needed */
+            justify-content: center;
+        }
+
+        .view-toggle-btn {
+            min-width: 0;
+            padding: 8px 12px;
+            font-size: 11px;
+        }
+    }
+
+    /* Block 7: Larger touch targets for mobile */
+    @media (max-width: 900px) {
+
+        .action-row button,
+        .photo-icon-row button {
+            padding: 12px;
+            min-height: 44px;
+        }
+
+    }
+
+    .globe-label {
+        position: absolute;
+        pointer-events: none;
+        background: rgba(8, 8, 14, 0.9);
+        border: 1px solid var(--success);
+        color: #fff;
+        padding: 5px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-family: 'Space Grotesk', sans-serif;
+        transform: translate(-50%, -100%);
+        z-index: 10;
+        white-space: nowrap;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+        display: none;
+        /* Hidden by default */
+    }
+
+    .globe-label::after {
+        content: '';
+        position: absolute;
+        bottom: -6px;
+        left: 50%;
+        transform: translateX(-50%);
+        border-width: 6px 6px 0;
+        border-style: solid;
+        border-color: var(--success) transparent transparent transparent;
+    }
     </style>
 </head>
 
@@ -1506,7 +1520,7 @@ body {
                         <span class="dot" style="background:var(--success);"></span>
                         <span id="confPillText">100% Confidence</span>
                     </div>
-                    
+
                 </div>
                 <div class="data-pane" id="dataPane">
                     <div class="verified-pill high" id="verifiedPill">
@@ -1529,17 +1543,18 @@ body {
                         <button id="shareBtn" title="Share"><i class="fas fa-share-nodes"></i></button>
                     </div>
 
-<div class="pane-toggle-row" id="baseLayerToggleRow">
-    <!-- Map Layers -->
-    <button class="active" id="roadsToggle"><i class="fas fa-route"></i> Roads</button>
-    <button id="terrainToggle"><i class="fas fa-satellite"></i> Terrain</button>
-</div>
+                    <div class="pane-toggle-row" id="baseLayerToggleRow">
+                        <!-- Map Layers -->
+                        <button class="active" id="roadsToggle"><i class="fas fa-route"></i> Roads</button>
+                        <button id="terrainToggle"><i class="fas fa-satellite"></i> Terrain</button>
+                    </div>
 
-<!-- NEW ROW: 3D Globe & Street View under the map layers -->
-<div class="pane-toggle-row" id="viewModeToggleRow" style="margin-top: 8px;">
-    <button class="active" id="globeToggleBtn"><i class="fas fa-globe-americas"></i> 3D Globe</button>
-    <button id="streetToggleBtn"><i class="fas fa-street-view"></i> Street View</button>
-</div>
+                    <!-- NEW ROW: 3D Globe & Street View under the map layers -->
+                    <div class="pane-toggle-row" id="viewModeToggleRow" style="margin-top: 8px;">
+                        <button class="active" id="globeToggleBtn"><i class="fas fa-globe-americas"></i> 3D
+                            Globe</button>
+                        <button id="streetToggleBtn"><i class="fas fa-street-view"></i> Street View</button>
+                    </div>
 
                     <div class="photo-label">Your Image</div>
                     <div class="photo-frame" id="photoFrame">
@@ -1587,19 +1602,20 @@ body {
     const MAX_POLL_ATTEMPTS = 120;
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        // ========== STREET VIEW CONFIG ==========
+    // ========== STREET VIEW CONFIG ==========
     // Real, photographic Street View can only be embedded reliably through
     // Google's official Maps Embed API, which needs a key.
     @php
-        // Safely fetch the config, ensuring it is always a string or empty
-        $embedKey = config('services.google_maps.embed_key');
-        if (!is_string($embedKey)) {
-            $embedKey = '';
-        }
+    // Safely fetch the config, ensuring it is always a string or empty
+    $embedKey = config('services.google_maps.embed_key');
+    if (!is_string($embedKey)) {
+        $embedKey = '';
+    }
     @endphp
 
     const GOOGLE_MAPS_EMBED_KEY_RAW = @json($embedKey);
-    const GOOGLE_MAPS_EMBED_KEY = GOOGLE_MAPS_EMBED_KEY_RAW && !GOOGLE_MAPS_EMBED_KEY_RAW.includes('{{') ? GOOGLE_MAPS_EMBED_KEY_RAW : '';
+    const GOOGLE_MAPS_EMBED_KEY = GOOGLE_MAPS_EMBED_KEY_RAW && !GOOGLE_MAPS_EMBED_KEY_RAW.includes('{{') ?
+        GOOGLE_MAPS_EMBED_KEY_RAW : '';
 
     const DARK_TILE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
     const DARK_ATTR = '&copy; <a href="https://carto.com/attributions">CARTO</a>';
@@ -2061,10 +2077,14 @@ body {
     }
 
     // ========== REAL 3D EARTH (Three.js) ==========
-    const EARTH_TEXTURE_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_atmos_2048.jpg';
-    const EARTH_SPEC_URL    = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_specular_2048.jpg';
-    const EARTH_CLOUDS_URL  = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_clouds_1024.png';
-    const EARTH_NORMAL_URL  = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_normal_2048.jpg';
+    const EARTH_TEXTURE_URL =
+        'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_atmos_2048.jpg';
+    const EARTH_SPEC_URL =
+        'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_specular_2048.jpg';
+    const EARTH_CLOUDS_URL =
+        'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_clouds_1024.png';
+    const EARTH_NORMAL_URL =
+        'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_normal_2048.jpg';
 
     const textureLoader = new THREE.TextureLoader();
     let cachedEarthTex, cachedSpecTex, cachedCloudsTex, cachedNormalTex, texturesLoading = null;
@@ -2072,10 +2092,22 @@ body {
     function loadEarthTextures() {
         if (texturesLoading) return texturesLoading;
         texturesLoading = Promise.all([
-            new Promise(res => textureLoader.load(EARTH_TEXTURE_URL, t => { cachedEarthTex = t; res(); }, undefined, () => res())),
-            new Promise(res => textureLoader.load(EARTH_SPEC_URL, t => { cachedSpecTex = t; res(); }, undefined, () => res())),
-            new Promise(res => textureLoader.load(EARTH_CLOUDS_URL, t => { cachedCloudsTex = t; res(); }, undefined, () => res())),
-            new Promise(res => textureLoader.load(EARTH_NORMAL_URL, t => { cachedNormalTex = t; res(); }, undefined, () => res())),
+            new Promise(res => textureLoader.load(EARTH_TEXTURE_URL, t => {
+                cachedEarthTex = t;
+                res();
+            }, undefined, () => res())),
+            new Promise(res => textureLoader.load(EARTH_SPEC_URL, t => {
+                cachedSpecTex = t;
+                res();
+            }, undefined, () => res())),
+            new Promise(res => textureLoader.load(EARTH_CLOUDS_URL, t => {
+                cachedCloudsTex = t;
+                res();
+            }, undefined, () => res())),
+            new Promise(res => textureLoader.load(EARTH_NORMAL_URL, t => {
+                cachedNormalTex = t;
+                res();
+            }, undefined, () => res())),
         ]);
         return texturesLoading;
     }
@@ -2091,7 +2123,11 @@ body {
     }
 
     function buildEarthScene(canvas) {
-        const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+        const renderer = new THREE.WebGLRenderer({
+            canvas,
+            alpha: true,
+            antialias: true
+        });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
         const scene = new THREE.Scene();
@@ -2105,12 +2141,17 @@ body {
             const r = 60 + Math.random() * 40;
             const theta = Math.random() * Math.PI * 2;
             const phi = Math.acos((Math.random() * 2) - 1);
-            starPositions[i*3]   = r * Math.sin(phi) * Math.cos(theta);
-            starPositions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
-            starPositions[i*3+2] = r * Math.cos(phi);
+            starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+            starPositions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+            starPositions[i * 3 + 2] = r * Math.cos(phi);
         }
         starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-        scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09, transparent: true, opacity: 0.75 })));
+        scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.09,
+            transparent: true,
+            opacity: 0.75
+        })));
 
         // Brighter, more forgiving lighting so the globe reads clearly even
         // on whichever hemisphere is facing the camera at a given moment.
@@ -2122,11 +2163,18 @@ body {
         scene.add(sunBack);
         scene.add(new THREE.AmbientLight(0x8899aa, 0.65));
 
-        const earthMat = new THREE.MeshPhongMaterial({ shininess: 12, color: 0x223344 });
+        const earthMat = new THREE.MeshPhongMaterial({
+            shininess: 12,
+            color: 0x223344
+        });
         const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 64), earthMat);
         scene.add(earth);
 
-        const cloudMat = new THREE.MeshPhongMaterial({ transparent: true, opacity: 0.5, depthWrite: false });
+        const cloudMat = new THREE.MeshPhongMaterial({
+            transparent: true,
+            opacity: 0.5,
+            depthWrite: false
+        });
         const clouds = new THREE.Mesh(new THREE.SphereGeometry(1.008, 64, 64), cloudMat);
         scene.add(clouds);
 
@@ -2141,10 +2189,16 @@ body {
         loadEarthTextures().then(() => {
             if (cachedEarthTex) earthMat.map = cachedEarthTex;
             if (cachedNormalTex) earthMat.normalMap = cachedNormalTex;
-            if (cachedSpecTex) { earthMat.specularMap = cachedSpecTex; earthMat.specular = new THREE.Color(0x333333); }
+            if (cachedSpecTex) {
+                earthMat.specularMap = cachedSpecTex;
+                earthMat.specular = new THREE.Color(0x333333);
+            }
             earthMat.color.set(0xffffff);
             earthMat.needsUpdate = true;
-            if (cachedCloudsTex) { cloudMat.map = cachedCloudsTex; cloudMat.needsUpdate = true; }
+            if (cachedCloudsTex) {
+                cloudMat.map = cachedCloudsTex;
+                cloudMat.needsUpdate = true;
+            }
         });
 
         function resize() {
@@ -2164,7 +2218,7 @@ body {
             clouds.rotation.x = earth.rotation.x;
         }
 
-                // Add OrbitControls for rotation, zoom, and panning
+        // Add OrbitControls for rotation, zoom, and panning
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.08;
@@ -2173,7 +2227,16 @@ body {
         controls.maxDistance = 8;
         controls.minDistance = 1.5;
 
-        return { renderer, scene, camera, earth, clouds, resize, focusOn, controls };
+        return {
+            renderer,
+            scene,
+            camera,
+            earth,
+            clouds,
+            resize,
+            focusOn,
+            controls
+        };
     }
 
     let earthScene = null;
@@ -2189,7 +2252,15 @@ body {
             globeResizeObserver.observe(DOM.starfieldCanvas);
         }
 
-        const { renderer, scene, camera, earth, clouds, resize } = earthScene;
+        const {
+            renderer,
+            scene,
+            camera,
+            earth,
+            clouds,
+            resize
+        } = earthScene;
+
         function frame() {
             resize();
             if (!prefersReducedMotion) {
@@ -2203,17 +2274,27 @@ body {
     }
 
     function stopStarfield() {
-        if (earthAnimId) { cancelAnimationFrame(earthAnimId); earthAnimId = null; }
+        if (earthAnimId) {
+            cancelAnimationFrame(earthAnimId);
+            earthAnimId = null;
+        }
     }
 
     function setGlobeMarker(lat, lng, isTarget = false) {
         if (!earthScene) return;
-        const { earth } = earthScene;
-        if (globeMarkerMesh) { earth.remove(globeMarkerMesh); globeMarkerMesh = null; }
+        const {
+            earth
+        } = earthScene;
+        if (globeMarkerMesh) {
+            earth.remove(globeMarkerMesh);
+            globeMarkerMesh = null;
+        }
         const pos = latLngToVector3(lat, lng, 1.02);
         globeMarkerMesh = new THREE.Mesh(
             new THREE.SphereGeometry(0.018, 16, 16),
-            new THREE.MeshBasicMaterial({ color: isTarget ? 0x2dd4bf : 0x22d3ee })
+            new THREE.MeshBasicMaterial({
+                color: isTarget ? 0x2dd4bf : 0x22d3ee
+            })
         );
         globeMarkerMesh.position.copy(pos);
         earth.add(globeMarkerMesh);
@@ -2229,7 +2310,9 @@ body {
             t.renderer.render(t.scene, t.camera);
             animId = requestAnimationFrame(frame);
         })();
-        return () => { if (animId) cancelAnimationFrame(animId); };
+        return () => {
+            if (animId) cancelAnimationFrame(animId);
+        };
     }
 
     // ---- Dedicated 3D globe instance for the RESULTS panel ----
@@ -2252,55 +2335,65 @@ body {
     function startResultGlobe(lat, lng, name) {
         if (!DOM.resultGlobeCanvas) return;
         targetName = name || 'Target Location';
-        
+
         if (!resultEarthScene) {
             resultEarthScene = buildEarthScene(DOM.resultGlobeCanvas);
         }
-        
+
         resultEarthScene.focusOn(lat, lng);
-        
+
         // Remove old marker if exists
         if (resultGlobeMarkerMesh) {
             resultEarthScene.earth.remove(resultGlobeMarkerMesh);
             resultGlobeMarkerMesh = null;
         }
-        
+
         // Create a glowing 3D goal pin
         const group = new THREE.Group();
         const coneGeo = new THREE.ConeGeometry(0.025, 0.08, 16);
-        const coneMat = new THREE.MeshBasicMaterial({ color: 0x2dd4bf });
+        const coneMat = new THREE.MeshBasicMaterial({
+            color: 0x2dd4bf
+        });
         const cone = new THREE.Mesh(coneGeo, coneMat);
         cone.rotation.x = Math.PI;
-        cone.position.y = 0.04; 
+        cone.position.y = 0.04;
         group.add(cone);
-        
+
         const sphereGeo = new THREE.SphereGeometry(0.02, 16, 16);
-        const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const sphereMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff
+        });
         const sphere = new THREE.Mesh(sphereGeo, sphereMat);
         sphere.position.y = 0.02;
         group.add(sphere);
-        
+
         const pos = latLngToVector3(lat, lng, 1.02);
         group.position.copy(pos);
         group.lookAt(new THREE.Vector3(0, 0, 0));
-        
+
         resultGlobeMarkerMesh = group;
         resultEarthScene.earth.add(resultGlobeMarkerMesh);
 
         stopResultGlobeAnim();
-        
-        const { renderer, scene, camera, resize, controls } = resultEarthScene;
+
+        const {
+            renderer,
+            scene,
+            camera,
+            resize,
+            controls
+        } = resultEarthScene;
         const label = document.getElementById('resultGlobeLabel');
-        
+
         // ===== CORRECT ZOOM TO MAP THRESHOLD =====
-        const ZOOM_TO_MAP_THRESHOLD = 2.3; 
+        const ZOOM_TO_MAP_THRESHOLD = 2.3;
         let hasTriggered = false;
 
         // Listen for when the user stops interacting (zoom/rotate/pan)
         controls.addEventListener('end', () => {
             // ✅ USE THIS: camera.position.distanceTo(controls.target)
             const distance = camera.position.distanceTo(controls.target);
-            
+
             if (!hasTriggered && distance < ZOOM_TO_MAP_THRESHOLD) {
                 hasTriggered = true;
                 switchFromGlobeToMap(lat, lng);
@@ -2355,48 +2448,48 @@ body {
     // ========== EXPLORATION SEQUENCE ==========
     async function runExplorationSequence(waypoints) {
         while (!analysisComplete) {
-        randomWaypoints = shuffleArray(waypoints).slice(0, 12);
-        totalWaypoints = randomWaypoints.length;
+            randomWaypoints = shuffleArray(waypoints).slice(0, 12);
+            totalWaypoints = randomWaypoints.length;
 
-        for (let i = 0; i < totalWaypoints; i++) {
-            if (analysisComplete) return;
-            const wp = randomWaypoints[i];
-            explorationIndex = i;
+            for (let i = 0; i < totalWaypoints; i++) {
+                if (analysisComplete) return;
+                const wp = randomWaypoints[i];
+                explorationIndex = i;
 
-            if (i % 2 === 1) {
-                showGlobeMode(`🌐 Scanning ${wp.name}...`);
-                setGlobeMarker(wp.lat, wp.lng, false);
-                if (DOM.pcScanning) DOM.pcScanning.textContent = `// SCANNING ${wp.name.toUpperCase()}`;
-                await sleep(3200);
-                if (analysisComplete) break;
+                if (i % 2 === 1) {
+                    showGlobeMode(`🌐 Scanning ${wp.name}...`);
+                    setGlobeMarker(wp.lat, wp.lng, false);
+                    if (DOM.pcScanning) DOM.pcScanning.textContent = `// SCANNING ${wp.name.toUpperCase()}`;
+                    await sleep(3200);
+                    if (analysisComplete) break;
+                    showFlatMapMode();
+                    await sleep(400);
+                    continue;
+                }
+
                 showFlatMapMode();
-                await sleep(400);
-                continue;
+                if (DOM.mapStatusText) {
+                    DOM.mapStatusText.textContent = `🌍 Probing ${wp.name}...`;
+                }
+                if (DOM.pcScanning) DOM.pcScanning.textContent = `// PROBING ${wp.name.toUpperCase()}`;
+
+                await flyEarthTo(wp.lat, wp.lng, 4, 1400);
+                if (analysisComplete) break;
+
+                addProbeMarker(wp.lat, wp.lng, false);
+                await sleep(600);
+                if (analysisComplete) break;
+
+                await flyEarthTo(wp.lat, wp.lng, 10, 1500);
+                if (analysisComplete) break;
+                await sleep(900);
+                if (analysisComplete) break;
+
+                await flyEarthTo(wp.lat, wp.lng, 3.5, 1200);
+                if (analysisComplete) break;
+                await sleep(500);
             }
-
-            showFlatMapMode();
-            if (DOM.mapStatusText) {
-                DOM.mapStatusText.textContent = `🌍 Probing ${wp.name}...`;
-            }
-            if (DOM.pcScanning) DOM.pcScanning.textContent = `// PROBING ${wp.name.toUpperCase()}`;
-
-            await flyEarthTo(wp.lat, wp.lng, 4, 1400);
-            if (analysisComplete) break;
-
-            addProbeMarker(wp.lat, wp.lng, false);
-            await sleep(600);
-            if (analysisComplete) break;
-
-            await flyEarthTo(wp.lat, wp.lng, 10, 1500);
-            if (analysisComplete) break;
-            await sleep(900);
-            if (analysisComplete) break;
-
-            await flyEarthTo(wp.lat, wp.lng, 3.5, 1200);
-            if (analysisComplete) break;
-            await sleep(500);
         }
-      }
     }
 
     // ========== CINEMATIC TARGET REVEAL ==========
@@ -2494,8 +2587,14 @@ body {
     function clearSession() {
         sessionStorage.removeItem('analysisId');
         sessionStorage.removeItem('analysisResult');
-        if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
-        if (elapsedInterval) { clearInterval(elapsedInterval); elapsedInterval = null; }
+        if (pollTimer) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+        if (elapsedInterval) {
+            clearInterval(elapsedInterval);
+            elapsedInterval = null;
+        }
         currentAnalysisId = null;
         pollAttempts = 0;
         consecutiveErrors = 0;
@@ -2843,8 +2942,8 @@ body {
             }
         };
 
-         // ===== AUTO-SWITCH FROM 3D GLOBE TO MAP =====
-                 // ===== AUTO-SWITCH FROM 3D GLOBE TO MAP =====
+        // ===== AUTO-SWITCH FROM 3D GLOBE TO MAP =====
+        // ===== AUTO-SWITCH FROM 3D GLOBE TO MAP =====
         window.switchFromGlobeToMap = (targetLat, targetLng) => {
             removeStreetView();
             stopResultGlobeAnim();
@@ -2870,7 +2969,7 @@ body {
         // ===== STRICT MODE SWITCHING =====
         const switchTo3DGlobe = () => {
             removeStreetView();
-            
+
             // Hide Flat Map, show 3D Globe
             const resultMapDiv = document.getElementById('resultMap');
             if (resultMapDiv) resultMapDiv.style.display = 'none';
@@ -2903,16 +3002,39 @@ body {
             showToast('📸 Real-Time Street View Active');
         };
 
-        switchTo3DGlobe();
+        // Choose default view based on screen size
+        if (window.innerWidth < 768) {
+            // Mobile: show flat map (Roads layer)
+            setTile('roads');
+            // Ensure globe is hidden, map is shown
+            const resultMapDiv = document.getElementById('resultMap');
+            if (resultMapDiv) resultMapDiv.style.display = 'block';
+            if (DOM.resultGlobeCanvas) DOM.resultGlobeCanvas.classList.remove('active');
+            stopResultGlobeAnim();
+            // Update button states
+            if (globeBtn) globeBtn.classList.remove('active');
+            if (streetBtn) streetBtn.classList.remove('active');
+            if (roadsBtn) roadsBtn.classList.add('active');
+            if (terrainBtn) terrainBtn.classList.remove('active');
+        } else {
+            // Desktop: show 3D globe
+            switchTo3DGlobe();
+        }
 
         // Bind the 4 buttons
         globeBtn.onclick = switchTo3DGlobe;
         streetBtn.onclick = switchToStreetView;
-        if (roadsBtn) roadsBtn.onclick = () => { setTile('roads'); };
-        if (terrainBtn) terrainBtn.onclick = () => { setTile('terrain'); };
+        if (roadsBtn) roadsBtn.onclick = () => {
+            setTile('roads');
+        };
+        if (terrainBtn) terrainBtn.onclick = () => {
+            setTile('terrain');
+        };
 
         // ===== PAGE-LEVEL ACTIONS =====
-        set('homeBtn', () => { window.location.href = '/'; });
+        set('homeBtn', () => {
+            window.location.href = '/';
+        });
         set('reuploadBtn', () => {
             sessionStorage.removeItem('analysisId');
             sessionStorage.removeItem('analysisResult');
@@ -2921,29 +3043,43 @@ body {
         });
         set('saveReportBtn', () => exportReport(data, lat, lng));
         set('shareBtn', async () => {
-            const summary = `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` — ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
+            const summary =
+                `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` — ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
             if (navigator.share) {
                 try {
-                    await navigator.share({ title: 'TraceGeo result', text: summary, url: window.location.href });
+                    await navigator.share({
+                        title: 'TraceGeo result',
+                        text: summary,
+                        url: window.location.href
+                    });
                     return;
-                } catch (e) { /* user cancelled */ }
+                } catch (e) {
+                    /* user cancelled */ }
             }
             navigator.clipboard?.writeText(summary);
             showToast('📋 Summary copied to clipboard!');
         });
 
         // ===== PHOTO ACTIONS =====
-        set('viewFullSizeBtn', () => { if (uploadedImageURL) window.open(uploadedImageURL, '_blank'); });
+        set('viewFullSizeBtn', () => {
+            if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
+        });
         set('fullscreenPhotoBtn', () => {
             const frame = DOM.photoFrame;
             if (frame?.requestFullscreen) frame.requestFullscreen();
             else if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
         });
         set('reverseSearchBtn', () => {
-            if (!uploadedImageURL) { showToast('❌ No image to search.'); return; }
-            window.open(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(uploadedImageURL)}`, '_blank');
+            if (!uploadedImageURL) {
+                showToast('❌ No image to search.');
+                return;
+            }
+            window.open(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(uploadedImageURL)}`,
+                '_blank');
         });
-        set('openOriginalBtn', () => { if (uploadedImageURL) window.open(uploadedImageURL, '_blank'); });
+        set('openOriginalBtn', () => {
+            if (uploadedImageURL) window.open(uploadedImageURL, '_blank');
+        });
     }
 
     // FIX: Street View used to get permanently stuck on Google's own
@@ -2993,11 +3129,13 @@ body {
         </div>`;
             DOM.satPane.appendChild(wrap);
             bindBack();
-            document.getElementById('streetOpenRealBtn')?.addEventListener('click', () => window.open(fullUrl, '_blank'));
+            document.getElementById('streetOpenRealBtn')?.addEventListener('click', () => window.open(fullUrl,
+                '_blank'));
             return;
         }
 
-        const embedSrc = `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
+        const embedSrc =
+            `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
 
         wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
@@ -3038,7 +3176,8 @@ body {
             </button>
         </div>`;
             bindBack();
-            document.getElementById('streetOpenRealBtn')?.addEventListener('click', () => window.open(fullUrl, '_blank'));
+            document.getElementById('streetOpenRealBtn')?.addEventListener('click', () => window.open(fullUrl,
+                '_blank'));
         };
 
         if (iframe) {
@@ -3200,23 +3339,23 @@ TraceGeo OSINT Intelligence`;
     console.log('🗺️  Flat map ↔ 3D starfield globe alternation enabled');
     console.log('⌨️  Press ESC to cancel.');
     </script>
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js')
-        .then((reg) => {
-          console.log('Service Worker registered.');
-          return navigator.serviceWorker.ready;
-        })
-        .then((reg) => {
-          if ('navigationPreload' in reg) {
-            return reg.navigationPreload.enable();
-          }
-        })
-        .catch((err) => console.log('SW registration failed: ', err));
-    });
-  }
-</script>
+    <script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js')
+                .then((reg) => {
+                    console.log('Service Worker registered.');
+                    return navigator.serviceWorker.ready;
+                })
+                .then((reg) => {
+                    if ('navigationPreload' in reg) {
+                        return reg.navigationPreload.enable();
+                    }
+                })
+                .catch((err) => console.log('SW registration failed: ', err));
+        });
+    }
+    </script>
 </body>
 
 </html>
