@@ -1557,29 +1557,19 @@ body {
     const MAX_POLL_ATTEMPTS = 120;
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // ========== STREET VIEW CONFIG ==========
+        // ========== STREET VIEW CONFIG ==========
     // Real, photographic Street View can only be embedded reliably through
-    // Google's official Maps Embed API, which needs a key (see setup notes
-    // above showStreetView() further down). Put it here, or better, render it
-    // from a Blade variable — e.g. '{{ config('services.google_maps.embed_key') }}'
-    // — so it isn't hardcoded into a public file.
-    //
-    // FIX: if this file is ever served without Blade compiling the tag above
-    // (a static export/preview, a caching bug, a misconfigured view path),
-    // GOOGLE_MAPS_EMBED_KEY_RAW ends up as the literal, non-empty string
-    // "{{) }}" — which is truthy — so the old code tried to embed
-    // Street View with a garbage key and got stuck forever on Google's own
-    // spinner. Treat an unresolved Blade tag the same as "no key configured".
-      @php
-    $embedKey = config('services.google_maps.embed_key');
-    if (!is_string($embedKey)) {
-        $embedKey = '';
-    }
-@endphp
+    // Google's official Maps Embed API, which needs a key.
+    @php
+        // Safely fetch the config, ensuring it is always a string or empty
+        $embedKey = config('services.google_maps.embed_key');
+        if (!is_string($embedKey)) {
+            $embedKey = '';
+        }
+    @endphp
 
-const GOOGLE_MAPS_EMBED_KEY_RAW = @json($embedKey);
-const GOOGLE_MAPS_EMBED_KEY = GOOGLE_MAPS_EMBED_KEY_RAW && !GOOGLE_MAPS_EMBED_KEY_RAW.includes('{{') ? GOOGLE_MAPS_EMBED_KEY_RAW : '';
-  
+    const GOOGLE_MAPS_EMBED_KEY_RAW = @json($embedKey);
+    const GOOGLE_MAPS_EMBED_KEY = GOOGLE_MAPS_EMBED_KEY_RAW && !GOOGLE_MAPS_EMBED_KEY_RAW.includes('{{') ? GOOGLE_MAPS_EMBED_KEY_RAW : '';
 
     const DARK_TILE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
     const DARK_ATTR = '&copy; <a href="https://carto.com/attributions">CARTO</a>';
