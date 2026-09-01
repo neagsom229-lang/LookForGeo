@@ -9,6 +9,7 @@ use App\Models\Landmark;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class HomeController extends Controller
 {
@@ -163,28 +164,32 @@ class HomeController extends Controller
      * Get the correct image URL for display – ALWAYS returns a full, absolute URL.
      * Priority: image_url > image_path (local) > result.image_url > null
      */
-    private function getImageUrl($analysis)
+private function getImageUrl($analysis)
 {
-    // 1. FIRST: Check the result JSON for a Cloudinary URL (most reliable)
+    // 1. Check result JSON for image_url (Cloudinary)
     $result = $this->parseResult($analysis->result);
     if (!empty($result['image_url']) && filter_var($result['image_url'], FILTER_VALIDATE_URL)) {
         return $result['image_url'];
     }
 
-    // 2. If the model has a direct image_url field (Cloudinary or full asset URL)
+    // 2. Check model's image_url (Cloudinary or full URL)
     if (!empty($analysis->image_url) && filter_var($analysis->image_url, FILTER_VALIDATE_URL)) {
         return $analysis->image_url;
     }
 
-    // 3. Fallback to image_path
+    // 3. Fallback to local image_path – but only if the file exists
     if (!empty($analysis->image_path)) {
         if (filter_var($analysis->image_path, FILTER_VALIDATE_URL)) {
             return $analysis->image_path;
         }
-        return asset('storage/' . $analysis->image_path);
+        // ✅ Only generate asset URL if the file actually exists
+        if (Storage::disk('public')->exists($analysis->image_path)) {
+            return Storage::disk('public')->url($analysis->image_path);
+        }
+        // If the file is missing, return null (front‑end can show placeholder)
     }
 
-    // 4. If everything fails, return null
+    // 4. Nothing found – return null
     return null;
 }
 

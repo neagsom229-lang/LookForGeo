@@ -58,91 +58,94 @@
         }
     }
 
-/* Hamburger Menu Icon */
-.nav-toggle {
-    display: none;
-    background: transparent;
-    border: none;
-    color: var(--text);
-    font-size: 26px;
-    cursor: pointer;
-    padding: 8px;
-}
-
-/* Mobile Menu */
-@media (max-width: 768px) {
-    .navbar {
-        padding: 12px 20px;
-        position: relative;
-        flex-wrap: wrap; /* Allows logo and toggle to sit side-by-side */
-    }
-    
+    /* Hamburger Menu Icon */
     .nav-toggle {
-        display: block; /* Shows hamburger */
-    }
-
-    .nav-links {
         display: none;
-        position: absolute;
-        top: 60px;
-        left: 0;
-        right: 0;
-        background: var(--bg);
-        flex-direction: column;
-        padding: 20px;
-        border-bottom: 1px solid var(--border);
-        z-index: 100;
-        box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+        background: transparent;
+        border: none;
+        color: var(--text);
+        font-size: 26px;
+        cursor: pointer;
+        padding: 8px;
     }
 
-    .nav-links.open {
-        display: flex; /* Opens on mobile */
-    }
+    /* Mobile Menu */
+    @media (max-width: 768px) {
+        .navbar {
+            padding: 12px 20px;
+            position: relative;
+            flex-wrap: wrap;
+            /* Allows logo and toggle to sit side-by-side */
+        }
 
-    .nav-links li {
-        width: 100%;
-        text-align: center;
-        padding: 12px 0;
-        border-bottom: 1px solid var(--border);
-    }
+        .nav-toggle {
+            display: block;
+            /* Shows hamburger */
+        }
 
-    .nav-links li:last-child {
-        border-bottom: none;
-    }
-    
-    /* Fix Full Width Section Padding for Mobile */
-.full-width-section {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px 20px;
-    position: relative;
-    z-index: 5;
-}
+        .nav-links {
+            display: none;
+            position: absolute;
+            top: 60px;
+            left: 0;
+            right: 0;
+            background: var(--bg);
+            flex-direction: column;
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            z-index: 100;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+        }
 
-    /* Fix Hero Spacing */
-    .hero {
-        padding: 32px 20px 26px;
-    }
-    
-    .upload-card {
-        padding: 20px;
-    }
-    
-    .upload-zone {
-        padding: 24px 16px;
-    }
+        .nav-links.open {
+            display: flex;
+            /* Opens on mobile */
+        }
 
-    /* Ensure buttons and inputs stack perfectly */
-    .url-row {
-        flex-direction: column;
-        gap: 10px;
+        .nav-links li {
+            width: 100%;
+            text-align: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav-links li:last-child {
+            border-bottom: none;
+        }
+
+        /* Fix Full Width Section Padding for Mobile */
+        .full-width-section {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px 20px;
+            position: relative;
+            z-index: 5;
+        }
+
+        /* Fix Hero Spacing */
+        .hero {
+            padding: 32px 20px 26px;
+        }
+
+        .upload-card {
+            padding: 20px;
+        }
+
+        .upload-zone {
+            padding: 24px 16px;
+        }
+
+        /* Ensure buttons and inputs stack perfectly */
+        .url-row {
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .url-row .analyze-btn {
+            width: 100%;
+            justify-content: center;
+        }
     }
-    
-    .url-row .analyze-btn {
-        width: 100%;
-        justify-content: center;
-    }
-}
     }
 
     html {
@@ -1450,97 +1453,117 @@
     /* ============================================
    FULL WIDTH: HOW IT WORKS
    ============================================ */
-/* ============================================
+    /* ============================================
    BASE STYLES (outside any media query)
    ============================================ */
-.full-width-section {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px 48px;   /* desktop */
-    position: relative;
-    z-index: 5;
-}
+    .full-width-section {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px 48px;
+        /* desktop */
+        position: relative;
+        z-index: 5;
+    }
 
-/* Hamburger (always visible on mobile) */
-.nav-toggle {
-    display: none;
-    background: transparent;
-    border: none;
-    color: var(--text);
-    font-size: 26px;
-    cursor: pointer;
-    padding: 8px;
-}
+    /* Hamburger (always visible on mobile) */
+    .nav-toggle {
+        display: none;
+        background: transparent;
+        border: none;
+        color: var(--text);
+        font-size: 26px;
+        cursor: pointer;
+        padding: 8px;
+    }
 
-/* ============================================
+    /* ============================================
    MOBILE MEDIA QUERY (max-width: 768px)
    ============================================ */
-@media (max-width: 768px) {
-    .navbar {
-        padding: 12px 20px;
-        position: relative;
-        flex-wrap: wrap;
+    @media (max-width: 768px) {
+        .navbar {
+            padding: 12px 20px;
+            position: relative;
+            flex-wrap: wrap;
+        }
+
+        .nav-toggle {
+            display: block;
+            /* shows hamburger */
+        }
+
+        .nav-links {
+            display: none;
+            position: absolute;
+            top: 60px;
+            left: 0;
+            right: 0;
+            background: var(--bg);
+            flex-direction: column;
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            z-index: 100;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .nav-links.open {
+            display: flex;
+        }
+
+        .nav-links li {
+            width: 100%;
+            text-align: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav-links li:last-child {
+            border-bottom: none;
+        }
+
+        /* ✅ Fix Full Width Section Padding for Mobile */
+        .full-width-section {
+            padding: 20px 20px;
+            /* ← CORRECTED */
+        }
+
+        /* other mobile adjustments (hero, upload, etc.) */
+        .hero {
+            padding: 32px 20px 26px;
+        }
+
+        .upload-card {
+            padding: 20px;
+        }
+
+        .upload-zone {
+            padding: 24px 16px;
+        }
+
+        .url-row {
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .url-row .analyze-btn {
+            width: 100%;
+            justify-content: center;
+        }
     }
 
-    .nav-toggle {
-        display: block;   /* shows hamburger */
-    }
-
-    .nav-links {
-        display: none;
-        position: absolute;
-        top: 60px;
-        left: 0;
-        right: 0;
-        background: var(--bg);
-        flex-direction: column;
-        padding: 20px;
-        border-bottom: 1px solid var(--border);
-        z-index: 100;
-        box-shadow: 0 10px 20px rgba(0,0,0,0.5);
-    }
-
-    .nav-links.open {
-        display: flex;
-    }
-
-    .nav-links li {
-        width: 100%;
-        text-align: center;
-        padding: 12px 0;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .nav-links li:last-child {
-        border-bottom: none;
-    }
-
-    /* ✅ Fix Full Width Section Padding for Mobile */
-    .full-width-section {
-        padding: 20px 20px;   /* ← CORRECTED */
-    }
-
-    /* other mobile adjustments (hero, upload, etc.) */
-    .hero { padding: 32px 20px 26px; }
-    .upload-card { padding: 20px; }
-    .upload-zone { padding: 24px 16px; }
-    .url-row { flex-direction: column; gap: 10px; }
-    .url-row .analyze-btn { width: 100%; justify-content: center; }
-}
-
-/* ============================================
+    /* ============================================
    REDUCED MOTION (keep separate)
    ============================================ */
-@media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-        animation-duration: 0.001ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.001ms !important;
-        scroll-behavior: auto !important;
+    @media (prefers-reduced-motion: reduce) {
+
+        *,
+        *::before,
+        *::after {
+            animation-duration: 0.001ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.001ms !important;
+            scroll-behavior: auto !important;
+        }
     }
-}
     </style>
 </head>
 
@@ -1556,41 +1579,41 @@
     </div>
 
     <!-- NAVBAR -->
-<nav class="navbar">
-    <a href="/" class="logo">
-        <span class="icon">T</span>
-        TraceGeo
-    </a>
-
-    <!-- Hamburger Menu Button (Shows on Mobile) -->
-    <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
-        <i class="fas fa-bars"></i>
-    </button>
-
-    <ul class="nav-links" id="navLinks">
-        <li><a href="/docs">Docs</a></li>
-        <li><a href="#how-it-works">How it works</a></li>
-        <li><a href="/history">History</a></li>
-    </ul>
-
-    <div class="nav-actions">
-        @auth
-        <div class="nav-user">
-            <span class="user-name">
-                <i class="fas fa-user"></i> {{ Auth::user()->name }}
-            </span>
-            <button class="btn btn-ghost btn-small" id="logoutBtn">
-                <i class="fas fa-sign-out-alt"></i> Logout
-            </button>
-        </div>
-        @else
-        <a href="/login" class="btn btn-ghost">Sign in</a>
-        <a href="/register" class="btn btn-primary">
-            <i class="fas fa-location-crosshairs"></i> Start Analysis
+    <nav class="navbar">
+        <a href="/" class="logo">
+            <span class="icon">T</span>
+            TraceGeo
         </a>
-        @endauth
-    </div>
-</nav>
+
+        <!-- Hamburger Menu Button (Shows on Mobile) -->
+        <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+            <i class="fas fa-bars"></i>
+        </button>
+
+        <ul class="nav-links" id="navLinks">
+            <li><a href="/docs">Docs</a></li>
+            <li><a href="#how-it-works">How it works</a></li>
+            <li><a href="/history">History</a></li>
+        </ul>
+
+        <div class="nav-actions">
+            @auth
+            <div class="nav-user">
+                <span class="user-name">
+                    <i class="fas fa-user"></i> {{ Auth::user()->name }}
+                </span>
+                <button class="btn btn-ghost btn-small" id="logoutBtn">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
+            </div>
+            @else
+            <a href="/login" class="btn btn-ghost">Sign in</a>
+            <a href="/register" class="btn btn-primary">
+                <i class="fas fa-location-crosshairs"></i> Start Analysis
+            </a>
+            @endauth
+        </div>
+    </nav>
 
     <!-- HERO -->
     <section class="hero">
@@ -1785,21 +1808,21 @@
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        // ============================================
+    // ============================================
     // MOBILE NAVBAR TOGGLE
     // ============================================
     const navToggle = document.getElementById('navToggle');
     const navLinks = document.getElementById('navLinks');
-    
+
     if (navToggle && navLinks) {
         navToggle.addEventListener('click', () => {
             navLinks.classList.toggle('open');
             // Switch icon between bars and X
-            navToggle.innerHTML = navLinks.classList.contains('open') 
-                ? '<i class="fas fa-times"></i>' 
-                : '<i class="fas fa-bars"></i>';
+            navToggle.innerHTML = navLinks.classList.contains('open') ?
+                '<i class="fas fa-times"></i>' :
+                '<i class="fas fa-bars"></i>';
         });
-        
+
         // Close menu when a link is clicked
         navLinks.querySelectorAll('a').forEach(link => {
             link.addEventListener('click', () => {
@@ -2290,13 +2313,7 @@
                 if (recentGrid) {
                     if (data.recent && data.recent.length > 0) {
                         recentGrid.innerHTML = data.recent.map(item => {
-                            let imageUrl = item.image_url;
-                            if (!imageUrl && item.image_path) {
-                                imageUrl = (item.image_path.startsWith('http://') || item.image_path
-                                        .startsWith('https://')) ?
-                                    item.image_path :
-                                    '/storage/' + item.image_path;
-                            }
+                            let imageUrl = item.image_url; // Already a full URL or null – use it as-is
 
                             const landmark = escapeHtml(item.landmark_name || 'Unknown');
                             const city = escapeHtml(item.city || '');
