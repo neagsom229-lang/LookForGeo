@@ -2842,9 +2842,8 @@ body {
             }
         };
 
-        // ===== AUTO-SWITCH FROM 3D GLOBE TO MAP =====
-        // (This triggers when the user zooms in too close on the globe)
-        window.switchFromGlobeToMap = (targetLat, targetLng) => {
+         // ===== AUTO-SWITCH FROM 3D GLOBE TO MAP =====
+         window.switchFromGlobeToMap = (targetLat, targetLng) => {
             removeStreetView();
             stopResultGlobeAnim();
             if (DOM.resultGlobeCanvas) DOM.resultGlobeCanvas.classList.remove('active');
@@ -2853,10 +2852,12 @@ body {
 
             // Set map to specific target and zoom in
             if (resultMapInstance) {
-                resultMapInstance.setView([targetLat, targetLng], 15); // Zoom level 15 (Street level)
+                resultMapInstance.setView([targetLat, targetLng], 15); // Zoom level 15
+                // ✅ FIX: Add this to ensure map resizes perfectly!
+                setTimeout(() => resultMapInstance.invalidateSize(), 200);
             }
 
-            // Update buttons to look like "Terrain" is selected
+            // Update buttons
             if (globeBtn) globeBtn.classList.remove('active');
             if (streetBtn) streetBtn.classList.remove('active');
             if (roadsBtn) roadsBtn.classList.remove('active');
