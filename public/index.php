@@ -1,5 +1,8 @@
 <?php
 
+// Set Content-Security-Policy header before any output
+header("Content-Security-Policy: script-src 'self' https://cdnjs.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src * data:;");
+
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 
