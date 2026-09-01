@@ -1,31 +1,41 @@
 const CACHE_NAME = 'tracegeo-v1';
-const STATIC_ASSETS = ['/', '/favicon.ico']; // Add other static files if needed
 
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.filter((cacheName) => cacheName !== CACHE_NAME).map((cacheName) => caches.delete(cacheName))
+    (async () => {
+      // ✅ Enable navigation preload (fixes the warning)
+      if (self.registration?.navigationPreload) {
+        await self.registration.navigationPreload.enable();
+      }
+
+      // Clean old caches
+      const cacheNames = await caches.keys();
+      await Promise.all(
+        cacheNames
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
       );
-    })
+
+      // Claim clients so the SW takes control immediately
+      await self.clients.claim();
+    })()
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // 1. IMPORTANT: Ignore non-http(s) requests (e.g., chrome-extension://)
+  // 1. Ignore non-http(s) requests (e.g., chrome-extension://)
   if (!request.url.startsWith('http')) return;
 
-  // 2. Bypass for non-GET requests (POST uploads, etc.)
+  // 2. Bypass non-GET requests
   if (request.method !== 'GET') return;
 
-  // 3. Bypass for dynamic API calls, uploads, and Cloudinary
+  // 3. Bypass API, storage, Cloudinary
   const url = new URL(request.url);
   if (
     url.pathname.startsWith('/api/') ||
@@ -33,34 +43,35 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/uploads/') ||
     url.hostname.includes('res.cloudinary.com')
   ) {
-    return; // Let the browser hit the network directly. NEVER cache these!
+    return; // never cache these
   }
 
-  // 4. Handle navigations (HTML pages) with Network First + Preload
+  // 4. Navigation requests: Network first with preload
   if (request.mode === 'navigate') {
-    event.respondWith((async () => {
-      try {
-        // Wait for the preload response to settle (fixes the warning!)
-        const preloadResponse = await event.preloadResponse;
-        if (preloadResponse) return preloadResponse;
+    event.respondWith(
+      (async () => {
+        try {
+          // Use the preloaded response if available
+          const preloadResponse = await event.preloadResponse;
+          if (preloadResponse) return preloadResponse;
 
-        // Network first, fallback to cache for offline
-        const networkResponse = await fetch(request);
-        return networkResponse;
-      } catch (error) {
-        const cache = await caches.match(request);
-        return cache || new Response('Offline', { status: 503 });
-      }
-    })());
+          // Fallback to network
+          return await fetch(request);
+        } catch (error) {
+          // Offline fallback
+          const cached = await caches.match(request);
+          return cached || new Response('Offline', { status: 503 });
+        }
+      })()
+    );
     return;
   }
 
-  // 5. Static assets (JS, CSS, Fonts, Images): Cache First, falling back to network
+  // 5. Static assets: Cache first, fallback to network
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {
-        // Cache successful responses
         if (response.ok) {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
