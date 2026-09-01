@@ -19,10 +19,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // 1. CRITICAL: Bypass for non-GET requests (POST uploads, etc.)
+  // 1. IMPORTANT: Ignore non-http(s) requests (e.g., chrome-extension://)
+  if (!request.url.startsWith('http')) return;
+
+  // 2. Bypass for non-GET requests (POST uploads, etc.)
   if (request.method !== 'GET') return;
 
-  // 2. CRITICAL: Bypass for dynamic API calls, uploads, and Cloudinary
+  // 3. Bypass for dynamic API calls, uploads, and Cloudinary
   const url = new URL(request.url);
   if (
     url.pathname.startsWith('/api/') ||
@@ -33,7 +36,7 @@ self.addEventListener('fetch', (event) => {
     return; // Let the browser hit the network directly. NEVER cache these!
   }
 
-  // 3. Handle navigations (HTML pages) with Network First + Preload (Fixes your warning)
+  // 4. Handle navigations (HTML pages) with Network First + Preload
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
@@ -52,7 +55,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 4. Static assets (JS, CSS, Fonts, Images): Cache First, falling back to network
+  // 5. Static assets (JS, CSS, Fonts, Images): Cache First, falling back to network
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
