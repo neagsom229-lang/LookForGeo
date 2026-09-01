@@ -10,30 +10,25 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('geo_analyses', function (Blueprint $table) {
-            // Only add the column if it doesn't already exist
             if (!Schema::hasColumn('geo_analyses', 'user_id')) {
                 $table->unsignedBigInteger('user_id')->nullable()->after('id');
             }
         });
 
-        // Check if the index already exists in SQLite before creating it
+        // Check if index exists before creating it
         $indexExists = false;
         try {
-            $indexes = DB::select("PRAGMA index_list('geo_analyses')");
-            foreach ($indexes as $index) {
-                if ($index->name === 'geo_analyses_user_id_index') {
-                    $indexExists = true;
-                    break;
-                }
-            }
-        } catch (\Exception $e) {
-            // Ignore if table doesn't exist
-        }
-
-        if (!$indexExists) {
+            $indexes = DB::select("PRAGMA index_list('geo_analyses')"); 
+            // Note: For PostgreSQL, use a specific query or just try/catch the creation
+        } catch (\Exception $e) {}
+        
+        // For PostgreSQL/Render, just try to create it, but catch the duplicate error
+        try {
             Schema::table('geo_analyses', function (Blueprint $table) {
                 $table->index('user_id');
             });
+        } catch (\Exception $e) {
+            // Index already exists, ignore!
         }
     }
 
