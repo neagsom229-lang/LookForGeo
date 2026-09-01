@@ -32,6 +32,7 @@ Route::view('/docs', 'docs');
 Route::get('/', [HomeController::class, 'index'])->name('home');
 Route::view('/how-it-works',     'how-it-works');
 
+
 // ============================================
 // PROTECTED ROUTES (Requires Login)
 // ============================================
