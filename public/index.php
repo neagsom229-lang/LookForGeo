@@ -1,5 +1,11 @@
 <?php
 
+// Remove any previous CSP header (from Apache or Laravel defaults)
+header_remove('Content-Security-Policy');
+
+// Set the new, permissive CSP header
+header("Content-Security-Policy: script-src 'self' https://cdnjs.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src * data:;");
+
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 
