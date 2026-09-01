@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Storage;
 
 class AnalysisApiController extends Controller
 {
-    // 1. Health Check Endpoint
     public function health()
     {
         return response()->json([
@@ -20,7 +19,6 @@ class AnalysisApiController extends Controller
         ]);
     }
 
-    // 2. History Endpoint (GET)
     public function history(Request $request)
     {
         $analyses = GeoAnalysis::where('user_id', $request->user()->id)
@@ -31,10 +29,13 @@ class AnalysisApiController extends Controller
         return response()->json([
             'success' => true,
             'data' => $analyses->map(function ($analysis) {
-                // ✅ FIX: Decode result if it's a JSON string
                 $result = is_string($analysis->result) 
                     ? json_decode($analysis->result, true) 
                     : $analysis->result;
+
+                // Use image_url if available, else generate from image_path
+                $imageUrl = $analysis->image_url ?? 
+                    ($analysis->image_path ? Storage::disk('public')->url($analysis->image_path) : null);
 
                 return [
                     'id' => $analysis->id,
@@ -44,7 +45,7 @@ class AnalysisApiController extends Controller
                         'lng' => $result['longitude'] ?? null,
                     ],
                     'confidence' => $result['confidence'] ?? 0,
-                    'image' => $analysis->image_url ?? asset('storage/' . $analysis->image_path),
+                    'image' => $imageUrl,
                     'created_at' => $analysis->created_at,
                 ];
             }),
@@ -55,17 +56,36 @@ class AnalysisApiController extends Controller
         ]);
     }
 
-    // 3. Analyze Endpoint (POST)
     public function analyze(Request $request)
     {
         $request->validate([
             'image' => 'required|file|mimes:jpeg,png,jpg,gif,webp|max:20480'
         ]);
 
-        // Dispatch to your existing job
         $file = $request->file('image');
-        $path = $file->store('uploads/analyses', 'public');
-        $imageUrl = asset('storage/' . $path);
+        
+        // ✅ Wrap storage operation in try-catch to handle errors gracefully
+        try {
+            $path = $file->store('uploads/analyses', 'public');
+        } catch (\Exception $e) {
+            \Log::error('File upload failed: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to store the uploaded image. Please try again.'
+            ], 500);
+        }
+
+        // Verify the file was actually stored
+        if (!$path || !Storage::disk('public')->exists($path)) {
+            \Log::error('File storage verification failed: path not found', ['path' => $path]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Image was not stored successfully. Please try again.'
+            ], 500);
+        }
+
+        // Generate URL using Storage facade (respects public disk config)
+        $imageUrl = Storage::disk('public')->url($path);
         $fullPath = Storage::disk('public')->path($path);
 
         $analysis = GeoAnalysis::create([
@@ -79,10 +99,14 @@ class AnalysisApiController extends Controller
 
         \App\Jobs\AnalyzeImageJob::dispatch($analysis->id, $fullPath, $file->getClientOriginalName());
 
+        // ✅ Return the same key expected by front-end: 'id'
         return response()->json([
             'success' => true,
             'message' => 'Analysis started. Poll this ID to get results.',
-            'analysis_id' => $analysis->id
+            'id' => $analysis->id,
+            'data' => [
+                'image_url' => $imageUrl,
+            ]
         ], 202);
     }
 }
