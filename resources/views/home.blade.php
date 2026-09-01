@@ -56,9 +56,7 @@
             transition-duration: 0.001ms !important;
             scroll-behavior: auto !important;
         }
-        /* ============================================
-   PROFESSIONAL MOBILE NAVBAR & RESPONSIVENESS
-   ============================================ */
+    }
 
 /* Hamburger Menu Icon */
 .nav-toggle {
@@ -116,7 +114,7 @@
 .full-width-section {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 20px 48px; /* Desktop padding */
+    padding: 20px 20px;
     position: relative;
     z-index: 5;
 }
@@ -1452,15 +1450,97 @@
     /* ============================================
    FULL WIDTH: HOW IT WORKS
    ============================================ */
-    .full-width-section {
-        max-width: 1200px;
-        /* Matches your hero and content sections */
-        margin: 0 auto;
-        padding: 20px 48px;
-        /* Matches your other sections */
+/* ============================================
+   BASE STYLES (outside any media query)
+   ============================================ */
+.full-width-section {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px 48px;   /* desktop */
+    position: relative;
+    z-index: 5;
+}
+
+/* Hamburger (always visible on mobile) */
+.nav-toggle {
+    display: none;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 26px;
+    cursor: pointer;
+    padding: 8px;
+}
+
+/* ============================================
+   MOBILE MEDIA QUERY (max-width: 768px)
+   ============================================ */
+@media (max-width: 768px) {
+    .navbar {
+        padding: 12px 20px;
         position: relative;
-        z-index: 5;
+        flex-wrap: wrap;
     }
+
+    .nav-toggle {
+        display: block;   /* shows hamburger */
+    }
+
+    .nav-links {
+        display: none;
+        position: absolute;
+        top: 60px;
+        left: 0;
+        right: 0;
+        background: var(--bg);
+        flex-direction: column;
+        padding: 20px;
+        border-bottom: 1px solid var(--border);
+        z-index: 100;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+    }
+
+    .nav-links.open {
+        display: flex;
+    }
+
+    .nav-links li {
+        width: 100%;
+        text-align: center;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .nav-links li:last-child {
+        border-bottom: none;
+    }
+
+    /* ✅ Fix Full Width Section Padding for Mobile */
+    .full-width-section {
+        padding: 20px 20px;   /* ← CORRECTED */
+    }
+
+    /* other mobile adjustments (hero, upload, etc.) */
+    .hero { padding: 32px 20px 26px; }
+    .upload-card { padding: 20px; }
+    .upload-zone { padding: 24px 16px; }
+    .url-row { flex-direction: column; gap: 10px; }
+    .url-row .analyze-btn { width: 100%; justify-content: center; }
+}
+
+/* ============================================
+   REDUCED MOTION (keep separate)
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+}
     </style>
 </head>
 
