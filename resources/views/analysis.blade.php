@@ -1570,10 +1570,16 @@ body {
     // "{{ config(...) }}" — which is truthy — so the old code tried to embed
     // Street View with a garbage key and got stuck forever on Google's own
     // spinner. Treat an unresolved Blade tag the same as "no key configured".
-    const GOOGLE_MAPS_EMBED_KEY_RAW = '{{ config("services.google_maps.embed_key") }}';
-    const GOOGLE_MAPS_EMBED_KEY = GOOGLE_MAPS_EMBED_KEY_RAW && !GOOGLE_MAPS_EMBED_KEY_RAW.includes('{{')
-        ? GOOGLE_MAPS_EMBED_KEY_RAW
-        : '';
+    @php
+    // Safely fetch the config, ensuring it is always a string or empty
+    $embedKey = config('services.google_maps.embed_key');
+    if (!is_string($embedKey)) {
+        $embedKey = '';
+    }
+@endphp
+
+const GOOGLE_MAPS_EMBED_KEY_RAW = @json($embedKey);
+const GOOGLE_MAPS_EMBED_KEY = GOOGLE_MAPS_EMBED_KEY_RAW && !GOOGLE_MAPS_EMBED_KEY_RAW.includes('{{') ? GOOGLE_MAPS_EMBED_KEY_RAW : '';
 
     const DARK_TILE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
     const DARK_ATTR = '&copy; <a href="https://carto.com/attributions">CARTO</a>';
