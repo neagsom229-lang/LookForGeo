@@ -28,6 +28,8 @@ RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 # Enable Apache mod_rewrite and mod_headers
 RUN a2enmod rewrite headers
 
+RUN a2enmod headers
+
 # Configure Apache to serve from /public
 RUN sed -i 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
