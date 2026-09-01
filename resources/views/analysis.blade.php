@@ -2264,29 +2264,23 @@ body {
             resultGlobeMarkerMesh = null;
         }
         
-        // Create a glowing 3D goal pin (Cone pointing down + Sphere tip)
+        // Create a glowing 3D goal pin
         const group = new THREE.Group();
-        
-        // The Pin Shaft (Cone pointing down)
         const coneGeo = new THREE.ConeGeometry(0.025, 0.08, 16);
         const coneMat = new THREE.MeshBasicMaterial({ color: 0x2dd4bf });
         const cone = new THREE.Mesh(coneGeo, coneMat);
-        cone.rotation.x = Math.PI; // Point down
+        cone.rotation.x = Math.PI;
         cone.position.y = 0.04; 
         group.add(cone);
         
-        // The Glowing Tip (Sphere)
         const sphereGeo = new THREE.SphereGeometry(0.02, 16, 16);
         const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
         const sphere = new THREE.Mesh(sphereGeo, sphereMat);
         sphere.position.y = 0.02;
         group.add(sphere);
         
-        // Set the pin on the surface
         const pos = latLngToVector3(lat, lng, 1.02);
         group.position.copy(pos);
-        
-        // Orient the pin to face outward
         group.lookAt(new THREE.Vector3(0, 0, 0));
         
         resultGlobeMarkerMesh = group;
@@ -2297,18 +2291,28 @@ body {
         const { renderer, scene, camera, resize, controls } = resultEarthScene;
         const label = document.getElementById('resultGlobeLabel');
         
+        // ===== ZOOM TO MAP THRESHOLD =====
+        // Adjust this number to set how close you want to zoom before switching
+        const ZOOM_TO_MAP_THRESHOLD = 2.3; 
+        let hasTriggered = false;
+
+        // Listen for when the user stops interacting (zoom/rotate/pan)
+        controls.addEventListener('end', () => {
+            if (!hasTriggered && controls.getDistance() < ZOOM_TO_MAP_THRESHOLD) {
+                hasTriggered = true;
+                
+                // Trigger the 2D Map and center on the exact goal location
+                switchFromGlobeToMap(lat, lng);
+            }
+        });
+        // =================================
+
         function updateLabel() {
             if (!label || !resultGlobeMarkerMesh) return;
-            
-            // Get the marker's 3D position and project it to 2D screen space
             const vector = resultGlobeMarkerMesh.position.clone();
             vector.project(camera);
-            
-            // Convert to pixels
             const x = (vector.x * 0.5 + 0.5) * DOM.resultGlobeCanvas.clientWidth;
             const y = (-vector.y * 0.5 + 0.5) * DOM.resultGlobeCanvas.clientHeight;
-            
-            // Update label position
             label.style.left = x + 'px';
             label.style.top = y + 'px';
             label.style.display = 'block';
@@ -2317,8 +2321,8 @@ body {
 
         function frame() {
             resize();
-            controls.update(); // Update controls for smooth pan/zoom
-            updateLabel();     // Update the label position
+            controls.update();
+            updateLabel();
             renderer.render(scene, camera);
             resultEarthAnimId = requestAnimationFrame(frame);
         }
@@ -2811,12 +2815,12 @@ body {
         };
 
         // ===== SET TILE (Roads / Terrain) =====
+        // ===== SET TILE (Roads / Terrain) =====
         const setTile = (mode) => {
             currentTileMode = mode;
             if (roadsBtn) roadsBtn.classList.toggle('active', mode === 'roads');
             if (terrainBtn) terrainBtn.classList.toggle('active', mode === 'terrain');
 
-            // Hide 3D Globe and Street View when switching to map
             removeStreetView();
             stopResultGlobeAnim();
             if (DOM.resultGlobeCanvas) DOM.resultGlobeCanvas.classList.remove('active');
@@ -2836,6 +2840,29 @@ body {
                 }).addTo(resultMapInstance);
                 setTimeout(() => resultMapInstance.invalidateSize(), 200);
             }
+        };
+
+        // ===== AUTO-SWITCH FROM 3D GLOBE TO MAP =====
+        // (This triggers when the user zooms in too close on the globe)
+        window.switchFromGlobeToMap = (targetLat, targetLng) => {
+            removeStreetView();
+            stopResultGlobeAnim();
+            if (DOM.resultGlobeCanvas) DOM.resultGlobeCanvas.classList.remove('active');
+            const resultMapDiv = document.getElementById('resultMap');
+            if (resultMapDiv) resultMapDiv.style.display = 'block';
+
+            // Set map to specific target and zoom in
+            if (resultMapInstance) {
+                resultMapInstance.setView([targetLat, targetLng], 15); // Zoom level 15 (Street level)
+            }
+
+            // Update buttons to look like "Terrain" is selected
+            if (globeBtn) globeBtn.classList.remove('active');
+            if (streetBtn) streetBtn.classList.remove('active');
+            if (roadsBtn) roadsBtn.classList.remove('active');
+            if (terrainBtn) terrainBtn.classList.add('active');
+
+            showToast('🗺️ Zoomed to precise location!');
         };
 
         // ===== STRICT MODE SWITCHING =====
