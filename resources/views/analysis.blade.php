@@ -1571,7 +1571,6 @@ body {
     // Street View with a garbage key and got stuck forever on Google's own
     // spinner. Treat an unresolved Blade tag the same as "no key configured".
     @php
-    // Safely fetch the config, ensuring it is always a string or empty
     $embedKey = config('services.google_maps.embed_key');
     if (!is_string($embedKey)) {
         $embedKey = '';
