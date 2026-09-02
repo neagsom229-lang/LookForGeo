@@ -1,5 +1,3 @@
-// app/Http/Controllers/PhotoGeolocationController.php
-
 <?php
 
 namespace App\Http\Controllers;
