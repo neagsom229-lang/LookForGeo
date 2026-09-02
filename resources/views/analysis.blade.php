@@ -1598,8 +1598,8 @@
     // ============================================================
 
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const POLL_INTERVAL_MS = 700;
-    const MAX_POLL_ATTEMPTS = 120;
+    const POLL_INTERVAL_MS = 1000;   // 1 second
+const MAX_POLL_ATTEMPTS = 300;   // 300 seconds = 5 minutes
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // ========== STREET VIEW CONFIG ==========
@@ -2448,7 +2448,7 @@
     // ========== EXPLORATION SEQUENCE ==========
     async function runExplorationSequence(waypoints) {
         while (!analysisComplete) {
-            randomWaypoints = shuffleArray(waypoints).slice(0, 12);
+            randomWaypoints = shuffleArray(waypoints).slice(0, 8);
             totalWaypoints = randomWaypoints.length;
 
             for (let i = 0; i < totalWaypoints; i++) {
