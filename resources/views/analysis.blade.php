@@ -2448,7 +2448,7 @@ const MAX_POLL_ATTEMPTS = 300;   // 300 seconds = 5 minutes
     // ========== EXPLORATION SEQUENCE ==========
     async function runExplorationSequence(waypoints) {
         while (!analysisComplete) {
-            randomWaypoints = shuffleArray(waypoints).slice(0, 8);
+            randomWaypoints = shuffleArray(waypoints).slice(0, 6);
             totalWaypoints = randomWaypoints.length;
 
             for (let i = 0; i < totalWaypoints; i++) {
