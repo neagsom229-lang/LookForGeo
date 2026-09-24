@@ -1,9 +1,6 @@
 #!/usr/bin/env php
 <?php
 
-use Illuminate\Foundation\Application;
-use Symfony\Component\Console\Input\ArgvInput;
-
 define('LARAVEL_START', microtime(true));
 
 // Determine if the application is in maintenance mode...
@@ -15,7 +12,7 @@ if (file_exists($maintenance = __DIR__.'/storage/framework/maintenance.php')) {
 require __DIR__.'/vendor/autoload.php';
 
 // Bootstrap Laravel and handle the request...
-/** @var Application $app */
 $app = require_once __DIR__.'/bootstrap/app.php';
 
-$app->handleCommand(new ArgvInput);
+$argvInputClass = 'Symfony\\Component\\Console\\Input\\ArgvInput';
+$app->handleCommand(new $argvInputClass());

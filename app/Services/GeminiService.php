@@ -72,31 +72,29 @@ class GeminiService
     /**
      * PRIMARY + FALLBACK MODEL (with retries, sharing one time budget)
      */
-    private function analyzeImageWithFallback($imageData, $prompt)
-    {
-        // One deadline shared across primary and fallback attempts, rather
-        // than each getting its own independent retry budget — that's
-        // what let the original version's worst case run into minutes.
-        $deadline = microtime(true) + $this->maxTotalTimeSeconds;
 
-        $result = $this->sendGeminiRequestWithRetry($this->primaryModel, $imageData, $prompt, $deadline);
-        if (!isset($result['error'])) {
-            return $result;
-        }
-
-        if ($result['error'] === 'api_key_missing') {
-            return $result;
-        }
-
-        if (microtime(true) >= $deadline) {
-            Log::warning('Time budget exhausted before fallback attempt', ['primary_error' => $result['message']]);
-            return $result;
-        }
-
-        Log::warning('Primary model failed, using fallback', ['error' => $result['message']]);
-
-        return $this->sendGeminiRequestWithRetry($this->fallbackModel, $imageData, $prompt, $deadline);
+private function analyzeImageWithFallback($imageData, $prompt)
+{
+    $deadline = microtime(true) + $this->maxTotalTimeSeconds;
+ 
+    $result = $this->sendGeminiRequestWithRetry($this->primaryModel, $imageData, $prompt, $deadline);
+    if (!isset($result['error'])) {
+        return $result;
     }
+ 
+    if ($result['error'] === 'api_key_missing') {
+        return $result;
+    }
+ 
+    if (microtime(true) >= $deadline) {
+        Log::warning('Time budget exhausted before fallback attempt', ['primary_error' => $result['message']]);
+        return $result;
+    }
+ 
+    Log::warning('Primary model failed, using fallback', ['error' => $result['message']]);
+ 
+    return $this->sendGeminiRequestWithRetry($this->fallbackModel, $imageData, $prompt, $deadline);
+}
 
     /**
      * SEND REQUEST WITH RETRY LOGIC
@@ -109,19 +107,35 @@ class GeminiService
      * this backoff window covers, so retrying just burns more of the
      * shared time budget for no benefit.
      */
-    private function sendGeminiRequestWithRetry($model, $imageData, $prompt)
+private function sendGeminiRequestWithRetry($model, $imageData, $prompt, $deadline)
 {
     $retries = $this->maxRetries;
-    $backoff = 1000000;
-
+    $backoff = 1000000; // microseconds
+ 
     for ($attempt = 1; $attempt <= $retries + 1; $attempt++) {
+        $remaining = $deadline - microtime(true);
+ 
+        // No time left at all — don't even try, just report the budget
+        // as exhausted so the caller can decide (skip fallback, etc.)
+        if ($remaining <= 0) {
+            Log::warning("Gemini time budget exhausted before attempt $attempt for {$model}");
+            return ['error' => 'time_budget_exhausted', 'message' => 'Ran out of time budget before request could be made'];
+        }
+ 
+        // Cap this request's own timeout to whatever time is actually
+        // left, so a single slow attempt can never blow past the shared
+        // deadline (and, transitively, can never approach the job's
+        // own 180s queue timeout).
+        $requestTimeout = (int) max(1, min($this->requestTimeout, floor($remaining)));
+ 
         try {
-            $result = $this->sendSingleGeminiRequest($model, $imageData, $prompt);
-
-            // If the error is retryable (timeout, connection, 503, 429, server_error)
+            $result = $this->sendSingleGeminiRequest($model, $imageData, $prompt, $requestTimeout);
+ 
             $retryableErrors = ['timeout', 'connection_error', 'service_unavailable', 'quota_exceeded', 'server_error'];
             if (isset($result['error']) && in_array($result['error'], $retryableErrors)) {
-                if ($attempt <= $retries) {
+                $timeLeftAfterThisAttempt = $deadline - microtime(true);
+ 
+                if ($attempt <= $retries && $timeLeftAfterThisAttempt > ($backoff / 1000000)) {
                     Log::warning("Gemini request attempt $attempt failed, retrying in " . ($backoff / 1000000) . 's', [
                         'error' => $result['message']
                     ]);
@@ -129,14 +143,15 @@ class GeminiService
                     $backoff *= 2;
                     continue;
                 }
-                return $result; // no retries left
+                return $result; // no retries left, or not enough time budget for another
             }
-
-            // Non-retryable error or success
+ 
             return $result;
-
+ 
         } catch (\Exception $e) {
-            if ($attempt <= $retries) {
+            $timeLeftAfterThisAttempt = $deadline - microtime(true);
+ 
+            if ($attempt <= $retries && $timeLeftAfterThisAttempt > ($backoff / 1000000)) {
                 Log::warning("Gemini request attempt $attempt threw exception, retrying in " . ($backoff / 1000000) . 's', [
                     'exception' => $e->getMessage()
                 ]);
@@ -148,23 +163,25 @@ class GeminiService
             return ['error' => 'request_exception', 'message' => $e->getMessage()];
         }
     }
-
+ 
     return ['error' => 'unknown', 'message' => 'Request failed after all retries'];
 }
 
     /**
      * SEND A SINGLE REQUEST TO GEMINI (no retry logic — that lives in the caller)
      */
-    private function sendSingleGeminiRequest($model, $imageData, $prompt)
+private function sendSingleGeminiRequest($model, $imageData, $prompt, ?int $timeoutSeconds = null)
 {
     if (empty($this->apiKey)) {
         return ['error' => 'api_key_missing', 'message' => 'Gemini API key not configured'];
     }
-
+ 
+    $timeoutSeconds = $timeoutSeconds ?? $this->requestTimeout;
+ 
     $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$this->apiKey}";
-
+ 
     $compressedImage = $this->compressImageIfNeeded($imageData);
-
+ 
     $payload = [
         'contents' => [
             [
@@ -186,43 +203,45 @@ class GeminiService
             'topK' => 40,
         ],
     ];
-
+ 
     try {
-        $response = Http::timeout($this->requestTimeout)->post($url, $payload);
-
-        // ✅ Retry on quota or server errors
+        // connectTimeout added explicitly: without it, a hung TCP
+        // handshake could still stall past the intended budget on some
+        // network conditions even though the read timeout is capped.
+        $response = Http::timeout($timeoutSeconds)->connectTimeout(min(10, $timeoutSeconds))->post($url, $payload);
+ 
         if ($response->status() === 429) {
             return ['error' => 'quota_exceeded', 'message' => 'API quota exceeded. Try again later.'];
         }
-
+ 
         if ($response->status() === 503) {
             return ['error' => 'service_unavailable', 'message' => 'Gemini service temporarily unavailable (503)'];
         }
-
+ 
         if ($response->status() >= 500) {
             return ['error' => 'server_error', 'message' => 'Gemini server error: ' . $response->status()];
         }
-
+ 
         if (!$response->successful()) {
             Log::error("Gemini API error (status {$response->status()}): " . $response->body());
             return ['error' => 'api_error', 'message' => "HTTP {$response->status()}"];
         }
-
+ 
         $data = $response->json();
         $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
-
+ 
         if (empty($text)) {
             return ['error' => 'empty_response', 'message' => 'Model returned no text content'];
         }
-
+ 
         $text = $this->cleanText($text);
         $parsed = $this->parseAIResponse($text);
         if (!$parsed) {
             return ['error' => 'parse_error', 'message' => 'Could not parse AI response.'];
         }
-
+ 
         return $this->cleanArray($parsed);
-
+ 
     } catch (\Illuminate\Http\Client\ConnectionException $e) {
         return ['error' => 'timeout', 'message' => $e->getMessage()];
     } catch (\Exception $e) {
