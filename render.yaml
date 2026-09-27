@@ -12,7 +12,7 @@ services:
       - key: APP_URL
         value: https://lookforgeo.onrender.com
       - key: DATABASE_URL
-        value: postgresql://lookforgeo_db_user:6ZIAtzeEtNk0T0bevY4DPCvb6OS8B1OE@dpg-da3h4ogu01pc738n6ing-a:5432/lookforgeo_db
+        sync: false
       - key: DB_CONNECTION
         value: pgsql
       - key: CACHE_DRIVER
@@ -41,7 +41,7 @@ services:
       - key: APP_DEBUG
         value: false
       - key: DATABASE_URL
-        value: postgresql://lookforgeo_db_user:6ZIAtzeEtNk0T0bevY4DPCvb6OS8B1OE@dpg-da3h4ogu01pc738n6ing-a:5432/lookforgeo_db
+        sync: false
       - key: DB_CONNECTION
         value: pgsql
       - key: CACHE_DRIVER
