@@ -40,6 +40,7 @@ return [
     'gemini' => [
     'key' => env('GEMINI_API_KEY'),
     'model' => env('GEMINI_MODEL', 'gemini-3.6-flash'),
+    'max_total_time' => env('GEMINI_MAX_TOTAL_TIME', 120),
 ],
 
     /*

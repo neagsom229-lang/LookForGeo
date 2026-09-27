@@ -585,7 +585,26 @@ $fullPath = Storage::disk('public')->path($path); // ✅ CRITICAL FIX
         $request->validate(['url' => 'required|url']);
 
         try {
-            $response = Http::timeout(30)->get($request->input('url'));
+            // ⚠️ SSRF guard: block private IPs and localhost
+$url = $request->input('url');
+$host = parse_url($url, PHP_URL_HOST);
+$ip = gethostbyname($host);
+if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+    return response()->json([
+        'success' => false,
+        'message' => 'That URL points to a private/internal address and cannot be fetched.'
+    ], 400);
+}
+
+// Wikimedia + most CDNs require a real User-Agent, or they return 403
+$response = Http::timeout(30)
+    ->withHeaders([
+        'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com; chheangsamnang.wu@gmail.com)',
+        'Accept'     => 'image/*,*/*;q=0.8',
+        'Referer'    => 'https://lookforgeo.onrender.com/',
+    ])
+    ->withOptions(['allow_redirects' => ['max' => 5]])
+    ->get($url);
 
             if (!$response->successful()) {
                 return response()->json([

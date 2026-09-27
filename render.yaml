@@ -29,12 +29,14 @@ services:
         sync: false
       - key: CLOUDINARY_URL
         sync: false
+      - key: GEMINI_MAX_TOTAL_TIME
+        value: 120
 
   - type: worker
     name: queue-worker
     env: php
     buildCommand: composer install --no-dev --optimize-autoloader && chmod -R 775 storage bootstrap/cache && php artisan config:cache
-    startCommand: php artisan queue:work --tries=3 --timeout=90
+    startCommand: php artisan queue:work --tries=1 --timeout=180
     envVars:
       - key: APP_ENV
         value: production

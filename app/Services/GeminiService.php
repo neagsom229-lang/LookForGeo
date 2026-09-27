@@ -35,7 +35,7 @@ class GeminiService
         // analysis genuinely needs more than ~45s of retry budget in your
         // environment, that's a sign it belongs in a queued job rather
         // than a synchronous request.
-        $this->maxTotalTimeSeconds = config('services.gemini.max_total_time', 45);
+       $this->maxTotalTimeSeconds = config('services.gemini.max_total_time', 120);
 
         Log::info('GeminiService initialized', [
             'key_set' => !empty($this->apiKey),
@@ -131,7 +131,8 @@ private function sendGeminiRequestWithRetry($model, $imageData, $prompt, $deadli
         try {
             $result = $this->sendSingleGeminiRequest($model, $imageData, $prompt, $requestTimeout);
  
-            $retryableErrors = ['timeout', 'connection_error', 'service_unavailable', 'quota_exceeded', 'server_error'];
+// quota_exceeded is NOT retryable — retrying just burns the budget
+             $retryableErrors = ['timeout', 'connection_error', 'service_unavailable', 'server_error'];
             if (isset($result['error']) && in_array($result['error'], $retryableErrors)) {
                 $timeLeftAfterThisAttempt = $deadline - microtime(true);
  
