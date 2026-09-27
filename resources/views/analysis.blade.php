@@ -1617,12 +1617,12 @@ const MAX_POLL_ATTEMPTS = 300;   // 300 seconds = 5 minutes
     const GOOGLE_MAPS_EMBED_KEY = GOOGLE_MAPS_EMBED_KEY_RAW && !GOOGLE_MAPS_EMBED_KEY_RAW.includes('{{') ?
         GOOGLE_MAPS_EMBED_KEY_RAW : '';
 
-    const DARK_TILE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-    const DARK_ATTR = '&copy; <a href="https://carto.com/attributions">CARTO</a>';
-    const SAT_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-    const SAT_ATTR = '&copy; ESRI';
-    const ROADS_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-    const ROADS_ATTR = '&copy; CARTO';
+const DARK_TILE = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}';
+const DARK_ATTR = 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>';
+const SAT_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const SAT_ATTR = 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>';
+const ROADS_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
     // ========== GLOBAL WAYPOINTS (50 cities used for the exploration sequence) ==========
     const GLOBAL_WAYPOINTS = [{

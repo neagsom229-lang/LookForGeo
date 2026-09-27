@@ -196,12 +196,13 @@ private function sendSingleGeminiRequest($model, $imageData, $prompt, ?int $time
                 ],
             ],
         ],
-        'generationConfig' => [
-            'temperature' => 0.2,
-            'maxOutputTokens' => 10000,
-            'topP' => 0.95,
-            'topK' => 40,
-        ],
+'generationConfig' => [
+    'temperature' => 0.2,       // ignored by gemini-3.x, kept for 2.x fallback
+    'maxOutputTokens' => 10000,
+    'topP' => 0.95,             // ignored by gemini-3.x, kept for 2.x fallback
+    'topK' => 40,               // ignored by gemini-3.x, kept for 2.x fallback
+    // gemini-3.x: 'low' | 'high' — 'low' for speed, 'high' for accuracy
+],
     ];
  
     try {
