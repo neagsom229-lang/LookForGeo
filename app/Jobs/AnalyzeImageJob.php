@@ -156,35 +156,74 @@ class AnalyzeImageJob implements ShouldQueue
     /**
      * Load image data from various sources.
      */
-        private function loadImageData(GeoAnalysis $analysis)
-    {
-        // 1. Check the passed absolute path (Most reliable)
-        if ($this->localPath && file_exists($this->localPath)) {
-            Log::info('📁 Loading from passed path: ' . $this->localPath);
-            return file_get_contents($this->localPath);
-        }
-
-        // 2. Check via Storage Disk (Bulletproof for Docker/Queue Workers)
-        if ($analysis->image_path) {
-            $disk = Storage::disk('public');
-            if ($disk->exists($analysis->image_path)) {
-                $fullPath = $disk->path($analysis->image_path);
-                Log::info('📁 Loading from Storage Disk: ' . $fullPath);
-                return file_get_contents($fullPath);
+private function loadImageData(GeoAnalysis $analysis)
+{
+    // 1. If localPath is a URL (Cloudinary, post-fix), fetch it via HTTP
+    if ($this->localPath && filter_var($this->localPath, FILTER_VALIDATE_URL)) {
+        Log::info('🌐 Fetching from URL: ' . $this->localPath);
+        try {
+            $response = \Illuminate\Support\Facades\Http::timeout(30)
+                ->withHeaders([
+                    'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com)',
+                ])
+                ->get($this->localPath);
+            if ($response->successful()) {
+                return $response->body();
             }
+            Log::error('❌ HTTP ' . $response->status() . ' fetching image');
+        } catch (\Exception $e) {
+            Log::error('❌ HTTP fetch failed: ' . $e->getMessage());
         }
-
-        // 3. Check URL (Last resort)
-        if ($analysis->image_url) {
-            Log::info('📸 Loading from URL: ' . $analysis->image_url);
-            $data = @file_get_contents($analysis->image_url);
-            if ($data) {
-                return $data;
-            }
-        }
-
-        return null;
     }
+
+    // 2. If image_path is a URL (from DB), fetch it
+    if ($analysis->image_path && filter_var($analysis->image_path, FILTER_VALIDATE_URL)) {
+        Log::info('🌐 Fetching from DB image_path: ' . $analysis->image_path);
+        try {
+            $response = \Illuminate\Support\Facades\Http::timeout(30)
+                ->withHeaders(['User-Agent' => 'TraceGeo/1.0'])
+                ->get($analysis->image_path);
+            if ($response->successful()) {
+                return $response->body();
+            }
+        } catch (\Exception $e) {
+            Log::error('❌ DB URL fetch failed: ' . $e->getMessage());
+        }
+    }
+
+    // 3. If image_url is set (Cloudinary), fetch it
+    if ($analysis->image_url && filter_var($analysis->image_url, FILTER_VALIDATE_URL)) {
+        Log::info('🌐 Fetching from image_url: ' . $analysis->image_url);
+        try {
+            $response = \Illuminate\Support\Facades\Http::timeout(30)
+                ->withHeaders(['User-Agent' => 'TraceGeo/1.0'])
+                ->get($analysis->image_url);
+            if ($response->successful()) {
+                return $response->body();
+            }
+        } catch (\Exception $e) {
+            Log::error('❌ image_url fetch failed: ' . $e->getMessage());
+        }
+    }
+
+    // 4. Fallback: local filesystem (dev only)
+    if ($this->localPath && file_exists($this->localPath)) {
+        Log::info('📁 Loading from local path: ' . $this->localPath);
+        return file_get_contents($this->localPath);
+    }
+
+    if ($analysis->image_path) {
+        $disk = Storage::disk('public');
+        if ($disk->exists($analysis->image_path)) {
+            $fullPath = $disk->path($analysis->image_path);
+            Log::info('📁 Loading from Storage Disk: ' . $fullPath);
+            return file_get_contents($fullPath);
+        }
+    }
+
+    Log::error('❌ No image source available');
+    return null;
+}
         /**
      * Gets the absolute path reliably across both the web server and queue worker.
      */
@@ -264,60 +303,57 @@ class AnalyzeImageJob implements ShouldQueue
      * Upload to Cloudinary using environment configuration.
      * Returns the secure URL or null on failure.
      */
-    private function uploadToCloudinary(GeoAnalysis $analysis)
-    {
-        $localFile = null;
-
-                $localFile = $this->getAbsolutePath($analysis);
-
-        if (!$localFile) {
-            Log::warning('☁️ No local file to upload to Cloudinary');
-            return null;
-        }
-
-        // Load credentials from config
-        $cloudName = config('services.cloudinary.cloud_name');
-        $apiKey = config('services.cloudinary.api_key');
-        $apiSecret = config('services.cloudinary.api_secret');
-
-        if (empty($cloudName) || empty($apiKey) || empty($apiSecret)) {
-            Log::warning('☁️ Cloudinary credentials not set, skipping upload');
-            return null;
-        }
-
-        try {
-            Log::info('☁️ Uploading to Cloudinary...');
-            Configuration::instance([
-                'cloud' => [
-                    'cloud_name' => $cloudName,
-                    'api_key' => $apiKey,
-                    'api_secret' => $apiSecret,
-                ],
-                'url' => ['secure' => true],
-            ]);
-
-            $uploadApi = new UploadApi();
-            $publicId = pathinfo($this->filename ?? $analysis->image_path ?? 'image', PATHINFO_FILENAME);
-            $uploadResult = $uploadApi->upload($localFile, [
-                'folder' => 'tracegeo/analyses',
-                'public_id' => $publicId,
-            ]);
-
-            $url = $uploadResult['secure_url'] ?? null;
-            Log::info('✅ Cloudinary upload successful', ['url' => $url]);
-
-            // Optionally delete local file after successful upload
-            if ($url && file_exists($localFile)) {
-                @unlink($localFile);
-                Log::info('🗑️ Local file deleted after Cloudinary upload');
-            }
-
-            return $url;
-        } catch (\Exception $e) {
-            Log::error('❌ Cloudinary upload failed: ' . $e->getMessage());
-            return null;
-        }
+private function uploadToCloudinary(GeoAnalysis $analysis)
+{
+    // If already on Cloudinary (post-fix flow), just return the URL
+    if ($analysis->image_url && str_contains($analysis->image_url, 'cloudinary.com')) {
+        Log::info('☁️ Already on Cloudinary, skipping re-upload');
+        return $analysis->image_url;
     }
+
+    // Legacy: try to upload from local (dev only)
+    $localFile = $this->getAbsolutePath($analysis);
+    if (!$localFile) {
+        Log::warning('☁️ No local file to upload to Cloudinary');
+        return $analysis->image_url ?? null;
+    }
+
+    $cloudName = config('services.cloudinary.cloud_name');
+    $apiKey = config('services.cloudinary.api_key');
+    $apiSecret = config('services.cloudinary.api_secret');
+
+    if (empty($cloudName) || empty($apiKey) || empty($apiSecret)) {
+        Log::warning('☁️ Cloudinary credentials not set, skipping upload');
+        return null;
+    }
+
+    try {
+        Log::info('☁️ Uploading to Cloudinary...');
+        Configuration::instance([
+            'cloud' => [
+                'cloud_name' => $cloudName,
+                'api_key' => $apiKey,
+                'api_secret' => $apiSecret,
+            ],
+            'url' => ['secure' => true],
+        ]);
+
+        $uploadApi = new UploadApi();
+        $publicId = pathinfo($this->filename ?? $analysis->image_path ?? 'image', PATHINFO_FILENAME);
+        $uploadResult = $uploadApi->upload($localFile, [
+            'folder' => 'tracegeo/analyses',
+            'public_id' => $publicId,
+        ]);
+
+        $url = $uploadResult['secure_url'] ?? null;
+        Log::info('✅ Cloudinary upload successful', ['url' => $url]);
+
+        return $url;
+    } catch (\Exception $e) {
+        Log::error('❌ Cloudinary upload failed: ' . $e->getMessage());
+        return null;
+    }
+}
 
     /**
      * Called when all retries are exhausted.

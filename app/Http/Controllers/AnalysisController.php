@@ -73,18 +73,40 @@ class AnalysisController extends Controller
             'size' => $file->getSize()
         ]);
 
-                // Store the file locally (Bypasses symlink - Saves directly to public/uploads)
-       $path = $file->store('uploads/analyses', 'public');
-$imageUrl = asset('storage/' . $path);
-$fullPath = Storage::disk('public')->path($path); // ✅ CRITICAL FIX
+// Upload to Cloudinary FIRST — the worker container has no local disk
+try {
+    $cloudinary = new \Cloudinary\Cloudinary([
+        'cloud' => [
+            'cloud_name' => config('services.cloudinary.cloud_name'),
+            'api_key'    => config('services.cloudinary.api_key'),
+            'api_secret' => config('services.cloudinary.api_secret'),
+        ],
+        'url' => ['secure' => true],
+    ]);
 
-        Log::info('📁 File stored locally', [
-            'path' => $path,
-            'full_path' => $fullPath,
-            'url' => $imageUrl,
-            'file_exists' => file_exists($fullPath)
-        ]);
+    $uploadResult = $cloudinary->uploadApi()->upload(
+        $file->getRealPath(),
+        [
+            'folder'        => 'tracegeo/analyses',
+            'resource_type' => 'image',
+        ]
+    );
 
+    $imageUrl = $uploadResult['secure_url'];
+    $path = $imageUrl;
+    $fullPath = $imageUrl;  // keep variable name so downstream code doesn't break
+
+    Log::info('Uploaded to Cloudinary', [
+        'url' => $imageUrl,
+        'public_id' => $uploadResult['public_id'] ?? null,
+    ]);
+} catch (\Exception $e) {
+    Log::error('Cloudinary upload failed: ' . $e->getMessage());
+    return response()->json([
+        'success' => false,
+        'message' => 'Failed to upload image. Please try again.'
+    ], 500);
+}
         // Create the record
         $analysis = GeoAnalysis::create([
             'user_id' => auth()->id(),
@@ -394,20 +416,49 @@ $fullPath = Storage::disk('public')->path($path); // ✅ CRITICAL FIX
             $file = $request->file('image');
             $filename = time() . '_' . $file->getClientOriginalName();
 
-                        $path = $file->store('uploads/analyses', 'public_uploads');
-            $imageUrl = asset('uploads/' . $path);
+// Upload to Cloudinary FIRST — worker container has no shared disk
+try {
+    $cloudName = config('services.cloudinary.cloud_name');
+    $apiKey = config('services.cloudinary.api_key');
+    $apiSecret = config('services.cloudinary.api_secret');
 
-            $metadata = $this->extractFullMetadata($file);
-            $imageData = $this->getImageData($file);
+    if (empty($cloudName) || empty($apiKey) || empty($apiSecret)) {
+        throw new \Exception('Cloudinary credentials not configured');
+    }
 
-            $aiResult = $this->geminiService->analyzeGeolocation($imageData, $metadata);
+    \Cloudinary\Configuration\Configuration::instance([
+        'cloud' => [
+            'cloud_name' => $cloudName,
+            'api_key'    => $apiKey,
+            'api_secret' => $apiSecret,
+        ],
+        'url' => ['secure' => true],
+    ]);
 
-            if (isset($aiResult['error'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'AI analysis failed: ' . ($aiResult['message'] ?? 'Unknown error')
-                ], 500);
-            }
+    $uploadApi = new \Cloudinary\Api\Upload\UploadApi();
+    $uploadResult = $uploadApi->upload(
+        $file->getRealPath(),
+        [
+            'folder' => 'tracegeo/analyses',
+            'public_id' => pathinfo($filename, PATHINFO_FILENAME),
+        ]
+    );
+
+    $imageUrl = $uploadResult['secure_url'];
+    $path = $imageUrl;          // keep variable name (URL now)
+    $fullPath = $imageUrl;      // keep variable name (URL now)
+
+    Log::info('📤 Uploaded to Cloudinary', [
+        'url' => $imageUrl,
+        'public_id' => $uploadResult['public_id'] ?? null,
+    ]);
+} catch (\Exception $e) {
+    Log::error('❌ Cloudinary upload failed: ' . $e->getMessage());
+    return response()->json([
+        'success' => false,
+        'message' => 'Failed to upload image: ' . $e->getMessage()
+    ], 500);
+}
 
             // ✅ ADDED user_id here
             $analysis = GeoAnalysis::create([
