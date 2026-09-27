@@ -15,10 +15,10 @@ services:
         sync: false
       - key: DB_CONNECTION
         value: pgsql
-      - key: CACHE_DRIVER
-        value: file
+      - key: CACHE_STORE
+        value: database
       - key: SESSION_DRIVER
-        value: file
+        value: database
       # This is CRITICAL: The queue worker inside Docker will read from the database!
       - key: QUEUE_CONNECTION
         value: database

@@ -30,7 +30,7 @@ Route::view('/docs', 'docs');
 
 // Homepage
 Route::get('/', [HomeController::class, 'index'])->name('home');
-Route::view('/how-it-works',     'how-it-works');
+
 
 
 // ============================================

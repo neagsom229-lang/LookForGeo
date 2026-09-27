@@ -4,7 +4,6 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\LandmarkController;
 use App\Http\Controllers\TestController;
 use App\Http\Controllers\GeminiController;
-use App\Http\Controllers\AnalysisController;
 use App\Http\Controllers\Api\AnalysisApiController;
 use Illuminate\Support\Facades\Route;
 
