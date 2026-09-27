@@ -61,6 +61,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/export/{id}', [LandmarkController::class, 'export']);
 
     // 🧹 Clear cache
+        Route::post('/gemini-chat', [GeminiController::class, 'chat'])->middleware('throttle:10,1');
 
     // 🚀 TraceGeo Analytics API
     Route::get('/history', [AnalysisApiController::class, 'history']);
