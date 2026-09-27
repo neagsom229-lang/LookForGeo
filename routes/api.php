@@ -12,8 +12,7 @@ use Illuminate\Support\Facades\Route;
 // TEST ROUTES
 // ============================================================
 Route::get('/test-apis', [TestController::class, 'testAll']);
-Route::get('/test-gemini', [GeminiController::class, 'test']);
-Route::post('/gemini-chat', [GeminiController::class, 'chat']);
+
 
 // ============================================================
 // WEB LOGIN/REGISTER (Session) - For Web Views
@@ -62,7 +61,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/export/{id}', [LandmarkController::class, 'export']);
 
     // 🧹 Clear cache
-    Route::post('/clear-cache', [AnalysisController::class, 'clearCache'])->name('api.clear-cache');
 
     // 🚀 TraceGeo Analytics API
     Route::get('/history', [AnalysisApiController::class, 'history']);

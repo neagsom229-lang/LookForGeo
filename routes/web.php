@@ -58,7 +58,7 @@ Route::middleware(['web', 'auth:web'])->group(function () {
         Route::post('/analyze/{id}/retry', [AnalysisController::class, 'retry'])->name('api.analyze.retry');
         Route::get('/fetch-image', [AnalysisController::class, 'fetchImage'])->name('api.fetch-image');
         Route::get('/street-view', [AnalysisController::class, 'streetView'])->name('api.street-view');
-        Route::post('/clear-cache', [AnalysisController::class, 'clearCache'])->name('api.clear-cache');
+        Route::post('/clear-cache', [AnalysisController::class, 'clearCache'])->name('web.clear-cache');
         Route::get('/history', [AnalysisController::class, 'getHistory'])->name('api.history');
     });
 
@@ -91,18 +91,6 @@ Route::middleware(['web', 'auth:web'])->group(function () {
         $job = new \App\Jobs\AnalyzeImageJob(1);
         dispatch($job);
         return 'Job dispatched. Check worker logs.';
-    });
-
-    Route::get('/clear-caches', function () {
-        try {
-            \Artisan::call('route:clear');
-            \Artisan::call('config:clear');
-            \Artisan::call('cache:clear');
-            \Artisan::call('view:clear');
-            return '✅ All caches cleared.';
-        } catch (\Exception $e) {
-            return '❌ Error: ' . $e->getMessage();
-        }
     });
 
     // ============================================
