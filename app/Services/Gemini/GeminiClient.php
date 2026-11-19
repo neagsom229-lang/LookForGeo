@@ -190,11 +190,49 @@ class GeminiClient
                 'topP' => 0.95,             // ignored by gemini-3.x, kept for 2.x fallback
                 'topK' => 40,               // ignored by gemini-3.x, kept for 2.x fallback
                 // gemini-3.x: 'low' | 'high' — 'low' for speed, 'high' for accuracy
-                // Structured output: ask the API for raw JSON instead of a
-                // fenced markdown block, so the parser can't be tricked by
-                // free-text wrappers. The tolerant parseAIResponse fallback
-                // is kept as a safety net for models that ignore this flag.
+                // Structured output: enforced JSON + schema so the response
+                // is schema-conformant. Strict validation happens after
+                // decoding (see GeminiResultValidator).
                 'responseMimeType' => 'application/json',
+                'responseSchema' => [
+                    'type' => 'OBJECT',
+                    'properties' => [
+                        'landmark_name' => ['type' => 'STRING'],
+                        'city' => ['type' => 'STRING'],
+                        'country' => ['type' => 'STRING'],
+                        'region' => ['type' => 'STRING'],
+                        'latitude' => ['type' => 'NUMBER', 'nullable' => true],
+                        'longitude' => ['type' => 'NUMBER', 'nullable' => true],
+                        'confidence' => ['type' => 'INTEGER'],
+                        'reasoning' => ['type' => 'STRING'],
+                        'negative_evidence' => ['type' => 'STRING'],
+                        'vantage_point' => ['type' => 'STRING', 'enum' => ['ground', 'elevated', 'aerial', 'satellite', 'indoor']],
+                        'visual_clues' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+                        'tags' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+                        'description' => ['type' => 'STRING'],
+                        'type' => ['type' => 'STRING'],
+                        'nearby_landmarks' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+                        'wikipedia_url' => ['type' => 'STRING', 'nullable' => true],
+                        'nearest_airport' => ['type' => 'STRING', 'nullable' => true],
+                        'candidates' => [
+                            'type' => 'ARRAY',
+                            'items' => [
+                                'type' => 'OBJECT',
+                                'properties' => [
+                                    'location' => ['type' => 'STRING'],
+                                    'city' => ['type' => 'STRING'],
+                                    'country' => ['type' => 'STRING'],
+                                    'latitude' => ['type' => 'NUMBER', 'nullable' => true],
+                                    'longitude' => ['type' => 'NUMBER', 'nullable' => true],
+                                    'probability' => ['type' => 'INTEGER'],
+                                    'reasoning' => ['type' => 'STRING'],
+                                ],
+                                'required' => ['location', 'probability', 'reasoning'],
+                            ],
+                        ],
+                    ],
+                    'required' => ['landmark_name', 'city', 'country', 'confidence', 'reasoning', 'description'],
+                ],
             ],
         ];
 
@@ -324,24 +362,6 @@ class GeminiClient
         }
     }
 
-    private function isValidCoordinate($lat, $lng)
-    {
-        return is_numeric($lat) && is_numeric($lng) && abs($lat) <= 90 && abs($lng) <= 180 && $lat != 0 && $lng != 0;
-    }
-
-    private function extractCoordinatesFromText($text)
-    {
-        if (preg_match('/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/', $text, $m)) {
-            $lat = floatval($m[1]);
-            $lng = floatval($m[2]);
-            if ($this->isValidCoordinate($lat, $lng)) {
-                return ['lat' => $lat, 'lng' => $lng];
-            }
-        }
-
-        return null;
-    }
-
     private function cleanText($text)
     {
         if (! $text) {
@@ -370,31 +390,24 @@ class GeminiClient
         return $data;
     }
 
+    /**
+     * Parse the model's response into JSON. Structured output is enforced
+     * (responseMimeType=application/json + responseSchema at the API level),
+     * so a non-decodable body is a hard failure, not something to salvage
+     * with regexes. The old regex-recovery path was deleted: it could
+     * fabricate a "valid" result out of a broken response.
+     */
     private function parseAIResponse($text)
     {
-        $direct = json_decode($text, true);
-        if (json_last_error() === JSON_ERROR_NONE && is_array($direct)) {
-            return $direct;
-        }
+        $parsed = json_decode($text, true);
 
-        preg_match('/```(?:json)?\s*([\s\S]*?)\s*```/', $text, $matches);
-        $json = $matches[1] ?? $text;
-        $json = trim($json);
-
-        preg_match('/\{[\s\S]*\}/', $json, $jsonMatches);
-        $json = $jsonMatches[0] ?? $json;
-
-        // Strip trailing commas the model sometimes leaves before } or ]
-        $json = preg_replace('/,\s*}/', '}', $json);
-        $json = preg_replace('/,\s*\]/', ']', $json);
-
-        try {
-            return json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Exception $e) {
-            Log::error('JSON parse error: '.$e->getMessage().' | raw: '.substr($text, 0, 500));
+        if (json_last_error() !== JSON_ERROR_NONE || ! is_array($parsed)) {
+            Log::error('Gemini response was not valid JSON: '.substr($text, 0, 500));
 
             return null;
         }
+
+        return $parsed;
     }
 
     public function getFallbackResponse($msg)

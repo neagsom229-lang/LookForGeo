@@ -69,7 +69,7 @@ class SecurityTest extends TestCase
     public function test_web_session_authenticated_user_can_reach_cost_bearing_endpoints(): void
     {
         Storage::fake('public');
-        Http::fake(['*' => Http::response(['candidates' => [['content' => ['parts' => [['text' => json_encode(['landmark_name' => 'Eiffel Tower', 'confidence' => 90])]]]]]], 200)]);
+        Http::fake(['*' => Http::response(['candidates' => [['content' => ['parts' => [['text' => json_encode(['landmark_name' => 'Eiffel Tower', 'city' => 'Paris', 'country' => 'France', 'region' => 'Ile-de-France', 'latitude' => 48.8584, 'longitude' => 2.2945, 'confidence' => 90, 'reasoning' => 'Distinctive tower', 'description' => 'The Eiffel Tower', 'vantage_point' => 'ground', 'visual_clues' => ['tower'], 'tags' => ['landmark'], 'candidates' => []])]]]]]], 200)]);
 
         $user = User::factory()->create();
         $this->actingAs($user, 'web');
@@ -89,7 +89,7 @@ class SecurityTest extends TestCase
     public function test_sanctum_token_authenticated_user_can_reach_cost_bearing_endpoints(): void
     {
         Storage::fake('public');
-        Http::fake(['*' => Http::response(['candidates' => [['content' => ['parts' => [['text' => json_encode(['landmark_name' => 'Eiffel Tower', 'confidence' => 90])]]]]]], 200)]);
+        Http::fake(['*' => Http::response(['candidates' => [['content' => ['parts' => [['text' => json_encode(['landmark_name' => 'Eiffel Tower', 'city' => 'Paris', 'country' => 'France', 'region' => 'Ile-de-France', 'latitude' => 48.8584, 'longitude' => 2.2945, 'confidence' => 90, 'reasoning' => 'Distinctive tower', 'description' => 'The Eiffel Tower', 'vantage_point' => 'ground', 'visual_clues' => ['tower'], 'tags' => ['landmark'], 'candidates' => []])]]]]]], 200)]);
 
         $user = User::factory()->create();
         $token = $user->createToken('test')->plainTextToken;
