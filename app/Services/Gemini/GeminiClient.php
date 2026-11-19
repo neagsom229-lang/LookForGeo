@@ -173,16 +173,16 @@ class GeminiClient
 
                 if ($attempt <= $retries && $timeLeftAfterThisAttempt > ($backoff / 1000000)) {
                     Log::warning("Gemini request attempt $attempt threw exception, retrying in ".($backoff / 1000000).'s', [
-                        'exception' => $e->getMessage(),
+                        'exception' => SecretSanitizer::redact($e->getMessage()),
                     ]);
                     usleep($backoff);
                     $backoff *= 2;
 
                     continue;
                 }
-                Log::error('Gemini request failed after all retries: '.$e->getMessage());
+                Log::error('Gemini request failed after all retries: '.SecretSanitizer::redact($e->getMessage()));
 
-                return ['error' => 'request_exception', 'message' => $e->getMessage()];
+                return ['error' => 'request_exception', 'message' => SecretSanitizer::redact($e->getMessage())];
             }
         }
 
@@ -200,7 +200,10 @@ class GeminiClient
 
         $timeoutSeconds = $timeoutSeconds ?? $this->requestTimeout;
 
-        $url = "{$this->baseUrl}/models/{$model}:generateContent?key={$this->apiKey}";
+        // SECURITY: the key travels ONLY in the x-goog-api-key header --
+        // never in the URL, so it cannot leak via logs, referrers or
+        // exception messages that embed the request URL.
+        $url = "{$this->baseUrl}/models/{$model}:generateContent";
 
         $compressedImage = $this->compressImageIfNeeded($imageData);
 
@@ -274,7 +277,10 @@ class GeminiClient
             // connectTimeout added explicitly: without it, a hung TCP
             // handshake could still stall past the intended budget on some
             // network conditions even though the read timeout is capped.
-            $response = Http::timeout($timeoutSeconds)->connectTimeout(min(10, $timeoutSeconds))->post($url, $payload);
+            $response = Http::timeout($timeoutSeconds)
+                ->connectTimeout(min(10, $timeoutSeconds))
+                ->withHeaders(['x-goog-api-key' => (string) $this->apiKey])
+                ->post($url, $payload);
 
             if ($response->status() === 429) {
                 return ['error' => 'quota_exceeded', 'message' => 'API quota exceeded. Try again later.'];
@@ -289,7 +295,7 @@ class GeminiClient
             }
 
             if (! $response->successful()) {
-                Log::error("Gemini API error (status {$response->status()}): ".$response->body());
+                Log::error("Gemini API error (status {$response->status()}): ".SecretSanitizer::redact($response->body()));
 
                 return ['error' => 'api_error', 'message' => "HTTP {$response->status()}"];
             }
@@ -310,9 +316,9 @@ class GeminiClient
             return $this->cleanArray($parsed);
 
         } catch (ConnectionException $e) {
-            return ['error' => 'timeout', 'message' => $e->getMessage()];
+            return ['error' => 'timeout', 'message' => SecretSanitizer::redact($e->getMessage())];
         } catch (\Exception $e) {
-            return ['error' => 'connection_error', 'message' => $e->getMessage()];
+            return ['error' => 'connection_error', 'message' => SecretSanitizer::redact($e->getMessage())];
         }
     }
 
@@ -455,7 +461,8 @@ class GeminiClient
             throw new \RuntimeException('Gemini API key not configured');
         }
 
-        $url = "{$this->baseUrl}/models/{$this->primaryModel}:generateContent?key={$this->apiKey}";
+        // SECURITY: key in header only, never in the URL.
+        $url = "{$this->baseUrl}/models/{$this->primaryModel}:generateContent";
 
         $payload = [
             'contents' => [
@@ -471,10 +478,25 @@ class GeminiClient
             ],
         ];
 
-        $response = Http::timeout(30)->connectTimeout(min(10, 30))->post($url, $payload);
+        try {
+            $response = Http::timeout(30)
+                ->connectTimeout(min(10, 30))
+                ->withHeaders(['x-goog-api-key' => (string) $this->apiKey])
+                ->post($url, $payload);
+        } catch (\Throwable $e) {
+            // Any transport exception may embed the request URL/details --
+            // sanitize before it can reach a controller response or a log.
+            throw new \RuntimeException(
+                SecretSanitizer::redact('Gemini request failed: '.$e->getMessage()),
+                0,
+                $e
+            );
+        }
 
         if (! $response->successful()) {
-            throw new \RuntimeException('Gemini request failed: HTTP '.$response->status());
+            throw new \RuntimeException(
+                SecretSanitizer::redact('Gemini request failed: HTTP '.$response->status())
+            );
         }
 
         $text = $response->json('candidates.0.content.parts.0.text');

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Gemini\SecretSanitizer;
 use App\Services\GeminiService;
 use Illuminate\Http\Request;
 
@@ -33,7 +34,7 @@ class GeminiController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage(),
+                'error' => SecretSanitizer::redact($e->getMessage()),
             ], 500);
         }
     }

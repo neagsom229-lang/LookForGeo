@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreAnalysisImageRequest;
 use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
+use App\Services\Gemini\SecretSanitizer;
 use App\Services\GeminiService;
 use Cloudinary\Cloudinary;
 use Illuminate\Http\Request;
@@ -14,6 +15,12 @@ use Illuminate\Support\Facades\Storage;
 
 class AnalysisController extends Controller
 {
+    /**
+     * The only failure text ever shown to the user through the API.
+     * Details stay in storage/logs (sanitized).
+     */
+    public const FAILED_USER_MESSAGE = 'The AI service did not respond. Please retry.';
+
     protected $geminiService;
 
     public function __construct(GeminiService $geminiService)
@@ -146,13 +153,13 @@ class AnalysisController extends Controller
                 // Update the analysis to failed since the job couldn't be dispatched
                 $analysis->update([
                     'status' => 'failed',
-                    'error' => 'Job dispatch failed: '.$jobException->getMessage(),
+                    'error' => SecretSanitizer::redact('Job dispatch failed: '.$jobException->getMessage()),
                     'finished_at' => now(),
                 ]);
 
                 return response()->json([
                     'success' => false,
-                    'message' => 'Analysis could not be started: '.$jobException->getMessage(),
+                    'message' => SecretSanitizer::redact('Analysis could not be started: '.$jobException->getMessage()),
                 ], 500);
             }
 
@@ -174,7 +181,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error starting analysis: '.$e->getMessage(),
+                'message' => SecretSanitizer::redact('Error starting analysis: '.$e->getMessage()),
             ], 500);
         }
     }
@@ -235,7 +242,9 @@ class AnalysisController extends Controller
             }
 
             if ($analysis->status === 'failed') {
-                $response['error'] = $analysis->error;
+                // User-facing failure text is always generic; the sanitized
+                // details live in the log (and in the DB error column).
+                $response['error'] = self::FAILED_USER_MESSAGE;
             }
 
             // Queued too long without the worker picking it up?
@@ -265,7 +274,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error fetching status: '.$e->getMessage(),
+                'message' => SecretSanitizer::redact('Error fetching status: '.$e->getMessage()),
             ], 500);
         }
     }
@@ -322,7 +331,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error fetching history: '.$e->getMessage(),
+                'message' => SecretSanitizer::redact('Error fetching history: '.$e->getMessage()),
             ], 500);
         }
     }
@@ -368,7 +377,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error deleting analysis: '.$e->getMessage(),
+                'message' => SecretSanitizer::redact('Error deleting analysis: '.$e->getMessage()),
             ], 500);
         }
     }
@@ -428,7 +437,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error retrying analysis: '.$e->getMessage(),
+                'message' => SecretSanitizer::redact('Error retrying analysis: '.$e->getMessage()),
             ], 500);
         }
     }
@@ -534,7 +543,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error fetching image: '.$e->getMessage(),
+                'message' => SecretSanitizer::redact('Error fetching image: '.$e->getMessage()),
             ], 500);
         }
     }

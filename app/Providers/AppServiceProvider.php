@@ -2,11 +2,13 @@
 
 namespace App\Providers;
 
+use App\Logging\SecretLogProcessor;
 use App\Services\GeocodingService;
 use App\Services\LandmarkRecognitionService;
 use App\Support\LocalDatabaseGuard;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
@@ -41,5 +43,16 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(60)
                 ->by($request->user()?->id ?: $request->ip());
         });
+
+        // Central log sanitizer: redact key=..., AIza... and AQ... from
+        // every message + context array written to the default log channel.
+        try {
+            $logger = Log::driver();
+            if (method_exists($logger->getLogger(), 'pushProcessor')) {
+                $logger->pushProcessor(new SecretLogProcessor);
+            }
+        } catch (\Throwable $e) {
+            // Never let log wiring break boot; call-site redaction still applies.
+        }
     }
 }

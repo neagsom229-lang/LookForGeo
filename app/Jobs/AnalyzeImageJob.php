@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\GeoAnalysis;
+use App\Services\Gemini\SecretSanitizer;
 use App\Services\GeminiService;
 use Cloudinary\Api\Upload\UploadApi;
 use Cloudinary\Configuration\Configuration;
@@ -83,7 +84,7 @@ class AnalyzeImageJob implements ShouldQueue
             if (! $imageData) {
                 $error = 'No image found. Path: '.($analysis->image_path ?? 'null');
                 Log::error('❌ '.$error);
-                $analysis->markAsFailed($error);
+                $analysis->markAsFailed(SecretSanitizer::redact($error));
                 $this->fail(new \Exception($error));
 
                 return;
@@ -145,8 +146,10 @@ class AnalyzeImageJob implements ShouldQueue
             Log::info('🎉 Analysis COMPLETED for ID: '.$this->analysisId);
 
         } catch (\Throwable $e) {
-            Log::error('❌ Job FAILED: '.$e->getMessage());
-            Log::error('Stack trace: '.$e->getTraceAsString());
+            // Details go to the log (sanitized); the DB error column gets
+            // the same sanitized text -- key material can never be stored.
+            Log::error('❌ Job FAILED: '.SecretSanitizer::redact($e->getMessage()));
+            Log::error('Stack trace: '.SecretSanitizer::redact($e->getTraceAsString()));
 
             // Hard (non-transient) failure — mark failed and return so the
             // worker does not retry: retries are no-ops anyway once status
@@ -155,11 +158,11 @@ class AnalyzeImageJob implements ShouldQueue
             try {
                 $analysis = GeoAnalysis::find($this->analysisId);
                 if ($analysis && ! in_array($analysis->status, ['completed', 'failed'])) {
-                    $analysis->markAsFailed($e->getMessage());
+                    $analysis->markAsFailed(SecretSanitizer::redact($e->getMessage()));
                     Log::info('✅ Error status saved to database');
                 }
             } catch (\Throwable $updateError) {
-                Log::error('❌ Failed to save error: '.$updateError->getMessage());
+                Log::error('❌ Failed to save error: '.SecretSanitizer::redact($updateError->getMessage()));
             }
 
             return;
@@ -384,7 +387,7 @@ class AnalyzeImageJob implements ShouldQueue
     {
         Log::error('❌❌❌ Job PERMANENTLY FAILED after '.$this->tries.' attempts:', [
             'analysis_id' => $this->analysisId,
-            'error' => $exception->getMessage(),
+            'error' => SecretSanitizer::redact($exception->getMessage()),
         ]);
 
         try {
@@ -392,12 +395,12 @@ class AnalyzeImageJob implements ShouldQueue
             if ($analysis && ! in_array($analysis->status, ['completed', 'failed'])) {
                 $analysis->update([
                     'status' => 'failed',
-                    'error' => 'Permanent failure: '.$exception->getMessage(),
+                    'error' => SecretSanitizer::redact('Permanent failure: '.$exception->getMessage()),
                     'finished_at' => now(),
                 ]);
             }
         } catch (\Throwable $e) {
-            Log::error('❌ Failed to update permanent failure: '.$e->getMessage());
+            Log::error('❌ Failed to update permanent failure: '.SecretSanitizer::redact($e->getMessage()));
         }
     }
 }
