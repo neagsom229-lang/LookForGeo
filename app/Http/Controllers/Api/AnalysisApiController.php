@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreAnalysisImageRequest;
+use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -15,7 +17,7 @@ class AnalysisApiController extends Controller
             'success' => true,
             'status' => 'operational',
             'version' => '1.0.0',
-            'timestamp' => now()->toISOString()
+            'timestamp' => now()->toISOString(),
         ]);
     }
 
@@ -29,12 +31,12 @@ class AnalysisApiController extends Controller
         return response()->json([
             'success' => true,
             'data' => $analyses->map(function ($analysis) {
-                $result = is_string($analysis->result) 
-                    ? json_decode($analysis->result, true) 
+                $result = is_string($analysis->result)
+                    ? json_decode($analysis->result, true)
                     : $analysis->result;
 
                 // Use image_url if available, else generate from image_path
-                $imageUrl = $analysis->image_url ?? 
+                $imageUrl = $analysis->image_url ??
                     ($analysis->image_path ? Storage::disk('public')->url($analysis->image_path) : null);
 
                 return [
@@ -51,36 +53,34 @@ class AnalysisApiController extends Controller
             }),
             'pagination' => [
                 'current_page' => $analyses->currentPage(),
-                'last_page' => $analyses->lastPage()
-            ]
+                'last_page' => $analyses->lastPage(),
+            ],
         ]);
     }
 
-    public function analyze(Request $request)
+    public function analyze(StoreAnalysisImageRequest $request)
     {
-        $request->validate([
-            'image' => 'required|file|mimes:jpeg,png,jpg,gif,webp|max:20480'
-        ]);
-
         $file = $request->file('image');
-        
+
         // ✅ Wrap storage operation in try-catch to handle errors gracefully
         try {
             $path = $file->store('uploads/analyses', 'public');
         } catch (\Exception $e) {
-            \Log::error('File upload failed: ' . $e->getMessage());
+            \Log::error('File upload failed: '.$e->getMessage());
+
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to store the uploaded image. Please try again.'
+                'message' => 'Failed to store the uploaded image. Please try again.',
             ], 500);
         }
 
         // Verify the file was actually stored
-        if (!$path || !Storage::disk('public')->exists($path)) {
+        if (! $path || ! Storage::disk('public')->exists($path)) {
             \Log::error('File storage verification failed: path not found', ['path' => $path]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Image was not stored successfully. Please try again.'
+                'message' => 'Image was not stored successfully. Please try again.',
             ], 500);
         }
 
@@ -97,7 +97,7 @@ class AnalysisApiController extends Controller
             'stage' => 0,
         ]);
 
-        \App\Jobs\AnalyzeImageJob::dispatch($analysis->id, $fullPath, $file->getClientOriginalName());
+        AnalyzeImageJob::dispatch($analysis->id, $fullPath, $file->getClientOriginalName());
 
         // ✅ Return the same key expected by front-end: 'id'
         return response()->json([
@@ -106,7 +106,7 @@ class AnalysisApiController extends Controller
             'id' => $analysis->id,
             'data' => [
                 'image_url' => $imageUrl,
-            ]
+            ],
         ], 202);
     }
 }

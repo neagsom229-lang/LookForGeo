@@ -2,12 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreAnalysisImageRequest;
 use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
 use App\Services\GeminiService;
-use Cloudinary\Api\Upload\UploadApi;
 use Cloudinary\Cloudinary;
-use Cloudinary\Configuration\Configuration;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -51,7 +50,7 @@ class AnalysisController extends Controller
     /**
      * ✅ ASYNC UPLOAD – Stores file, creates record, dispatches job
      */
-    public function store(Request $request)
+    public function store(StoreAnalysisImageRequest $request)
     {
         if (! auth()->check()) {
             return response()->json([
@@ -59,10 +58,6 @@ class AnalysisController extends Controller
                 'message' => 'Please login to upload images.',
             ], 401);
         }
-
-        $request->validate([
-            'image' => 'required|file|mimes:jpeg,png,jpg,gif,webp|max:20480',
-        ]);
 
         try {
             $file = $request->file('image');
@@ -401,216 +396,6 @@ class AnalysisController extends Controller
                 'message' => 'Error retrying analysis: '.$e->getMessage(),
             ], 500);
         }
-    }
-
-    /**
-     * ⚡ SYNC ANALYZE – Legacy method (backward compatibility)
-     * Note: This also creates a record with user_id now.
-     */
-    public function analyze(Request $request)
-    {
-        if (! auth()->check()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Please login to upload images.',
-            ], 401);
-        }
-
-        $request->validate([
-            'image' => 'required|file|mimes:jpeg,png,jpg,gif,webp|max:20480',
-        ]);
-
-        try {
-            $file = $request->file('image');
-            $filename = time().'_'.$file->getClientOriginalName();
-
-            // Upload to Cloudinary FIRST — worker container has no shared disk
-            try {
-                $cloudName = config('services.cloudinary.cloud_name');
-                $apiKey = config('services.cloudinary.api_key');
-                $apiSecret = config('services.cloudinary.api_secret');
-
-                if (empty($cloudName) || empty($apiKey) || empty($apiSecret)) {
-                    throw new \Exception('Cloudinary credentials not configured');
-                }
-
-                Configuration::instance([
-                    'cloud' => [
-                        'cloud_name' => $cloudName,
-                        'api_key' => $apiKey,
-                        'api_secret' => $apiSecret,
-                    ],
-                    'url' => ['secure' => true],
-                ]);
-
-                $uploadApi = new UploadApi;
-                $uploadResult = $uploadApi->upload(
-                    $file->getRealPath(),
-                    [
-                        'folder' => 'tracegeo/analyses',
-                        'public_id' => pathinfo($filename, PATHINFO_FILENAME),
-                    ]
-                );
-
-                $imageUrl = $uploadResult['secure_url'];
-                $path = $imageUrl;          // keep variable name (URL now)
-                $fullPath = $imageUrl;      // keep variable name (URL now)
-
-                Log::info('📤 Uploaded to Cloudinary', [
-                    'url' => $imageUrl,
-                    'public_id' => $uploadResult['public_id'] ?? null,
-                ]);
-            } catch (\Exception $e) {
-                Log::error('❌ Cloudinary upload failed: '.$e->getMessage());
-
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Failed to upload image: '.$e->getMessage(),
-                ], 500);
-            }
-
-            // ✅ ADDED user_id here
-            $analysis = GeoAnalysis::create([
-                'user_id' => auth()->id(),
-                'status' => 'completed',
-                'stage' => 4,
-                'stage_label' => 'Complete',
-                'progress' => 100,
-                'image_path' => $path,
-                'image_url' => $imageUrl,
-                'result' => json_encode(array_merge($aiResult, ['image_url' => $imageUrl])),
-                'started_at' => now(),
-                'finished_at' => now(),
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'id' => $analysis->id,
-                'data' => array_merge($aiResult, [
-                    'id' => $analysis->id,
-                    'image_url' => $imageUrl,
-                ]),
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('❌ Sync analysis error: '.$e->getMessage());
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Error processing analysis: '.$e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * 📸 Get image data with compression
-     */
-    private function getImageData($file)
-    {
-        if (extension_loaded('gd') && function_exists('imagecreatefromstring')) {
-            try {
-                $compressed = $this->compressImage($file);
-                if ($compressed) {
-                    return $compressed;
-                }
-            } catch (\Exception $e) {
-                Log::warning('Image compression failed, using original: '.$e->getMessage());
-            }
-        }
-
-        return file_get_contents($file->path());
-    }
-
-    /**
-     * 🖼️ Compress image to reduce size
-     */
-    private function compressImage($file)
-    {
-        if (! function_exists('imagecreatefromstring')) {
-            return null;
-        }
-
-        $image = @imagecreatefromstring(file_get_contents($file->path()));
-        if (! $image) {
-            return null;
-        }
-
-        $width = imagesx($image);
-        $height = imagesy($image);
-
-        $maxDimension = 1024;
-        if ($width > $maxDimension || $height > $maxDimension) {
-            $ratio = min($maxDimension / $width, $maxDimension / $height);
-            $newWidth = (int) ($width * $ratio);
-            $newHeight = (int) ($height * $ratio);
-        } else {
-            $newWidth = $width;
-            $newHeight = $height;
-        }
-
-        $newImage = imagecreatetruecolor($newWidth, $newHeight);
-        imagecopyresampled($newImage, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-
-        ob_start();
-        imagejpeg($newImage, null, 80);
-        $compressed = ob_get_clean();
-
-        imagedestroy($image);
-        imagedestroy($newImage);
-
-        return $compressed;
-    }
-
-    /**
-     * 📋 Extract EXIF metadata
-     */
-    private function extractFullMetadata($file)
-    {
-        $data = [];
-
-        if (function_exists('exif_read_data')) {
-            $exif = @exif_read_data($file->path());
-            if ($exif) {
-                if (isset($exif['GPSLatitude']) && isset($exif['GPSLongitude'])) {
-                    $data['gps'] = [
-                        'latitude' => $this->gpsToDecimal($exif['GPSLatitude'], $exif['GPSLatitudeRef'] ?? 'N'),
-                        'longitude' => $this->gpsToDecimal($exif['GPSLongitude'], $exif['GPSLongitudeRef'] ?? 'E'),
-                    ];
-                }
-                $data['camera'] = [
-                    'make' => $exif['Make'] ?? null,
-                    'model' => $exif['Model'] ?? null,
-                ];
-                $data['datetime'] = $exif['DateTimeOriginal'] ?? $exif['DateTime'] ?? null;
-                $data['software'] = $exif['Software'] ?? null;
-                $data['copyright'] = $exif['Copyright'] ?? null;
-                $data['settings'] = [
-                    'aperture' => $exif['ApertureFNumber'] ?? null,
-                    'iso' => $exif['ISOSpeedRatings'] ?? null,
-                    'focal_length' => $exif['FocalLength'] ?? null,
-                ];
-            }
-        }
-
-        return $data;
-    }
-
-    /**
-     * 📍 Convert GPS to decimal
-     */
-    private function gpsToDecimal($gps, $ref)
-    {
-        $degrees = $gps[0] ?? 0;
-        $minutes = $gps[1] ?? 0;
-        $seconds = $gps[2] ?? 0;
-
-        $decimal = $degrees + ($minutes / 60) + ($seconds / 3600);
-
-        if (in_array($ref, ['S', 'W'])) {
-            $decimal = -$decimal;
-        }
-
-        return $decimal;
     }
 
     /**
