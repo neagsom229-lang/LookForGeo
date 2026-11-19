@@ -69,40 +69,54 @@ class AnalysisController extends Controller
                 'size' => $file->getSize(),
             ]);
 
-            // Upload to Cloudinary FIRST — the worker container has no local disk
-            try {
-                $cloudinary = new Cloudinary([
-                    'cloud' => [
-                        'cloud_name' => config('services.cloudinary.cloud_name'),
-                        'api_key' => config('services.cloudinary.api_key'),
-                        'api_secret' => config('services.cloudinary.api_secret'),
-                    ],
-                    'url' => ['secure' => true],
-                ]);
+            // Local-disk friendly storage: use Cloudinary in production, or when
+            // it is configured, and the local public disk otherwise. This keeps
+            // the whole flow working offline on a dev machine.
+            if (! $this->usingCloudinary()) {
+                $storedPath = $file->store('analyses', 'public');
+                $path = $storedPath;
+                $imageUrl = Storage::disk('public')->url($storedPath);
+                $fullPath = Storage::disk('public')->path($storedPath);
 
-                $uploadResult = $cloudinary->uploadApi()->upload(
-                    $file->getRealPath(),
-                    [
-                        'folder' => 'tracegeo/analyses',
-                        'resource_type' => 'image',
-                    ]
-                );
-
-                $imageUrl = $uploadResult['secure_url'];
-                $path = $imageUrl;
-                $fullPath = $imageUrl;  // keep variable name so downstream code doesn't break
-
-                Log::info('Uploaded to Cloudinary', [
+                Log::info('Stored upload on local public disk', [
+                    'path' => $storedPath,
                     'url' => $imageUrl,
-                    'public_id' => $uploadResult['public_id'] ?? null,
                 ]);
-            } catch (\Exception $e) {
-                Log::error('Cloudinary upload failed: '.$e->getMessage());
+            } else {
+                // Upload to Cloudinary FIRST — the worker container has no local disk
+                try {
+                    $cloudinary = new Cloudinary([
+                        'cloud' => [
+                            'cloud_name' => config('services.cloudinary.cloud_name'),
+                            'api_key' => config('services.cloudinary.api_key'),
+                            'api_secret' => config('services.cloudinary.api_secret'),
+                        ],
+                        'url' => ['secure' => true],
+                    ]);
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Failed to upload image. Please try again.',
-                ], 500);
+                    $uploadResult = $cloudinary->uploadApi()->upload(
+                        $file->getRealPath(),
+                        [
+                            'folder' => 'tracegeo/analyses',
+                            'resource_type' => 'image',
+                        ]
+                    );
+
+                    $imageUrl = $uploadResult['secure_url'];
+                    $path = $imageUrl;
+                    $fullPath = $imageUrl;  // keep variable name so downstream code doesn't break
+
+                    Log::info('Uploaded to Cloudinary', [
+                        'public_id' => $uploadResult['public_id'] ?? null,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Cloudinary upload failed: '.$e->getMessage());
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Image storage unavailable. The upload service is not configured correctly (missing CLOUDINARY_* values).',
+                    ], 503);
+                }
             }
             // Create the record
             $analysis = GeoAnalysis::create([
@@ -502,6 +516,21 @@ class AnalysisController extends Controller
                 'message' => 'Error fetching image: '.$e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Storage decision for uploads: Cloudinary only when it is configured
+     * (and we're not explicitly in local dev); otherwise the local public disk.
+     */
+    private function usingCloudinary(): bool
+    {
+        if (app()->environment('local')) {
+            return false;
+        }
+
+        return ! empty(config('services.cloudinary.cloud_name'))
+            && ! empty(config('services.cloudinary.api_key'))
+            && ! empty(config('services.cloudinary.api_secret'));
     }
 
     /**

@@ -1202,10 +1202,6 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 sessionStorage.getItem('uploadedImage');
             console.log('🧪 Full imgUrl:', imgUrl);
 
-            if (imgUrl && imgUrl.startsWith('/storage/')) {
-                imgUrl = imgUrl.replace('/storage/', '/uploads/');
-            }
-
             if (!resultMapInstance) {
                 resultMapInstance = L.map('resultMap', {
                     center: [lat, lng],

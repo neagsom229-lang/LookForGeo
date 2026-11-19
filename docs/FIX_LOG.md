@@ -49,3 +49,55 @@ uploads in local runs (or Step 3 lands the local-disk fallback).
 Auth middleware itself works; the local flow is *mostly* already healthy. The single
 structural blocker to "works locally with no production services" is the unconditional
 Cloudinary upload in `AnalysisController@store`.
+
+---
+
+## Step 1 — Make requirements less dumb (2026-11-19)
+
+Real requirements named:
+
+1. **Cloudinary is NOT required locally.** It exists so Render's split web/worker
+   services share the uploaded image by URL (fetch in `AnalyzeImageJob::loadImageData`).
+   A local-disk path removes the round trip and the hard failure (HTTP 500) when absent.
+2. **The identify-family endpoints + `identify.blade.php` + `app.blade.php` are dead.**
+   Evidence: `route:list` shows no route renders either page; `git grep` finds no caller
+   in live JS/docs (`analysis.js`, `home.blade.php`, `history`, `docs`, `sw.js`);
+   `docs.blade.php` documents only `/api/analyze`. `/api/identify*`, `/api/search`,
+   `/api/nearby`, `/api/extract-exif`, `/api/gemini-chat` have zero reachable callers.
+   → Deleted in Step 2 (UI + unrouted controller index). The API surface itself was kept
+     (documented REST contract for external/mobile clients) — flag for you: delete the
+     whole `LandmarkController` + `LandmarkRecognitionService` + `OpenStreetMapService` +
+     `GeocodingService` if you want the identify API gone too.
+3. **Web session AND Sanctum** — the live UI uses only web sessions; Sanctum tokens serve
+   the documented REST API (`/api/analyze`, `/api/history`, …). Both kept; both tested.
+
+## Step 2 — Delete (2026-11-19)
+
+Deleted unreachable UI (`3ee6153`), verified with `route:list` + `git grep`:
+
+- `resources/views/landmark/identify.blade.php` — no route rendered it (unrouted controller index)
+- `resources/views/app.blade.php` — no route rendered it
+- `public/js/identify.js`, `public/js/app.js` — loaded only by those two views
+- `public/vendor/leaflet-control-geocoder/**` — referenced only by those two views (they load the unpkg CDN anyway)
+- `LandmarkController@index` — unrouted render of the deleted view
+
+Tests still 16/16 green after deletion.
+
+## Step 3 — Simplify and fix (2026-11-19, in progress)
+
+FAIL fixes landed:
+
+| Fix | Change | Commit |
+|-----|--------|--------|
+| `.env.example` rewritten as safe local template | APP_ENV=local, sqlite, database queue, file session, no URL, prod-values-only comment, Cloudinary optional | (this commit) |
+| Boot guard against prod DB locally | New `App\Support\LocalDatabaseGuard` — if `APP_ENV=local` and the default connection is `pgsql` OR its host/URL contains `render.com`/`dpg-`, throw `RuntimeException` at boot. Never prints connection values. Unit-tested 4× | (this commit) |
+| Local-disk upload fallback | `AnalysisController@store`: `usingCloudinary()` = false in `APP_ENV=local` or when Cloudinary is unconfigured → upload stored on `public` disk, `image_url=/storage/analyses/...`, job reads from local disk. Production behavior unchanged (prod env + Cloudinary → Cloudinary path). Cloudinary-missing user error is now **503** with an explicit message (was 500) | (this commit) |
+| Frontend `/storage/` → `/uploads/` rewrite removed | `public/js/analysis.js` — the rewrite broke the storage symlink URL; `/storage/...` is public via `storage:link` | (this commit) |
+| Deterministic offline tests | `phpunit.xml` pins `DATABASE_URL=sqlite:///:memory:` + blanks `CLOUDINARY_*` (tests were able to hit the prod-ish `.env` before this — see `16999f6`) | (this commit) |
+
+Verified: `composer test` → 21/21 green (incl. new `LocalUploadFallbackTest` — offline
+upload→disk→completed pipeline — and `LocalDatabaseGuardTest`).
+`php artisan db:show` still healthy.
+
+Pending (Step 3/4): `composer dev`, `scripts/setup.ps1`, `scripts/smoke.ps1`, CI wiring,
+`README` structure refresh (identify references), live Gemini verification (needs your dev key).
