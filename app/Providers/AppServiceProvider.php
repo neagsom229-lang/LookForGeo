@@ -7,8 +7,13 @@ use App\Services\IpGeolocationService;
 use App\Services\LandmarkRecognitionService;
 use App\Services\PlacesService;
 use App\Services\WeatherService;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Facades\URL; // <-- Add this import
+
+ // <-- Add this import
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -29,8 +34,8 @@ class AppServiceProvider extends ServiceProvider
         }
 
         // Rate limiter (migrated from RouteServiceProvider for Laravel 11+)
-        \Illuminate\Support\Facades\RateLimiter::for('api', function (\Illuminate\Http\Request $request) {
-            return \Illuminate\Cache\RateLimiting\Limit::perMinute(60)
+        RateLimiter::for('api', function (Request $request) {
+            return Limit::perMinute(60)
                 ->by($request->user()?->id ?: $request->ip());
         });
     }
