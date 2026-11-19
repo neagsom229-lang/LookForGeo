@@ -190,6 +190,11 @@ class GeminiClient
                 'topP' => 0.95,             // ignored by gemini-3.x, kept for 2.x fallback
                 'topK' => 40,               // ignored by gemini-3.x, kept for 2.x fallback
                 // gemini-3.x: 'low' | 'high' — 'low' for speed, 'high' for accuracy
+                // Structured output: ask the API for raw JSON instead of a
+                // fenced markdown block, so the parser can't be tricked by
+                // free-text wrappers. The tolerant parseAIResponse fallback
+                // is kept as a safety net for models that ignore this flag.
+                'responseMimeType' => 'application/json',
             ],
         ];
 

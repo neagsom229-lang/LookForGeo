@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -82,27 +83,29 @@ class LandmarkRecognitionService
     private function getModel(): string
     {
         $configured = config('services.gemini.model', $this->defaultModel);
-        
+
         // ✅ If configured model is in available list, use it
         if (in_array($configured, $this->availableModels)) {
             return $configured;
         }
-        
+
         // ✅ If configured model has a fallback
         if (isset($this->modelFallback[$configured])) {
             $fallback = $this->modelFallback[$configured];
             Log::info('LandmarkRecognitionService: Using fallback model', [
                 'configured' => $configured,
-                'using' => $fallback
+                'using' => $fallback,
             ]);
+
             return $fallback;
         }
-        
+
         // ✅ Default to gemini-3.6-flash
         Log::info('LandmarkRecognitionService: Using default model', [
             'configured' => $configured,
-            'using' => $this->defaultModel
+            'using' => $this->defaultModel,
         ]);
+
         return $this->defaultModel;
     }
 
@@ -123,7 +126,7 @@ class LandmarkRecognitionService
 
         $hints = $this->sanitizeHints($hints);
         $hash = md5_file($imagePath);
-        $cacheKey = "landmark_{$hash}_{$mode}_" . $this->hintFingerprint($hints);
+        $cacheKey = "landmark_{$hash}_{$mode}_".$this->hintFingerprint($hints);
 
         if (Cache::has($cacheKey)) {
             return Cache::get($cacheKey);
@@ -133,6 +136,7 @@ class LandmarkRecognitionService
             $apiKey = config('services.gemini.key');
             if (empty($apiKey)) {
                 Log::error('LandmarkRecognitionService: GEMINI_API_KEY is not configured');
+
                 return $this->errorResponse('API key is missing. Please check your .env file.', 'missing_key');
             }
 
@@ -153,8 +157,8 @@ class LandmarkRecognitionService
             $endpoints = [
                 "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent",
                 "https://generativelanguage.googleapis.com/v1/models/{$model}:generateContent",
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
             ];
 
             $lastError = null;
@@ -163,8 +167,8 @@ class LandmarkRecognitionService
 
             foreach ($endpoints as $url) {
                 // Replace {model} placeholder if present
-                $finalUrl = str_replace('{' . $model . '}', $model, $url);
-                
+                $finalUrl = str_replace('{'.$model.'}', $model, $url);
+
                 Log::info('LandmarkRecognitionService: Trying endpoint', ['url' => $finalUrl]);
 
                 $payload = [
@@ -188,6 +192,8 @@ class LandmarkRecognitionService
                         'maxOutputTokens' => $mode === 'detailed' ? 2400 : 1600,
                         'topP' => 0.8,
                         'topK' => 40,
+                        // Structured output: raw JSON, no markdown fence.
+                        'responseMimeType' => 'application/json',
                     ],
                 ];
 
@@ -196,8 +202,8 @@ class LandmarkRecognitionService
                         'x-goog-api-key' => $apiKey,
                         'Content-Type' => 'application/json',
                     ])
-                    ->timeout($this->timeout)
-                    ->post($finalUrl, $payload);
+                        ->timeout($this->timeout)
+                        ->post($finalUrl, $payload);
 
                     if ($response->successful()) {
                         $usedUrl = $finalUrl;
@@ -205,27 +211,28 @@ class LandmarkRecognitionService
                         break;
                     }
 
-                    $lastError = $response->status() . ': ' . substr($response->body(), 0, 200);
+                    $lastError = $response->status().': '.substr($response->body(), 0, 200);
                     Log::warning('LandmarkRecognitionService: Endpoint failed', [
                         'url' => $finalUrl,
                         'status' => $response->status(),
-                        'error' => $lastError
+                        'error' => $lastError,
                     ]);
                 } catch (\Exception $e) {
                     Log::warning('LandmarkRecognitionService: Endpoint exception', [
                         'url' => $finalUrl,
-                        'error' => $e->getMessage()
+                        'error' => $e->getMessage(),
                     ]);
                     $lastError = $e->getMessage();
                 }
             }
 
             // ✅ If all endpoints fail, return simulated data instead of error
-            if (!$response || !$response->successful()) {
+            if (! $response || ! $response->successful()) {
                 Log::error('LandmarkRecognitionService: All endpoints failed', [
                     'last_error' => $lastError,
-                    'model' => $model
+                    'model' => $model,
                 ]);
+
                 return $this->getSimulatedResponse($imagePath);
             }
 
@@ -236,6 +243,7 @@ class LandmarkRecognitionService
                 Log::error('LandmarkRecognitionService: no content found', [
                     'raw' => substr((string) $response->body(), 0, 1000),
                 ]);
+
                 return $this->getSimulatedResponse($imagePath);
             }
 
@@ -247,6 +255,7 @@ class LandmarkRecognitionService
             $result = json_decode($content, true);
             if (json_last_error() !== JSON_ERROR_NONE || ! is_array($result)) {
                 Log::error('LandmarkRecognitionService: failed to parse model output', ['raw' => $content]);
+
                 return $this->getSimulatedResponse($imagePath);
             }
 
@@ -263,14 +272,16 @@ class LandmarkRecognitionService
             ]);
 
             return $result;
-        } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            Log::error('LandmarkRecognitionService: connection error: ' . $e->getMessage());
+        } catch (ConnectionException $e) {
+            Log::error('LandmarkRecognitionService: connection error: '.$e->getMessage());
+
             return $this->getSimulatedResponse($imagePath);
         } catch (\Throwable $e) {
-            Log::error('LandmarkRecognitionService: ' . $e->getMessage(), [
+            Log::error('LandmarkRecognitionService: '.$e->getMessage(), [
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
             ]);
+
             return $this->getSimulatedResponse($imagePath);
         }
     }
@@ -281,7 +292,7 @@ class LandmarkRecognitionService
     private function getSimulatedResponse(string $imagePath): array
     {
         $filename = basename($imagePath);
-        
+
         // Try to extract location from filename or use default
         $name = 'Cambridge, Massachusetts';
         $lat = 42.3611;
@@ -322,8 +333,8 @@ class LandmarkRecognitionService
             'candidate_locations' => [
                 ['name' => 'Boston, Massachusetts', 'latitude' => 42.3601, 'longitude' => -71.0589, 'reason_ruled_out' => 'Architecture style matched but location was slightly off'],
                 ['name' => 'New York City', 'latitude' => 40.7128, 'longitude' => -74.0060, 'reason_ruled_out' => 'Street layout was different'],
-                ['name' => 'Cambridge, MA', 'latitude' => 42.3611, 'longitude' => -71.1041, 'reason_ruled_out' => '✓ CONFIRMED TARGET!']
-            ]
+                ['name' => 'Cambridge, MA', 'latitude' => 42.3611, 'longitude' => -71.1041, 'reason_ruled_out' => '✓ CONFIRMED TARGET!'],
+            ],
         ];
     }
 
@@ -333,12 +344,12 @@ class LandmarkRecognitionService
     private function extractContent(array $body): ?string
     {
         $candidates = $body['candidates'] ?? [];
-        if (!empty($candidates)) {
+        if (! empty($candidates)) {
             $content = $candidates[0]['content'] ?? null;
             if ($content) {
                 $parts = $content['parts'] ?? [];
                 foreach ($parts as $part) {
-                    if (isset($part['text']) && !empty($part['text'])) {
+                    if (isset($part['text']) && ! empty($part['text'])) {
                         return $part['text'];
                     }
                 }
@@ -359,13 +370,14 @@ class LandmarkRecognitionService
     private function optimizeImage(string $path): ?array
     {
         try {
-            if (!extension_loaded('gd')) {
+            if (! extension_loaded('gd')) {
                 Log::warning('LandmarkRecognitionService: GD extension not loaded, using raw data');
                 $data = file_get_contents($path);
                 if ($data === false) {
                     return null;
                 }
                 $mimeType = mime_content_type($path) ?: 'image/jpeg';
+
                 return ['data' => base64_encode($data), 'mime_type' => $mimeType];
             }
 
@@ -382,6 +394,7 @@ class LandmarkRecognitionService
                 }
 
                 $mimeType = mime_content_type($path) ?: 'image/jpeg';
+
                 return ['data' => base64_encode($data), 'mime_type' => $mimeType];
             }
 
@@ -411,6 +424,7 @@ class LandmarkRecognitionService
                     if ($data === false) {
                         return null;
                     }
+
                     return ['data' => base64_encode($data), 'mime_type' => $mimeType];
             }
 
@@ -420,6 +434,7 @@ class LandmarkRecognitionService
                 if ($data === false) {
                     return null;
                 }
+
                 return ['data' => base64_encode($data), 'mime_type' => $mimeType];
             }
 
@@ -428,14 +443,14 @@ class LandmarkRecognitionService
                 $newWidth = (int) round($width * $scale);
                 $newHeight = (int) round($height * $scale);
                 $resized = imagecreatetruecolor($newWidth, $newHeight);
-                
+
                 if ($mimeType === 'image/png') {
                     imagealphablending($resized, false);
                     imagesavealpha($resized, true);
                     $transparent = imagecolorallocatealpha($resized, 0, 0, 0, 127);
                     imagefilledrectangle($resized, 0, 0, $newWidth, $newHeight, $transparent);
                 }
-                
+
                 imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
                 imagedestroy($image);
                 $image = $resized;
@@ -452,7 +467,7 @@ class LandmarkRecognitionService
 
             return ['data' => base64_encode($data), 'mime_type' => 'image/jpeg'];
         } catch (\Throwable $e) {
-            Log::warning('LandmarkRecognitionService: image optimization failed: ' . $e->getMessage());
+            Log::warning('LandmarkRecognitionService: image optimization failed: '.$e->getMessage());
 
             try {
                 $data = file_get_contents($path);
@@ -460,60 +475,14 @@ class LandmarkRecognitionService
                     return null;
                 }
                 $mimeType = mime_content_type($path) ?: 'image/jpeg';
+
                 return ['data' => base64_encode($data), 'mime_type' => $mimeType];
             } catch (\Throwable $e2) {
-                Log::error('LandmarkRecognitionService: Last resort raw data failed: ' . $e2->getMessage());
+                Log::error('LandmarkRecognitionService: Last resort raw data failed: '.$e2->getMessage());
+
                 return null;
             }
         }
-    }
-
-    private function responseSchema(string $mode): array
-    {
-        $properties = [
-            'landmark_name' => ['type' => 'STRING', 'nullable' => true],
-            'city' => ['type' => 'STRING', 'nullable' => true],
-            'country' => ['type' => 'STRING', 'nullable' => true],
-            'region' => ['type' => 'STRING', 'nullable' => true],
-            'latitude' => ['type' => 'NUMBER', 'nullable' => true],
-            'longitude' => ['type' => 'NUMBER', 'nullable' => true],
-            'confidence' => ['type' => 'INTEGER'],
-            'description' => ['type' => 'STRING'],
-            'category' => [
-                'type' => 'STRING', 'nullable' => true,
-                'enum' => ['historical', 'natural', 'modern', 'religious', 'cultural', 'scenic', 'architectural', 'residential', 'urban', 'rural'],
-            ],
-            'sub_category' => ['type' => 'STRING', 'nullable' => true],
-            'tags' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-            'reasoning' => ['type' => 'STRING', 'nullable' => true],
-            'candidate_locations' => [
-                'type' => 'ARRAY',
-                'nullable' => true,
-                'items' => [
-                    'type' => 'OBJECT',
-                    'properties' => [
-                        'name' => ['type' => 'STRING'],
-                        'latitude' => ['type' => 'NUMBER'],
-                        'longitude' => ['type' => 'NUMBER'],
-                        'reason_ruled_out' => ['type' => 'STRING'],
-                    ],
-                    'required' => ['name', 'latitude', 'longitude', 'reason_ruled_out'],
-                ],
-            ],
-        ];
-
-        if ($mode === 'detailed') {
-            $properties += [
-                'historical_context' => ['type' => 'STRING', 'nullable' => true],
-                'architectural_style' => ['type' => 'STRING', 'nullable' => true],
-                'similar_locations' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-                'climate_notes' => ['type' => 'STRING', 'nullable' => true],
-                'fun_fact' => ['type' => 'STRING', 'nullable' => true],
-                'unesco_status' => ['type' => 'STRING', 'nullable' => true],
-            ];
-        }
-
-        return ['type' => 'OBJECT', 'properties' => $properties, 'required' => ['confidence', 'description']];
     }
 
     private function enhancedRefineCoordinates(array $result, array $hints = []): array
@@ -536,6 +505,7 @@ class LandmarkRecognitionService
                     $result['longitude'] = $coords['lng'];
                     $result['coordinate_source'] = 'known_landmark';
                     $result['confidence'] = min(($result['confidence'] ?? 50) + 5, 98);
+
                     return $result;
                 }
             }
@@ -553,16 +523,16 @@ class LandmarkRecognitionService
             $query = $city;
         }
 
-        if (!empty($query)) {
+        if (! empty($query)) {
             $geo = $this->geocoder->geocode($query, $hints['lat'] ?? null, $hints['lng'] ?? null);
-            
-            if (!empty($geo['lat']) && !empty($geo['lng'])) {
+
+            if (! empty($geo['lat']) && ! empty($geo['lng'])) {
                 $geoLat = (float) $geo['lat'];
                 $geoLng = (float) $geo['lng'];
 
                 if (is_numeric($aiLat) && is_numeric($aiLng) && $aiLat != 0 && $aiLng != 0) {
                     $distanceKm = $this->geocoder->haversineKm((float) $aiLat, (float) $aiLng, $geoLat, $geoLng);
-                    
+
                     if ($distanceKm > 1500) {
                         Log::info('LandmarkRecognitionService: Geocode far from AI estimate, using AI coordinates', [
                             'distance_km' => round($distanceKm),
@@ -570,6 +540,7 @@ class LandmarkRecognitionService
                         $result['latitude'] = (float) $aiLat;
                         $result['longitude'] = (float) $aiLng;
                         $result['coordinate_source'] = 'ai_estimate_fallback';
+
                         return $result;
                     }
                 }
@@ -578,10 +549,11 @@ class LandmarkRecognitionService
                 $result['longitude'] = $geoLng;
                 $result['coordinate_source'] = 'geocoded';
                 $result['confidence'] = min(($result['confidence'] ?? 50) + 5, 98);
-                
+
                 Log::info('LandmarkRecognitionService: Using geocoded coordinates', [
-                    'coords' => "$geoLat, $geoLng"
+                    'coords' => "$geoLat, $geoLng",
                 ]);
+
                 return $result;
             }
         }
@@ -590,6 +562,7 @@ class LandmarkRecognitionService
             $result['latitude'] = (float) $aiLat;
             $result['longitude'] = (float) $aiLng;
             $result['coordinate_source'] = 'ai_estimate';
+
             return $result;
         }
 
@@ -597,13 +570,13 @@ class LandmarkRecognitionService
         $result['longitude'] = 0;
         $result['coordinate_source'] = 'unknown';
         $result['confidence'] = max(($result['confidence'] ?? 50) - 30, 5);
-        
+
         return $result;
     }
 
     private function enhancedPrompt(string $mode, array $hints = []): string
     {
-        $base = <<<PROMPT
+        $base = <<<'PROMPT'
 You are a geography expert estimating where this photo was taken.
 
 ⚠️ CRITICAL: Return ONLY valid JSON. No markdown, no extra text.
