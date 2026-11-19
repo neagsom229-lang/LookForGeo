@@ -262,6 +262,20 @@ try {
                 if ($analysisId) {
                     Write-Host "Analysis id: $analysisId"
 
+                    # ---- B4a. NO worker running yet: status must stay pending
+                    # and the local hint must appear once queued > 20s.
+                    # Backdate the row instead of sleeping 20s.
+                    $bd = "\App\Models\GeoAnalysis::where('id',$analysisId)->update(['created_at' => now()->subMinutes(3), 'started_at' => now()->subMinutes(3)]); 'ok';"
+                    & php artisan tinker --execute="$bd" 2>$null | Out-Null
+                    $pend = (& curl.exe -s -c $jar -b $jar "$base/api/analyze/$analysisId/status") -join "`n"
+                    $pendJson = $pend | ConvertFrom-Json
+                    if ($pendJson.status -eq 'pending' -and $pendJson.queued_seconds -ge 20 -and "$($pendJson.hint)" -match 'queue worker not running') {
+                        Write-Host "PASS: no worker -> status=pending queued_seconds=$($pendJson.queued_seconds) hint='$($pendJson.hint)'"
+                    } else {
+                        Write-Host "FAIL: no-worker check: status=$($pendJson.status) queued_seconds=$($pendJson.queued_seconds) hint=$($pendJson.hint)"
+                        $failures++
+                    }
+
                     # Run one job from the queue as a separate process
                     $workerOut = & php artisan queue:work --once --tries=1 --timeout=180 2>&1 | Out-String
                     if ($workerOut -match 'DONE|Processed|Completed|Success' -or $LASTEXITCODE -eq 0) {
