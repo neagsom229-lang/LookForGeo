@@ -43,6 +43,9 @@
     },
     "scripts": {
     "test": "phpunit",
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1",
+    "setup-local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1",
+    "smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke.ps1",
     "post-autoload-dump": [
         "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
         "@php artisan package:discover --ansi"

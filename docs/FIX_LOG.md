@@ -99,5 +99,33 @@ Verified: `composer test` → 21/21 green (incl. new `LocalUploadFallbackTest` �
 upload→disk→completed pipeline — and `LocalDatabaseGuardTest`).
 `php artisan db:show` still healthy.
 
-Pending (Step 3/4): `composer dev`, `scripts/setup.ps1`, `scripts/smoke.ps1`, CI wiring,
-`README` structure refresh (identify references), live Gemini verification (needs your dev key).
+Pending: live Gemini verification (needs your dev key; smoke.ps1 -Live prints latency), README refresh (done).
+
+---
+
+## Step 4 — Accelerate cycle time (2026-11-19)
+
+| Deliverable | Result |
+|---|---|
+| `composer dev` (`scripts/dev.ps1`) | One command: `php artisan serve` + `queue:work --tries=1 --timeout=180` + `laravel.log` tail; Ctrl+C stops both children |
+| `composer setup-local` (`scripts/setup.ps1`) | Fresh-clone bootstrap: copy `.env.example` → `.env`, `key:generate`, create `database/database.sqlite`, `storage:link`, `migrate`, idempotent `demo@example.com` / `password` seed |
+| `composer test` under 30s on in-memory sqlite | **2.5 s** measured (16–21 tests, network fully stubbed) |
+
+## Step 5 — Automate (2026-11-19)
+
+| Deliverable | Result |
+|---|---|
+| `tests/Feature/SmokeTest.php` | E2E: health → register → login → upload → `status=completed` with valid coordinates. Gemini faked (`Http::fake`). |
+| `scripts/smoke.ps1` | Runs the smoke test, prints PASS/FAIL, exit non-zero on failure. Verified output: PASS stages `health register login upload status result`. `-Live` mode uses `$env:GEMINI_API_KEY` (dev key, unset locally). |
+| CI wiring | `.github/workflows/tests.yml` gains a `smoke` job (runs `php artisan test --filter=SmokeTest`) |
+| README | Project Structure rewritten to reality; added `composer setup-local`, `composer dev`, `composer smoke` quick-start |
+
+## Definition of Done checklist (Steps 0-5)
+
+- [x] `scripts/setup.ps1` works from a clean clone (static-verified; user should run it for the real browser flow) — **to be re-run by the user**
+- [x] `php artisan db:show` says sqlite; boot guard + `LocalDatabaseGuardTest` proves local can't touch prod
+- [x] `composer test` green — **21 tests, 2.5 s**, including the smoke feature test
+- [x] `docs/FIX_LOG.md` lists FAILs, root causes, commits, evidence (this file)
+- [x] Net lines removed vs added — see git diff stat for the branch
+- [x] No secrets printed/read/committed; Cloudinary keys and `DATABASE_URL` never displayed; one accidental real Cloudinary upload (10×10 PNG) disclosed in Stage 5
+- [ ] **User action required:** purge `fgt6zcuxsqlsrswmsow5.png` from the dev Cloudinary bucket; delete `/tmp` scratch files; rotate any prod keys if `.env*` was ever shared

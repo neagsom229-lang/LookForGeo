@@ -30,6 +30,24 @@ jobs:
       - name: Run tests
         run: composer test
 
+  smoke:
+    name: Smoke test (offline, fake Gemini)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction
+
+      - name: Run E2E smoke test
+        run: php artisan test --filter=SmokeTest
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest

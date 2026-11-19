@@ -58,7 +58,26 @@ Ensure the following tools are installed on your host system:
 - **PHP 8.2+** with extensions: `pdo_sqlite`, `pdo_pgsql`, `curl`, `mbstring`, `openssl`, `gd`, `exif`
 - **Composer 2.x**
 
-### Installation
+### Installation (fast path)
+
+One command bootstraps a fresh clone: copies `.env.example` → `.env`, generates the
+app key, creates `database/database.sqlite`, links storage, runs migrations and seeds a
+demo user (`demo@example.com` / `password`):
+
+```bash
+composer setup-local
+# add your GEMINI_API_KEY to .env when you have one
+composer dev
+# open http://127.0.0.1:8000 — register or use the demo account
+```
+
+To prove the whole flow works end-to-end offline:
+
+```bash
+composer smoke     # register → login → upload → completed analysis (fake Gemini)
+```
+
+### Installation (manual)
 
 **1. Clone & install dependencies**
 
@@ -234,30 +253,33 @@ app/
 │   │   ├── AuthController.php        # User registration, login, session states
 │   │   ├── GeminiController.php      # Direct Gemini chat interface
 │   │   ├── HomeController.php        # Dashboard stats & history
-│   │   ├── LandmarkController.php    # Landmark search and coordinate resolution
-│   │   ├── TestController.php        # Dev-only API probes (auth-gated)
+│   │   ├── LandmarkController.php    # Landmark identify/search API surface
 │   │   └── Api/AnalysisApiController.php # Stateless API (health, history, analyze)
 │   ├── Middleware/
 │   │   ├── AuthenticateAny.php       # Web session OR Sanctum guard (registered alias: auth.any)
 │   │   └── ForceCsp.php              # Content Security Policy header injector
-│   └── Requests/
-│       └── StoreAnalysisImageRequest.php # Shared image-upload validation
+│   ├── Requests/
+│   │   └── StoreAnalysisImageRequest.php # Shared image-upload validation
 ├── Jobs/
 │   └── AnalyzeImageJob.php           # Asynchronous Gemini vision processing pipeline
 ├── Models/
 │   ├── GeoAnalysis.php               # Analysis records ($appends-serialized)
 │   └── … (User, Landmark, Favorite)
 ├── Providers/
-│   ├── AppServiceProvider.php        # Service bindings & forceScheme helpers
+│   ├── AppServiceProvider.php        # Service bindings, rate limiter, prod-DB boot guard
 │   └── GeminiServiceProvider.php     # Gemini dependency registration
-└── Services/
-    ├── Gemini/
-    │   ├── GeminiClient.php          # HTTP transport, retries, model fallback
-    │   ├── GeminiPrompt.php          # Prompt builder + EXIF formatting
-    │   └── GeminiResultEnhancer.php  # Enrichment & field validation
-    ├── GeminiService.php             # Thin orchestrator over the three
-    ├── LandmarkRecognitionService.php # /api/identify pipeline
-    └── … (Weather/OSM/Places/Geocoding/IpGeolocation)
+├── Services/
+│   ├── Gemini/
+│   │   ├── GeminiClient.php          # HTTP transport, retries, model fallback, generateText
+│   │   ├── GeminiPrompt.php          # Prompt builder + EXIF formatting
+│   │   ├── GeminiResultEnhancer.php  # Enrichment & field validation
+│   │   └── GeminiResultValidator.php # Strict schema validation of AI output
+│   ├── GeminiService.php             # Thin orchestrator
+│   ├── LandmarkRecognitionService.php # /api/identify pipeline
+│   ├── OpenStreetMapService.php      # Free OSM enrichment
+│   └── GeocodingService.php          # Shared geocode helper
+└── Support/
+    └── LocalDatabaseGuard.php        # Refuses local runs pointed at prod database
 
 resources/views/
 ├── home.blade.php                    # Landing layout & direct upload form
@@ -265,14 +287,21 @@ resources/views/
 ├── auth/
 │   ├── login.blade.php               # Login interface
 │   └── register.blade.php            # Registration interface
-└── landmark/
-    └── identify.blade.php            # Map pinpoint picker
+├── docs.blade.php                    # Public API documentation
+├── history.blade.php                 # History list
+├── how-it-works.blade.php            # Explainer page
+└── partials/how-it-works.blade.php   # Shared explainer partial
 
 public/
 ├── js/analysis.js                    # Map, 3D globe, polling, UI logic
 ├── css/analysis.css                  # Styles for the analysis screen
 ├── sw.js                             # Dev-safe Service Worker (network-first)
 └── …
+
+scripts/
+├── dev.ps1                           # One-command local dev (server + worker + logs)
+├── setup.ps1                         # Bootstrap fresh clone (idempotent)
+└── smoke.ps1                         # End-to-end smoke test (fake Gemini, offline)
 
 routes/
 ├── web.php                           # Web interface & session-authenticated routes
@@ -286,8 +315,11 @@ routes/
 After setting up the project, verify the app boots and the test suite passes:
 
 ```bash
-# Run the test suite (PHPUnit)
+# Run the test suite (PHPUnit, SQLite in-memory, offline)
 composer test
+
+# End-to-end smoke test (register → login → upload → completed, fake Gemini)
+composer smoke
 
 # Sanity-check the route table
 php artisan route:list
