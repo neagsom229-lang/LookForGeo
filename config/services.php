@@ -38,10 +38,12 @@ return [
     |--------------------------------------------------------------------------
     */
     'gemini' => [
-    'key' => env('GEMINI_API_KEY'),
-    'model' => env('GEMINI_MODEL', 'gemini-3.6-flash'),
-    'max_total_time' => env('GEMINI_MAX_TOTAL_TIME', 120),
-],
+        'key' => env('GEMINI_API_KEY'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.6-flash'),
+        'max_total_time' => env('GEMINI_MAX_TOTAL_TIME', 120),
+        // Override to point at a fake endpoint (smoke tests). Default is the real REST base path.
+        'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -51,8 +53,7 @@ return [
     'openweather' => [
         'key' => env('OPENWEATHER_API_KEY'),
     ],
-      
-    
+
     'what3words' => [
         'key' => env('WHAT3WORDS_API_KEY'),
     ],
@@ -66,8 +67,8 @@ return [
         'places_key' => env('GOOGLE_MAPS_KEY'),
     ],
     'google_maps' => [
-    'embed_key' => env('GOOGLE_MAPS_EMBED_KEY'),
-],
+        'embed_key' => env('GOOGLE_MAPS_EMBED_KEY'),
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -78,8 +79,8 @@ return [
         'key' => env('TIMEZONEDB_API_KEY'),
     ],
     'cloudinary' => [
-    'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
-    'api_key' => env('CLOUDINARY_API_KEY'),
-    'api_secret' => env('CLOUDINARY_API_SECRET'),
-],
+        'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
+        'api_key' => env('CLOUDINARY_API_KEY'),
+        'api_secret' => env('CLOUDINARY_API_SECRET'),
+    ],
 ];

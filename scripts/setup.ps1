@@ -37,6 +37,27 @@ if (-not (Test-Path (Join-Path $root '.env'))) {
         $issues += 'DATABASE_URL is set (production wiring must live in the Render dashboard only)'
     }
 
+    # Duplicate keys (names only) -- e.g. a leftover pgsql line shadowing the sqlite one
+    $keyCounts = @{}
+    foreach ($line in (Get-Content (Join-Path $root '.env'))) {
+        if ($line -match '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=') {
+            $k = $Matches[1]
+            if ($keyCounts.ContainsKey($k)) { $keyCounts[$k]++ } else { $keyCounts[$k] = 1 }
+        }
+    }
+    foreach ($k in $keyCounts.Keys) {
+        if ($keyCounts[$k] -gt 1) {
+            $issues += "duplicate key in .env: $k"
+        }
+    }
+
+    # Any value containing onrender.com (key names only, never the values)
+    foreach ($line in (Get-Content (Join-Path $root '.env'))) {
+        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=.*onrender\.com') {
+            $issues += "value contains onrender.com: $($Matches[1])"
+        }
+    }
+
     if ($issues.Count -gt 0) {
         Write-Host ""
         Write-Host "WARNING: .env looks contaminated with production settings (key names only):" -ForegroundColor Red

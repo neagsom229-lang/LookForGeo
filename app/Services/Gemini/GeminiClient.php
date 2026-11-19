@@ -20,6 +20,8 @@ class GeminiClient
 
     protected $maxTotalTimeSeconds;
 
+    protected $baseUrl;
+
     public function __construct()
     {
         $this->apiKey = config('services.gemini.key');
@@ -30,6 +32,12 @@ class GeminiClient
         $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.5-flash');
         $this->requestTimeout = config('services.gemini.timeout', 60);
         $this->maxRetries = config('services.gemini.retries', 2);
+        // Base URL for the Gemini REST API. Overridable for offline smoke
+        // tests (GEMINI_BASE_URL=http://127.0.0.1:<port>/v1beta).
+        $this->baseUrl = rtrim((string) config(
+            'services.gemini.base_url',
+            'https://generativelanguage.googleapis.com/v1beta'
+        ), '/');
         // Hard ceiling on total wall-clock time across primary + fallback +
         // all retries combined. Without this, timeout(60) * retries(2+1)
         // attempts * two models can add up to ~6 minutes — long past
@@ -166,7 +174,7 @@ class GeminiClient
 
         $timeoutSeconds = $timeoutSeconds ?? $this->requestTimeout;
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$this->apiKey}";
+        $url = "{$this->baseUrl}/models/{$model}:generateContent?key={$this->apiKey}";
 
         $compressedImage = $this->compressImageIfNeeded($imageData);
 
@@ -421,7 +429,7 @@ class GeminiClient
             throw new \RuntimeException('Gemini API key not configured');
         }
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->primaryModel}:generateContent?key={$this->apiKey}";
+        $url = "{$this->baseUrl}/models/{$this->primaryModel}:generateContent?key={$this->apiKey}";
 
         $payload = [
             'contents' => [
