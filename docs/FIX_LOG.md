@@ -129,3 +129,15 @@ Pending: live Gemini verification (needs your dev key; smoke.ps1 -Live prints la
 - [x] Net lines removed vs added — see git diff stat for the branch
 - [x] No secrets printed/read/committed; Cloudinary keys and `DATABASE_URL` never displayed; one accidental real Cloudinary upload (10×10 PNG) disclosed in Stage 5
 - [ ] **User action required:** purge `fgt6zcuxsqlsrswmsow5.png` from the dev Cloudinary bucket; delete `/tmp` scratch files; rotate any prod keys if `.env*` was ever shared
+
+## Stalled-analysis UX round (2026-11-19) - "finish and stop" items 1-5
+
+| Item | Change | Evidence |
+|---|---|---|
+| 1. status hint | `AnalysisController::status` returns `queued_seconds` (+ local/testing `hint`) once pending > 20s; uploads now start at `status=pending` (job flips to processing). Carbon 3 signed diff fixed with abs(). | `QueueHintTest` 4 tests green |
+| 2. analysis.js | renders `hint` in progress card (`pcHint`), backoff ladder 2s/3s/5s (`nextPollDelay`), stops on `failed` and shows `data.error`; hint hidden once worker picks up. | `node --check` exit 0 |
+| 3. job failure | no code change needed - job already writes failed+message; test added. | `JobFailureTest` green |
+| 4. dev.ps1 | monitors worker/server every 500ms; death prints `!!! QUEUE WORKER DIED ...` in red and exits 1 (exited-code label handles PS 5.1 empty-ExitCode quirk). | probe: killed worker -> loud error, dev exited, 0 php leftovers |
+| 5. smoke | no-worker check (backdates row via tinker): `status=pending queued_seconds=180 hint='queue worker not running? run composer dev'`; then worker completes flow. | full run: 12 PASS, `LASTEXITCODE=0`, php before=0 after=0 |
+
+Suite: **40 tests, 125 assertions OK**. Branch `fix/local-workflow`: 21 commits, not pushed.
