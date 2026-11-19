@@ -1,45 +1,52 @@
 <?php
 
+use App\Http\Controllers\Api\AnalysisApiController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\GeminiController;
 use App\Http\Controllers\LandmarkController;
 use App\Http\Controllers\TestController;
-use App\Http\Controllers\GeminiController;
-use App\Http\Controllers\Api\AnalysisApiController;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
-
-// ============================================================
-// TEST ROUTES
-// ============================================================
-Route::get('/test-apis', [TestController::class, 'testAll']);
-
-
-// ============================================================
-// WEB LOGIN/REGISTER (Session) - For Web Views
-// ============================================================
-Route::post('/web-login', [AuthController::class, 'webLogin']);
-Route::post('/web-register', [AuthController::class, 'webRegister']);
-Route::post('/web-logout', [AuthController::class, 'webLogout'])->middleware('auth');
-
-// ============================================================
-// API LOGIN/REGISTER (Stateless) - For Mobile/3rd-party Clients
-// ============================================================
-Route::post('/register', [AuthController::class, 'apiRegister']);
-Route::post('/login', [AuthController::class, 'apiLogin']); // ✅ public
-Route::get('/verify/{token}', [AuthController::class, 'verifyEmail']);
-
-// ============================================================
-// CORE ANALYSIS - Free to use (No auth required)
-// ============================================================
-Route::post('/identify', [LandmarkController::class, 'identify']);
-Route::post('/identify-gps', [LandmarkController::class, 'identifyGpsOnly']);
-Route::post('/extract-exif', [LandmarkController::class, 'extractExif']);
-Route::get('/nearby', [LandmarkController::class, 'nearby']);
-Route::get('/search', [LandmarkController::class, 'search']);
 
 // ============================================================
 // PUBLIC HEALTH CHECK (Works without any token!)
 // ============================================================
 Route::get('/health', [AnalysisApiController::class, 'health']);
+
+// ============================================================
+// AUTH ROUTES (Public)
+// ============================================================
+// Web (session) login/register/logout for the browser views
+Route::post('/web-login', [AuthController::class, 'webLogin']);
+Route::post('/web-register', [AuthController::class, 'webRegister']);
+Route::post('/web-logout', [AuthController::class, 'webLogout'])->middleware('auth');
+
+// API (stateless) login/register/verify for mobile & 3rd-party clients
+Route::post('/register', [AuthController::class, 'apiRegister']);
+Route::post('/login', [AuthController::class, 'apiLogin']); // ✅ public
+Route::get('/verify/{token}', [AuthController::class, 'verifyEmail']);
+
+// ============================================================
+// COST-BEARING CORE ANALYSIS — Authenticated + Throttled
+// These endpoints reach Gemini (paid / quota-limited) and paid
+// enrichment APIs, so they must not be callable without a login.
+// auth.any accepts a web session OR a Sanctum bearer token.
+// (The api middleware group already applies the 'api' rate limiter.)
+// ============================================================
+Route::middleware(['auth.any', StartSession::class])->group(function () {
+    Route::post('/identify', [LandmarkController::class, 'identify']);
+    Route::post('/identify-gps', [LandmarkController::class, 'identifyGpsOnly']);
+    Route::post('/extract-exif', [LandmarkController::class, 'extractExif']);
+    Route::get('/nearby', [LandmarkController::class, 'nearby']);
+    Route::get('/search', [LandmarkController::class, 'search']);
+});
+
+// ============================================================
+// DEBUG ROUTES — Authenticated (they probe paid APIs)
+// ============================================================
+Route::middleware(['auth.any', StartSession::class])->group(function () {
+    Route::get('/test-apis', [TestController::class, 'testAll']);
+});
 
 // ============================================================
 // PROTECTED API ROUTES (Token-based auth:sanctum)
@@ -60,7 +67,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/export/{id}', [LandmarkController::class, 'export']);
 
     // 🧹 Clear cache
-        Route::post('/gemini-chat', [GeminiController::class, 'chat'])->middleware('throttle:10,1');
+    Route::post('/gemini-chat', [GeminiController::class, 'chat'])->middleware('throttle:10,1');
 
     // 🚀 TraceGeo Analytics API
     Route::get('/history', [AnalysisApiController::class, 'history']);

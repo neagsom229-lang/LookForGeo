@@ -168,12 +168,14 @@ try {
 }
 
     /**
-     * ✅ POLLING ENDPOINT – No ownership check (can be public once ID is known)
+     * ✅ POLLING ENDPOINT – Scoped to the authenticated user (IDOR-safe).
      */
     public function status($id)
     {
         try {
-            $analysis = GeoAnalysis::find($id);
+            $analysis = GeoAnalysis::where('id', $id)
+                ->where('user_id', auth()->id())
+                ->first();
 
             if (!$analysis) {
                 return response()->json([
@@ -636,26 +638,33 @@ try {
         $request->validate(['url' => 'required|url']);
 
         try {
-            // ⚠️ SSRF guard: block private IPs and localhost
-$url = $request->input('url');
-$host = parse_url($url, PHP_URL_HOST);
-$ip = gethostbyname($host);
-if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-    return response()->json([
-        'success' => false,
-        'message' => 'That URL points to a private/internal address and cannot be fetched.'
-    ], 400);
-}
+            // ⚠️ SSRF guard: resolve the host and block private/reserved IPs (fail closed)
+            $url = $request->input('url');
+            if ($this->isPrivateHost($url)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'That URL points to a private/internal address and cannot be fetched.'
+                ], 400);
+            }
 
-// Wikimedia + most CDNs require a real User-Agent, or they return 403
-$response = Http::timeout(30)
-    ->withHeaders([
-        'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com; chheangsamnang.wu@gmail.com)',
-        'Accept'     => 'image/*,*/*;q=0.8',
-        'Referer'    => 'https://lookforgeo.onrender.com/',
-    ])
-    ->withOptions(['allow_redirects' => ['max' => 5]])
-    ->get($url);
+            // Wikimedia + most CDNs require a real User-Agent, or they return 403
+            $response = Http::timeout(30)
+                ->withHeaders([
+                    'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com; chheangsamnang.wu@gmail.com)',
+                    'Accept'     => 'image/*,*/*;q=0.8',
+                    'Referer'    => 'https://lookforgeo.onrender.com/',
+                ])
+                ->withOptions(['allow_redirects' => ['max' => 5]])
+                ->get($url);
+
+            // ⚠️ SSRF guard: re-check the effective URL after redirects (DNS rebinding protection)
+            $effectiveUri = (string) ($response->effectiveUri() ?? '');
+            if ($effectiveUri !== '' && $this->isPrivateHost($effectiveUri)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'That URL points to a private/internal address and cannot be fetched.'
+                ], 400);
+            }
 
             if (!$response->successful()) {
                 return response()->json([
@@ -701,12 +710,38 @@ $response = Http::timeout(30)
     }
 
     /**
-     * Get analysis results by ID (no ownership check – can be public)
+     * SSRF guard: resolve the host and fail closed when it points to a
+     * private/reserved IP (IPv4 or IPv6) or cannot be resolved.
+     */
+    private function isPrivateHost(string $url): bool
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+
+        if (empty($host)) {
+            return true;
+        }
+
+        $ip = gethostbyname($host);
+
+        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+    }
+
+    /**
+     * Get analysis results by ID (scoped to the authenticated user — IDOR-safe).
      */
     public function getResults($id)
     {
         try {
-            $analysis = GeoAnalysis::findOrFail($id);
+            $analysis = GeoAnalysis::where('id', $id)
+                ->where('user_id', auth()->id())
+                ->first();
+
+            if (!$analysis) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Analysis not found'
+                ], 404);
+            }
 
             $result = is_string($analysis->result) ? json_decode($analysis->result, true) : $analysis->result;
 

@@ -1,9 +1,10 @@
 <?php
 
+use App\Http\Middleware\AuthenticateAny;
+use App\Http\Middleware\ForceCsp;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
-use Illuminate\Foundation\Configuration\Middleware;
-use App\Http\Middleware\ForceCsp; // ✅ mandatory
+use Illuminate\Foundation\Configuration\Middleware; // ✅ mandatory
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -14,6 +15,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->prepend(ForceCsp::class);
+
+        // Accepts web session OR sanctum bearer token (Phase 0 — auth hardening)
+        $middleware->alias([
+            'auth.any' => AuthenticateAny::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
