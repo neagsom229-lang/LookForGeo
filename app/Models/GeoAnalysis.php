@@ -48,6 +48,7 @@ class GeoAnalysis extends Model
         'timezone',
         'confidence_level',
         'elapsed',
+        'image_url_display',
     ];
 
     // ============================================
@@ -55,6 +56,7 @@ class GeoAnalysis extends Model
     // ============================================
 
     public const STATUSES = ['pending', 'processing', 'completed', 'failed'];
+
     public const STAGES = [
         0 => 'Input',
         1 => 'Upload',
@@ -108,6 +110,7 @@ class GeoAnalysis extends Model
         if (is_string($value)) {
             return json_decode($value, true) ?? [];
         }
+
         return $value;
     }
 
@@ -203,27 +206,28 @@ class GeoAnalysis extends Model
 
     public function elapsedSeconds(): float
     {
-        if (!$this->started_at) {
+        if (! $this->started_at) {
             return 0.0;
         }
         $end = $this->finished_at ?? now();
+
         return round($this->started_at->diffInSeconds($end), 1);
     }
 
     public function markAsCompleted(array $result): void
-{
-    $this->update([
-        'status' => 'completed',
-        'stage' => 4,
-        'stage_label' => self::STAGES[4],
-        'progress' => 100,
-        'result' => $result,
-        'image_url' => $result['image_url'] ?? $this->image_url, // ✅ must be present
-        'finished_at' => now(),
-        'error' => null,
-    ]);
-    $this->clearCache();
-}
+    {
+        $this->update([
+            'status' => 'completed',
+            'stage' => 4,
+            'stage_label' => self::STAGES[4],
+            'progress' => 100,
+            'result' => $result,
+            'image_url' => $result['image_url'] ?? $this->image_url, // ✅ must be present
+            'finished_at' => now(),
+            'error' => null,
+        ]);
+        $this->clearCache();
+    }
 
     public function markAsFailed(string $error): void
     {
@@ -260,15 +264,16 @@ class GeoAnalysis extends Model
      */
     public function getImageUrlAttribute(): ?string
     {
-        if (!empty($this->image_url)) {
+        if (! empty($this->image_url)) {
             return $this->image_url;
         }
 
-        if (!empty($this->image_path)) {
+        if (! empty($this->image_path)) {
             if (str_starts_with($this->image_path, 'http://') || str_starts_with($this->image_path, 'https://')) {
                 return $this->image_path;
             }
-            return '/storage/' . $this->image_path;
+
+            return '/storage/'.$this->image_path;
         }
 
         return null;
@@ -281,7 +286,7 @@ class GeoAnalysis extends Model
     private function clearCache(): void
     {
         if ($this->user_id) {
-            Cache::forget('dashboard_' . $this->user_id);
+            Cache::forget('dashboard_'.$this->user_id);
         }
     }
 
@@ -304,58 +309,33 @@ class GeoAnalysis extends Model
     // ARRAY / JSON SERIALIZATION
     // ============================================
 
-    public function toArray()
-    {
-        $array = parent::toArray();
-
-        // Ensure computed attributes are included
-        $array['landmark_name'] = $this->landmark_name;
-        $array['city'] = $this->city;
-        $array['country'] = $this->country;
-        $array['confidence'] = $this->confidence;
-        $array['latitude'] = $this->latitude;
-        $array['longitude'] = $this->longitude;
-        $array['reasoning'] = $this->reasoning;
-        $array['tags'] = $this->tags;
-        $array['description'] = $this->description;
-        $array['type'] = $this->type;
-        $array['continent'] = $this->continent;
-        $array['timezone'] = $this->timezone;
-        $array['confidence_level'] = $this->confidence_level;
-        $array['elapsed'] = $this->elapsed;
-        $array['image_url_display'] = $this->image_url_display;
-
-        // Optionally remove the raw `result` field to avoid duplication
-        // unset($array['result']);
-
-        return $array;
-    }
+    // Appended attributes ($appends) are included automatically on
+    // serialization; no manual toArray() override needed.
 
     public function getImageUrlDisplayAttribute()
-{
-    // 1. FIRST: Check the result JSON for a Cloudinary URL
-    $result = $this->result;
-    if (is_string($result)) {
-        $result = json_decode($result, true);
-    }
-    if (!empty($result['image_url']) && filter_var($result['image_url'], FILTER_VALIDATE_URL)) {
-        return $result['image_url'];
-    }
-
-    // 2. If the model has a direct image_url column (Cloudinary or full asset URL)
-    if (!empty($this->image_url) && filter_var($this->image_url, FILTER_VALIDATE_URL)) {
-        return $this->image_url;
-    }
-
-    // 3. Fallback to image_path
-    if (!empty($this->image_path)) {
-        if (filter_var($this->image_path, FILTER_VALIDATE_URL)) {
-            return $this->image_path;
+    {
+        // 1. FIRST: Check the result JSON for a Cloudinary URL
+        // (result is always an array via getResultAttribute())
+        $result = $this->result;
+        if (! empty($result['image_url']) && filter_var($result['image_url'], FILTER_VALIDATE_URL)) {
+            return $result['image_url'];
         }
-        return asset('storage/' . $this->image_path);
-    }
 
-    // 4. If everything fails, return null
-    return null;
-}
+        // 2. If the model has a direct image_url column (Cloudinary or full asset URL)
+        if (! empty($this->image_url) && filter_var($this->image_url, FILTER_VALIDATE_URL)) {
+            return $this->image_url;
+        }
+
+        // 3. Fallback to image_path
+        if (! empty($this->image_path)) {
+            if (filter_var($this->image_path, FILTER_VALIDATE_URL)) {
+                return $this->image_path;
+            }
+
+            return asset('storage/'.$this->image_path);
+        }
+
+        // 4. If everything fails, return null
+        return null;
+    }
 }
