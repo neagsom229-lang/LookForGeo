@@ -25,7 +25,19 @@ class SecurityTest extends TestCase
         $this->postJson('/api/extract-exif', [])->assertStatus(401);
         $this->getJson('/api/nearby')->assertStatus(401);
         $this->getJson('/api/search')->assertStatus(401);
-        $this->getJson('/api/test-apis')->assertStatus(401);
+    }
+
+    /**
+     * S3: debug/test routes were deleted, so they must not exist at all.
+     */
+    public function test_removed_debug_and_test_routes_return_404(): void
+    {
+        $this->getJson('/api/health')->assertOk(); // sanity: app still serves
+        $this->getJson('/api/test-apis')->assertStatus(404);
+        $this->getJson('/debug-jobs')->assertStatus(404);
+        $this->getJson('/debug-file/whatever.jpg')->assertStatus(404);
+        $this->getJson('/test-queue')->assertStatus(404);
+        $this->getJson('/test-gemini')->assertStatus(404);
     }
 
     /**

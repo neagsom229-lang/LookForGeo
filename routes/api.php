@@ -4,7 +4,6 @@ use App\Http\Controllers\Api\AnalysisApiController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\GeminiController;
 use App\Http\Controllers\LandmarkController;
-use App\Http\Controllers\TestController;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
 
@@ -38,13 +37,6 @@ Route::middleware(['auth.any', StartSession::class])->group(function () {
     Route::post('/extract-exif', [LandmarkController::class, 'extractExif']);
     Route::get('/nearby', [LandmarkController::class, 'nearby']);
     Route::get('/search', [LandmarkController::class, 'searchPlace']);
-});
-
-// ============================================================
-// DEBUG ROUTES — Authenticated (they probe paid APIs)
-// ============================================================
-Route::middleware(['auth.any', StartSession::class])->group(function () {
-    Route::get('/test-apis', [TestController::class, 'testAll']);
 });
 
 // ============================================================

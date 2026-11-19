@@ -1,11 +1,9 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
-use App\Http\Controllers\HomeController;
 use App\Http\Controllers\AnalysisController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\HomeController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -30,8 +28,6 @@ Route::view('/docs', 'docs');
 
 // Homepage
 Route::get('/', [HomeController::class, 'index'])->name('home');
-
-
 
 // ============================================
 // PROTECTED ROUTES (Requires Login)
@@ -60,61 +56,6 @@ Route::middleware(['web', 'auth:web'])->group(function () {
         Route::get('/street-view', [AnalysisController::class, 'streetView'])->name('api.street-view');
         Route::post('/clear-cache', [AnalysisController::class, 'clearCache'])->name('web.clear-cache');
         Route::get('/history', [AnalysisController::class, 'getHistory'])->name('api.history');
-    });
-
-    // ============================================
-    // PROTECTED DEBUG ROUTES (Only for logged-in admins for testing)
-    // ============================================
-    Route::get('/debug-jobs', function () {
-        try {
-            $hasTable = Schema::hasTable('jobs');
-            $count = $hasTable ? DB::table('jobs')->count() : 0;
-            return response()->json([
-                'table_exists' => $hasTable,
-                'jobs_count' => $count,
-                'queue_connection' => config('queue.default'),
-            ]);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
-    });
-
-    Route::get('/debug-file/{filename}', function ($filename) {
-        $path = storage_path('app/public/uploads/analyses/' . $filename);
-        if (file_exists($path)) {
-            return response()->file($path);
-        }
-        return response()->json(['error' => 'File not found'], 404);
-    });
-
-    Route::get('/test-queue', function () {
-        $job = new \App\Jobs\AnalyzeImageJob(1);
-        dispatch($job);
-        return 'Job dispatched. Check worker logs.';
-    });
-
-    // ============================================
-    // TEST GEMINI (PROTECTED! Never expose this publicly)
-    // ============================================
-    Route::get('/test-gemini', function () {
-        try {
-            $apiKey = config('services.gemini.key');
-            $model = config('services.gemini.model', 'gemini-3.6-flash');
-
-            if (empty($apiKey)) {
-                return response()->json(['error' => 'GEMINI_API_KEY is not set'], 400);
-            }
-
-            // (Testing logic here)
-            return response()->json([
-                'api_key_set' => true,
-                'model' => $model,
-                // NEVER return the API key or the URL! Just the status.
-                'status' => 'working',
-            ]);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
     });
 
 });
