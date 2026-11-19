@@ -10,7 +10,6 @@ use Cloudinary\Api\Upload\UploadApi;
 use Illuminate\Http\Request;
 use App\Models\GeoAnalysis;
 use App\Jobs\AnalyzeImageJob;
-use App\Models\Analysis;
 use App\Services\GeminiService;
 
 class AnalysisController extends Controller
