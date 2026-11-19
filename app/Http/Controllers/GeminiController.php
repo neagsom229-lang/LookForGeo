@@ -14,41 +14,26 @@ class GeminiController extends Controller
         $this->gemini = $gemini;
     }
 
-    public function test()
-    {
-        try {
-            $response = $this->gemini->generateText('Say "Hello! Gemini API is working correctly!" in exactly 10 words.');
-            
-            return response()->json([
-                'success' => true,
-                'response' => $response
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
+    /**
+     * Plain text chat with Gemini (rate-limited at the route level).
+     */
     public function chat(Request $request)
     {
-        $request->validate([
-            'message' => 'required|string'
+        $validated = $request->validate([
+            'message' => 'required|string|max:4000',
         ]);
 
         try {
-            $messages = [
-                ['role' => 'user', 'text' => $request->message]
-            ];
-            
-            $result = $this->gemini->chat($messages);
-            
-            return response()->json($result);
-        } catch (\Exception $e) {
+            $response = $this->gemini->chat($validated['message']);
+
+            return response()->json([
+                'success' => true,
+                'response' => $response,
+            ]);
+        } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

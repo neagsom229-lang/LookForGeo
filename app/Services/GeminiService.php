@@ -51,4 +51,13 @@ class GeminiService
 
         return $this->enhancer->enhance($result);
     }
+
+    /**
+     * Plain text chat completion (delegates to the client).
+     * Throws \RuntimeException on failure.
+     */
+    public function chat(string $message): string
+    {
+        return $this->client->generateText($message);
+    }
 }

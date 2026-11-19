@@ -327,7 +327,7 @@
             <span style="color:var(--text-secondary); font-size:14px; margin-right:16px;">
                 <i class="fas fa-user"></i> {{ Auth::user()->name }}
             </span>
-            <form method="POST" action="/web-logout" style="display:inline;">
+            <form method="POST" action="/logout" style="display:inline;">
                 @csrf
                 <button type="submit"
                     style="background: transparent; border:none; color:var(--text-secondary); font-size:14px; cursor:pointer;">

@@ -410,6 +410,48 @@ class GeminiClient
         return $parsed;
     }
 
+    /**
+     * Plain text generation (no image) — used by the /api/gemini-chat endpoint.
+     * Throws \RuntimeException on transport or API failure so callers can
+     * surface a clean 500 instead of an opaque crash.
+     */
+    public function generateText(string $prompt): string
+    {
+        if (empty($this->apiKey)) {
+            throw new \RuntimeException('Gemini API key not configured');
+        }
+
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->primaryModel}:generateContent?key={$this->apiKey}";
+
+        $payload = [
+            'contents' => [
+                [
+                    'parts' => [
+                        ['text' => $prompt],
+                    ],
+                ],
+            ],
+            'generationConfig' => [
+                'temperature' => 0.7,
+                'maxOutputTokens' => 1024,
+            ],
+        ];
+
+        $response = Http::timeout(30)->connectTimeout(min(10, 30))->post($url, $payload);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('Gemini request failed: HTTP '.$response->status());
+        }
+
+        $text = $response->json('candidates.0.content.parts.0.text');
+
+        if (! is_string($text) || trim($text) === '') {
+            throw new \RuntimeException('Gemini returned no text content');
+        }
+
+        return trim($text);
+    }
+
     public function getFallbackResponse($msg)
     {
         return [
