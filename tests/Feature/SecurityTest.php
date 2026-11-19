@@ -118,6 +118,18 @@ class SecurityTest extends TestCase
     }
 
     /**
+     * Anonymous /api/* requests must return 401 regardless of the Accept header.
+     */
+    public function test_anonymous_api_search_returns_401_regardless_of_accept(): void
+    {
+        $browser = $this->get('/api/search?query=paris', ['Accept' => 'text/html,application/xhtml+xml']);
+        $browser->assertStatus(401);
+
+        $noAccept = $this->get('/api/search?query=paris');
+        $noAccept->assertStatus(401);
+    }
+
+    /**
      * Phase 0 (S4): the owner must still be able to read their own analysis.
      */
     public function test_user_can_access_their_own_analysis(): void
@@ -147,7 +159,9 @@ class SecurityTest extends TestCase
     }
 
     /**
-     * Unauthenticated callers must get 401 for cost-bearing endpoints.
+     * Unauthenticated callers must get 401 for cost-bearing endpoints --
+     * including browser-shaped requests without any JSON Accept header
+     * (previously those got a 302 redirect to /login).
      */
     public function test_unauthenticated_user_cannot_reach_cost_bearing_endpoints(): void
     {
