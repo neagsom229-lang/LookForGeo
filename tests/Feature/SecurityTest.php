@@ -5,6 +5,9 @@ namespace Tests\Feature;
 use App\Models\GeoAnalysis;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class SecurityTest extends TestCase
@@ -59,6 +62,50 @@ class SecurityTest extends TestCase
     }
 
     /**
+     * Web session auth must pass for cost-bearing endpoints.
+     * NOTE: Http::fake stubs ALL outbound HTTP (Gemini/OSM/etc.) so the
+     * test never hits the network.
+     */
+    public function test_web_session_authenticated_user_can_reach_cost_bearing_endpoints(): void
+    {
+        Storage::fake('public');
+        Http::fake(['*' => Http::response(['candidates' => [['content' => ['parts' => [['text' => json_encode(['landmark_name' => 'Eiffel Tower', 'confidence' => 90])]]]]]], 200)]);
+
+        $user = User::factory()->create();
+        $this->actingAs($user, 'web');
+
+        $identify = $this->postJson('/api/identify', [
+            'image' => UploadedFile::fake()->image('eiffel.png', 400, 300),
+        ]);
+        $this->assertNotEquals(401, $identify->status(), 'POST /api/identify must not be 401 for a web session');
+
+        $search = $this->getJson('/api/search?query=Paris');
+        $this->assertNotEquals(401, $search->status(), 'GET /api/search must not be 401 for a web session');
+    }
+
+    /**
+     * Sanctum bearer token auth must pass for cost-bearing endpoints.
+     */
+    public function test_sanctum_token_authenticated_user_can_reach_cost_bearing_endpoints(): void
+    {
+        Storage::fake('public');
+        Http::fake(['*' => Http::response(['candidates' => [['content' => ['parts' => [['text' => json_encode(['landmark_name' => 'Eiffel Tower', 'confidence' => 90])]]]]]], 200)]);
+
+        $user = User::factory()->create();
+        $token = $user->createToken('test')->plainTextToken;
+
+        $identify = $this->withHeaders(['Authorization' => 'Bearer '.$token])
+            ->postJson('/api/identify', [
+                'image' => UploadedFile::fake()->image('eiffel.png', 400, 300),
+            ]);
+        $this->assertNotEquals(401, $identify->status(), 'POST /api/identify must not be 401 for a Sanctum token');
+
+        $search = $this->withHeaders(['Authorization' => 'Bearer '.$token])
+            ->getJson('/api/search?query=Paris');
+        $this->assertNotEquals(401, $search->status(), 'GET /api/search must not be 401 for a Sanctum token');
+    }
+
+    /**
      * Phase 0 (S4): the owner must still be able to read their own analysis.
      */
     public function test_user_can_access_their_own_analysis(): void
@@ -85,5 +132,19 @@ class SecurityTest extends TestCase
 
         $this->getJson("/api/analyze/{$analysis->id}/status")->assertOk();
         $this->getJson("/api/results/{$analysis->id}")->assertOk();
+    }
+
+    /**
+     * Unauthenticated callers must get 401 for cost-bearing endpoints.
+     */
+    public function test_unauthenticated_user_cannot_reach_cost_bearing_endpoints(): void
+    {
+        $identify = $this->postJson('/api/identify', [
+            'image' => UploadedFile::fake()->image('eiffel.png', 400, 300),
+        ]);
+        $this->assertSame(401, $identify->status(), 'POST /api/identify must be 401 when anonymous');
+
+        $search = $this->getJson('/api/search?query=Paris');
+        $this->assertSame(401, $search->status(), 'GET /api/search must be 401 when anonymous');
     }
 }

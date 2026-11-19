@@ -37,7 +37,7 @@ Route::middleware(['auth.any', StartSession::class])->group(function () {
     Route::post('/identify-gps', [LandmarkController::class, 'identifyGpsOnly']);
     Route::post('/extract-exif', [LandmarkController::class, 'extractExif']);
     Route::get('/nearby', [LandmarkController::class, 'nearby']);
-    Route::get('/search', [LandmarkController::class, 'search']);
+    Route::get('/search', [LandmarkController::class, 'searchPlace']);
 });
 
 // ============================================================

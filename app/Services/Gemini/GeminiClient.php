@@ -293,8 +293,13 @@ class GeminiClient
             imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
 
             ob_start();
-            imagejpeg($resized, null, 82);
-            $compressed = ob_get_clean();
+            try {
+                imagejpeg($resized, null, 82);
+                $compressed = ob_get_clean();
+            } catch (\Throwable $e) {
+                ob_end_clean();
+                throw $e;
+            }
 
             imagedestroy($image);
             imagedestroy($resized);

@@ -457,8 +457,13 @@ class LandmarkRecognitionService
             }
 
             ob_start();
-            imagejpeg($image, null, 85);
-            $data = ob_get_clean();
+            try {
+                imagejpeg($image, null, 85);
+                $data = ob_get_clean();
+            } catch (\Throwable $e) {
+                ob_end_clean();
+                throw $e;
+            }
             imagedestroy($image);
 
             if ($data === false || empty($data)) {
