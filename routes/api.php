@@ -16,11 +16,10 @@ Route::get('/health', [AnalysisApiController::class, 'health']);
 // ============================================================
 // AUTH ROUTES (Public)
 // ============================================================
-// Web (session) login/register/logout for the browser views
-Route::post('/web-login', [AuthController::class, 'webLogin']);
-Route::post('/web-register', [AuthController::class, 'webRegister']);
-Route::post('/web-logout', [AuthController::class, 'webLogout'])->middleware('auth');
-
+// Session-based login/register/logout live in routes/web.php
+// (web routes with the 'web' middleware group).
+// Mobile / 3rd-party clients use the stateless token flow below.
+// ============================================================
 // API (stateless) login/register/verify for mobile & 3rd-party clients
 Route::post('/register', [AuthController::class, 'apiRegister']);
 Route::post('/login', [AuthController::class, 'apiLogin']); // ✅ public
