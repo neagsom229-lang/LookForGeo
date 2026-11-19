@@ -146,5 +146,4 @@ PROMPT;
 
         return empty($lines) ? 'No EXIF data available.' : implode("\n", $lines);
     }
-
 }

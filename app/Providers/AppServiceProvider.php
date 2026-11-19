@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
- // <-- Add this import
+// <-- Add this import
 
 class AppServiceProvider extends ServiceProvider
 {
