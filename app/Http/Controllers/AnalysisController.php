@@ -118,10 +118,11 @@ class AnalysisController extends Controller
                     ], 503);
                 }
             }
-            // Create the record
+            // Create the record -- 'pending' until a worker picks the job up
+            // (the job flips it to 'processing' when it starts).
             $analysis = GeoAnalysis::create([
                 'user_id' => auth()->id(),
-                'status' => 'processing',
+                'status' => 'pending',
                 'stage' => 0,
                 'stage_label' => 'Uploaded',
                 'progress' => 10,
@@ -161,7 +162,7 @@ class AnalysisController extends Controller
                 'message' => 'Analysis started successfully',
                 'data' => [
                     'id' => $analysis->id,
-                    'status' => 'processing',
+                    'status' => 'pending',
                     'progress' => 10,
                     'image_url' => $imageUrl,
                 ],
@@ -235,6 +236,26 @@ class AnalysisController extends Controller
 
             if ($analysis->status === 'failed') {
                 $response['error'] = $analysis->error;
+            }
+
+            // Queued too long without the worker picking it up?
+            // "pending", or still sitting at stage 0 of "processing".
+            $queuedSince = $analysis->started_at ?? $analysis->created_at;
+            $looksQueued = $analysis->status === 'pending'
+                || ($analysis->status === 'processing'
+                    && (int) ($analysis->stage ?? 0) === 0
+                    && (int) ($analysis->progress ?? 0) <= 10);
+
+            if ($looksQueued && $queuedSince) {
+                // Carbon 3 diffInSeconds() is signed (negative for past dates).
+                $queuedSeconds = (int) abs(now()->diffInSeconds($queuedSince));
+                if ($queuedSeconds >= 20) {
+                    $response['queued_seconds'] = $queuedSeconds;
+
+                    if (app()->environment(['local', 'testing'])) {
+                        $response['hint'] = 'queue worker not running? run composer dev';
+                    }
+                }
             }
 
             return response()->json($response);
