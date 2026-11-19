@@ -12,8 +12,15 @@
     // ============================================================
 
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const POLL_INTERVAL_MS = 1000;   // 1 second
-const MAX_POLL_ATTEMPTS = 300;   // 300 seconds = 5 minutes
+    const POLL_INTERVAL_MS = 1000;   // 1 second (used for the initial kick-off)
+    const MAX_POLL_ATTEMPTS = 300;   // 300 seconds = 5 minutes
+    // Backoff ladder: 2s, then 3s, then 5s -- don't hammer the API while a
+    // job sits in the queue.
+    const POLL_DELAYS_MS = [2000, 3000, 5000];
+
+    function nextPollDelay() {
+        return POLL_DELAYS_MS[Math.min(Math.max(pollAttempts - 1, 0), POLL_DELAYS_MS.length - 1)];
+    }
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // ========== STREET VIEW CONFIG ==========
@@ -364,6 +371,35 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         }
         showToast('❌ ' + message);
         if (DOM.progressCard) DOM.progressCard.style.display = 'none';
+    }
+
+    /**
+     * Surface server-provided hints (e.g. "queue worker not running?")
+     * inside the progress card and in the nav status line.
+     */
+    function showQueueHint(hint) {
+        if (!hint) return;
+        let el = document.getElementById('pcHint');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'pcHint';
+            el.style.cssText = 'margin-top:10px;padding:8px 10px;border-radius:8px;' +
+                'background:rgba(255,193,7,.12);color:#ffd54f;font-size:12px;line-height:1.4;display:none;';
+            const anchor = DOM.pcSteps || DOM.pcScanning;
+            if (anchor && anchor.parentElement) {
+                anchor.parentElement.insertBefore(el, anchor.nextSibling);
+            } else if (DOM.progressCard) {
+                DOM.progressCard.appendChild(el);
+            }
+        }
+        el.textContent = '💡 ' + hint;
+        el.style.display = 'block';
+        showToast(hint);
+    }
+
+    function hideQueueHint() {
+        const el = document.getElementById('pcHint');
+        if (el) el.style.display = 'none';
     }
 
     function shuffleArray(array) {
@@ -1053,6 +1089,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 }
 
                 if (data.status === 'completed') {
+                    hideQueueHint();
                     if (data.result) {
                         let result = data.result;
                         if (typeof result === 'string') {
@@ -1096,17 +1133,27 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 }
 
                 if (data.status === 'failed') {
+                    hideQueueHint();
                     showError(data.error || 'Analysis failed');
                     clearSession();
                     return;
                 }
 
-                pollTimer = setTimeout(pollStatus, POLL_INTERVAL_MS);
+                // Server-side hint when the job has been queued too long
+                // (e.g. no queue worker running). It disappears as soon as a
+                // worker picks the job up (server stops sending it).
+                if (data.hint) {
+                    showQueueHint(data.hint);
+                } else {
+                    hideQueueHint();
+                }
+
+                pollTimer = setTimeout(pollStatus, nextPollDelay());
             })
             .catch(err => {
                 console.error('Poll error:', err);
                 consecutiveErrors++;
-                const delay = Math.min(POLL_INTERVAL_MS * Math.pow(1.5, Math.min(consecutiveErrors, 5)), 5000);
+                const delay = nextPollDelay();
                 if (consecutiveErrors < 8 && pollAttempts <= MAX_POLL_ATTEMPTS) {
                     pollTimer = setTimeout(pollStatus, delay);
                 } else {
