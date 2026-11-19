@@ -32,12 +32,12 @@ class GeminiClient
         $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.5-flash');
         $this->requestTimeout = config('services.gemini.timeout', 60);
         $this->maxRetries = config('services.gemini.retries', 2);
-        // Base URL for the Gemini REST API. Overridable for offline smoke
-        // tests (GEMINI_BASE_URL=http://127.0.0.1:<port>/v1beta).
-        $this->baseUrl = rtrim((string) config(
-            'services.gemini.base_url',
-            'https://generativelanguage.googleapis.com/v1beta'
-        ), '/');
+        // Base URL for the Gemini REST API. Local/testing may override it
+        // (e.g. fake server in smoke tests); everywhere else only https.
+        $this->baseUrl = self::resolveBaseUrl(
+            config('services.gemini.base_url'),
+            app()->environment()
+        );
         // Hard ceiling on total wall-clock time across primary + fallback +
         // all retries combined. Without this, timeout(60) * retries(2+1)
         // attempts * two models can add up to ~6 minutes — long past
@@ -57,6 +57,32 @@ class GeminiClient
             'retries' => $this->maxRetries,
             'max_total_time' => $this->maxTotalTimeSeconds,
         ]);
+    }
+
+    /**
+     * Resolve the Gemini API base URL with environment rules:
+     *  - local / testing: GEMINI_BASE_URL is honored (smoke tests use a fake
+     *    HTTP server; cleartext is fine on loopback);
+     *  - anything else: only an https override is accepted -- otherwise fall
+     *    back to the real endpoint, and refuse to run when an unsafe
+     *    (non-https) override is configured.
+     */
+    public static function resolveBaseUrl(?string $override, string $environment = ''): string
+    {
+        $default = 'https://generativelanguage.googleapis.com/v1beta';
+
+        if (in_array($environment, ['local', 'testing'], true)) {
+            return rtrim((string) ($override ?: $default), '/');
+        }
+
+        if ($override !== null && trim($override) !== '' && ! str_starts_with(strtolower(trim($override)), 'https://')) {
+            throw new \RuntimeException(
+                'GEMINI_BASE_URL must be https outside local/testing environments; '
+                .'refusing to send the API key over an insecure connection.'
+            );
+        }
+
+        return rtrim((string) ($override ?: $default), '/');
     }
 
     /**
