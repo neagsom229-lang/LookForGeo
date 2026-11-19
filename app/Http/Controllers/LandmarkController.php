@@ -26,14 +26,6 @@ class LandmarkController extends Controller
     }
 
     /**
-     * Display the landmark identification page
-     */
-    public function index()
-    {
-        return view('landmark.identify');
-    }
-
-    /**
      * Identify a landmark from an uploaded image
      */
     public function identify(Request $request)
