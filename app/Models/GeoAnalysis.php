@@ -288,6 +288,9 @@ class GeoAnalysis extends Model
         if ($this->user_id) {
             Cache::forget('dashboard_'.$this->user_id);
         }
+
+        // Popular-landmarks cache is shared globally; any write can change it
+        Cache::forget('dashboard_popular_global');
     }
 
     // ============================================

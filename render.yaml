@@ -36,7 +36,7 @@ services:
     name: queue-worker
     env: php
     buildCommand: composer install --no-dev --optimize-autoloader && chmod -R 775 storage bootstrap/cache && php artisan config:cache
-    startCommand: php artisan queue:work --tries=1 --timeout=180
+    startCommand: php artisan queue:work --tries=1 --timeout=180 --sleep=1
     envVars:
       - key: APP_ENV
         value: production

@@ -34,12 +34,10 @@ echo "🛠️ Setting permissions for storage and public..."
 chown -R www-data:www-data storage bootstrap/cache public
 chmod -R 775 storage bootstrap/cache
 
-echo "⚡ Caching configuration and routes for production..."
+echo "⚡ Caching configuration, routes and views for production..."
 php artisan config:cache
 php artisan route:cache
-
-# Clear old views, but keep them cached for production
-php artisan view:clear
+php artisan view:cache
 
 echo "🚀 Starting Supervisor (Web + Queue Worker)..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
