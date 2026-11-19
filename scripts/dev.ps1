@@ -19,6 +19,16 @@ Write-Host ""
 $server = Start-Process -PassThru -NoNewWindow -FilePath "php" -ArgumentList "artisan", "serve"
 $worker = Start-Process -PassThru -NoNewWindow -FilePath "php" -ArgumentList "artisan", "queue:work", "--tries=1", "--timeout=180"
 
+function Stop-ProcessTree($procId) {
+    if (-not $procId) { return }
+    # taskkill /T kills the whole tree (artisan serve spawns an inner
+    # php -S listener; kill it by tree, not by a parent-pid lookup).
+    & taskkill /F /T /PID $procId | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+    }
+}
+
 if (-not $server -or -not $worker) {
     Write-Host "FAILED to start child processes."
     if ($server) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
@@ -32,5 +42,6 @@ try {
 finally {
     Write-Host ""
     Write-Host "Stopping dev server and queue worker..."
-    Stop-Process -Id $server.Id, $worker.Id -Force -ErrorAction SilentlyContinue
+    Stop-ProcessTree $server.Id
+    Stop-ProcessTree $worker.Id
 }

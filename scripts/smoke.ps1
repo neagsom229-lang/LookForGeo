@@ -74,6 +74,16 @@ function Restore-Env {
     }
 }
 
+function Stop-ProcessTree($procId) {
+    if (-not $procId) { return }
+    # taskkill /T kills the whole tree (artisan serve spawns an inner php -S
+    # listener through an intermediate shell; kill by tree, not by pid lookup).
+    & taskkill /F /T /PID $procId | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Split-HttpResponse([string]$raw) {
     $m = [regex]::Match($raw, "`r?`n`r?`n")
     if ($m.Success) {
@@ -128,7 +138,6 @@ try {
     $serverInfo = Start-FreePortServer 'artisan' @()
     $server = $serverInfo[0]
     $port = $serverInfo[1]
-
     $jar = (Join-Path ([System.IO.Path]::GetTempPath()) ("tg_jar_" + [guid]::NewGuid().ToString("N") + ".txt"))
     $jar2 = (Join-Path ([System.IO.Path]::GetTempPath()) ("tg_jar_" + [guid]::NewGuid().ToString("N") + ".txt"))
     $base = "http://127.0.0.1:$port"
@@ -321,7 +330,9 @@ try {
                         $failures++
                     }
 
-                    $anon = (& curl.exe -s -o NUL -w "%{http_code}" -H "Accept: application/json" "$base/api/search?query=paris")
+                    # No Accept header on purpose: anonymous API access must be 401
+                    # regardless of the request shape (see bootstrap/app.php).
+                    $anon = (& curl.exe -s -o NUL -w "%{http_code}" "$base/api/search?query=paris")
                     if ($anon -eq '401') {
                         Write-Host "PASS: anonymous /api/search returns 401"
                     } else {
@@ -337,8 +348,21 @@ try {
     }
 }
 finally {
-    if ($fake) { Stop-Process -Id $fake.Id -Force -ErrorAction SilentlyContinue }
-    if ($server) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
+    if ($fake) { Stop-ProcessTree $fake.Id }
+    if ($server) {
+        Stop-ProcessTree $server.Id
+        # Kill the inner artisan-serve listener bound to OUR port
+        # (taskkill /T can refuse cross-session processes; netstat+Stop-Process works).
+        try {
+            $conns = @(netstat -ano | Select-String -Pattern ":$([int]$port)\s")
+            foreach ($c in $conns) {
+                $listenPid = [int]((($c.ToString() -split '\s+') | Where-Object { $_ })[-1])
+                if ($listenPid -gt 0) {
+                    Stop-Process -Id $listenPid -Force -ErrorAction SilentlyContinue
+                }
+            }
+        } catch { }
+    }
     Remove-Item $tmpDb -Force -ErrorAction SilentlyContinue
     Remove-Item $fixture -Force -ErrorAction SilentlyContinue
     Remove-Item $jar -Force -ErrorAction SilentlyContinue
