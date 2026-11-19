@@ -23,6 +23,12 @@ You will receive an acknowledgement as soon as the report is triaged.
 - Outbound image fetchers validate destination hosts and block private IP ranges.
 - Secrets must never be committed to git — `gitleaks` runs on every push and on
   staged commits locally (`core.hooksPath .githooks`).
+- **Never print, log, paste or share secret values in chat, logs, PRs or issues.**
+  When a secret must be referenced, redact it to at most the first 6 characters
+  (e.g. `AIzaSy…`) and otherwise refer to it by key name only (`GEMINI_API_KEY`).
+- No credential backup files (`.env`, `.env.*`, `*.bak`) may exist in the
+  repository, its history, or be committed. They must stay local and
+  untracked. If one appears, delete or quarantine it immediately.
 - Full handling of any past credential exposure is tracked in
   `docs/SECURITY_INCIDENT.md`.
 
