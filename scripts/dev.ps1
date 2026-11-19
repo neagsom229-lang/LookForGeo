@@ -35,9 +35,71 @@ if (-not $server -or -not $worker) {
     exit 1
 }
 
+$logPath = Join-Path $root 'storage\logs\laravel.log'
+
+function Open-LogTail($path) {
+    if (-not (Test-Path $path)) { return $null }
+    try {
+        $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $fs.Seek(0, [System.IO.SeekOrigin]::End) | Out-Null
+        return New-Object System.IO.StreamReader($fs, [System.Text.UTF8Encoding]::new($false))
+    } catch { return $null }
+}
+
 try {
-    # Blocks until Ctrl+C; then finally{} cleans up the children.
-    Get-Content -Path (Join-Path $root 'storage\logs\laravel.log') -Wait -Tail 20 -Encoding UTF8
+    # Show the tail of any existing log, then follow it while ALSO watching
+    # the child processes: if the server or the queue worker dies we must
+    # scream, not sit there silently with a dead worker.
+    if (Test-Path $logPath) {
+        Get-Content -Path $logPath -Tail 20 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+    }
+    $logReader = Open-LogTail $logPath
+    $failure = $null
+
+    # PS 5.1 quirk: a force-killed child reports ExitCode as EMPTY (not a
+    # number), and redirected parents also read empty -- only use it when
+    # we actually got a value.
+    function Get-ExitCodeLabel($proc) {
+        try {
+            $proc.WaitForExit()
+            $ec = $proc.ExitCode
+            if ("$ec" -ne '') { return "$ec" }
+        } catch { }
+        return 'unknown (killed externally?)'
+    }
+
+    while ($true) {
+        if ($worker.HasExited) {
+            $failure = "QUEUE WORKER DIED (exit code $(Get-ExitCodeLabel $worker)) -- analyses will stay 'pending' forever!`n" +
+                       "  Restart with: composer dev"
+            break
+        }
+        if ($server.HasExited) {
+            $failure = "DEV SERVER DIED (exit code $(Get-ExitCodeLabel $server)) -- http://127.0.0.1:8000 is down!`n" +
+                       "  Restart with: composer dev"
+            break
+        }
+
+        if ($logReader) {
+            while (-not $logReader.EndOfStream) { Write-Host $logReader.ReadLine() }
+            if ($logReader.Peek() -lt 0 -and -not (Test-Path $logPath)) {
+                $logReader.Close(); $logReader = Open-LogTail $logPath
+            }
+        } else {
+            $logReader = Open-LogTail $logPath
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+
+    if ($logReader) { $logReader.Close() }
+
+    if ($failure) {
+        Write-Host ""
+        Write-Host "!!! $failure" -ForegroundColor Red
+        exit 1
+    }
 }
 finally {
     Write-Host ""
