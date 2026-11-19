@@ -4,13 +4,14 @@ namespace App\Jobs;
 
 use App\Models\GeoAnalysis;
 use App\Services\GeminiService;
-use Cloudinary\Configuration\Configuration;
 use Cloudinary\Api\Upload\UploadApi;
+use Cloudinary\Configuration\Configuration;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -18,13 +19,19 @@ class AnalyzeImageJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    // Retry configuration – 3 attempts with exponential backoff
+    // Transient AI/API failures (503 / quota) are retried with release(45),
+    // bounded by $tries. Hard (non-transient) errors terminate the job without
+    // a retry — see handle(); no-op retries only burned worker attempts.
     public int $tries = 5;
+
     public array $backoff = [10, 30, 60];
+
     public int $timeout = 180;
 
     protected int $analysisId;
+
     protected ?string $localPath;
+
     protected ?string $filename;
 
     public function __construct(int $analysisId, ?string $localPath = null, ?string $filename = null)
@@ -42,14 +49,15 @@ class AnalyzeImageJob implements ShouldQueue
 
     public function handle(GeminiService $geminiService)
     {
-        Log::info('🔥 AnalyzeImageJob STARTED for ID ' . $this->analysisId);
+        Log::info('🔥 AnalyzeImageJob STARTED for ID '.$this->analysisId);
 
         try {
             // Get analysis
             $analysis = GeoAnalysis::find($this->analysisId);
-            if (!$analysis) {
-                Log::error('❌ Analysis not found: ' . $this->analysisId);
+            if (! $analysis) {
+                Log::error('❌ Analysis not found: '.$this->analysisId);
                 $this->fail(new \Exception('Analysis record not found'));
+
                 return;
             }
 
@@ -61,7 +69,8 @@ class AnalyzeImageJob implements ShouldQueue
 
             // Skip if already completed or failed
             if (in_array($analysis->status, ['completed', 'failed'])) {
-                Log::info('⏭️ Analysis already ' . $analysis->status . ', skipping: ' . $this->analysisId);
+                Log::info('⏭️ Analysis already '.$analysis->status.', skipping: '.$this->analysisId);
+
                 return;
             }
 
@@ -71,14 +80,15 @@ class AnalyzeImageJob implements ShouldQueue
 
             // STEP 2: Load image data
             $imageData = $this->loadImageData($analysis);
-            if (!$imageData) {
-                $error = 'No image found. Path: ' . ($analysis->image_path ?? 'null');
-                Log::error('❌ ' . $error);
+            if (! $imageData) {
+                $error = 'No image found. Path: '.($analysis->image_path ?? 'null');
+                Log::error('❌ '.$error);
                 $analysis->markAsFailed($error);
                 $this->fail(new \Exception($error));
+
                 return;
             }
-            Log::info('✅ Image loaded, size: ' . strlen($imageData) . ' bytes');
+            Log::info('✅ Image loaded, size: '.strlen($imageData).' bytes');
 
             // STEP 3: Extract metadata
             $metadata = $this->extractMetadata($analysis);
@@ -88,15 +98,16 @@ class AnalyzeImageJob implements ShouldQueue
             $analysis->markStage(2, 40);
             Log::info('🤖 Calling Gemini API...');
 
-                      $aiResult = $geminiService->analyzeGeolocation($imageData, $metadata);
+            $aiResult = $geminiService->analyzeGeolocation($imageData, $metadata);
 
             // ✅ Check for 503 or "Service Unavailable" - release for retry
             if (isset($aiResult['error']) || isset($aiResult['is_error'])) {
                 $errMsg = $aiResult['error_message'] ?? $aiResult['message'] ?? '';
-                
+
                 if (str_contains($errMsg, '503') || str_contains($errMsg, 'Service Unavailable') || str_contains($errMsg, 'Resource has been exhausted')) {
                     Log::warning('⚠️ Gemini temporarily unavailable, releasing job in 45 seconds...');
                     $this->release(45); // Try again in 45 seconds
+
                     return;
                 }
             }
@@ -104,14 +115,14 @@ class AnalyzeImageJob implements ShouldQueue
             // Check for other AI errors (including is_error flag)
             if (isset($aiResult['is_error']) && $aiResult['is_error'] === true) {
                 $errorMsg = $aiResult['error_message'] ?? 'AI analysis failed without specific message';
-                Log::error('❌ Gemini API returned error: ' . $errorMsg);
+                Log::error('❌ Gemini API returned error: '.$errorMsg);
                 throw new \Exception($errorMsg);
             }
 
             // Also check if the result is an array with an 'error' key (non-503)
             if (isset($aiResult['error'])) {
                 $errorMsg = $aiResult['message'] ?? 'Unknown AI error';
-                Log::error('❌ Gemini API returned error: ' . $errorMsg);
+                Log::error('❌ Gemini API returned error: '.$errorMsg);
                 throw new \Exception($errorMsg);
             }
 
@@ -131,100 +142,106 @@ class AnalyzeImageJob implements ShouldQueue
             ]);
 
             $analysis->markAsCompleted($finalResult);
-            Log::info('🎉 Analysis COMPLETED for ID: ' . $this->analysisId);
+            Log::info('🎉 Analysis COMPLETED for ID: '.$this->analysisId);
 
         } catch (\Exception $e) {
-            Log::error('❌ Job FAILED: ' . $e->getMessage());
-            Log::error('Stack trace: ' . $e->getTraceAsString());
+            Log::error('❌ Job FAILED: '.$e->getMessage());
+            Log::error('Stack trace: '.$e->getTraceAsString());
 
-            // Update status to failed if not already
+            // Hard (non-transient) failure — mark failed and return so the
+            // worker does not retry: retries are no-ops anyway once status
+            // is 'failed' (handle() skips completed/failed analyses), so
+            // throwing would just burn the remaining attempts.
             try {
                 $analysis = GeoAnalysis::find($this->analysisId);
-                if ($analysis && !in_array($analysis->status, ['completed', 'failed'])) {
+                if ($analysis && ! in_array($analysis->status, ['completed', 'failed'])) {
                     $analysis->markAsFailed($e->getMessage());
                     Log::info('✅ Error status saved to database');
                 }
             } catch (\Exception $updateError) {
-                Log::error('❌ Failed to save error: ' . $updateError->getMessage());
+                Log::error('❌ Failed to save error: '.$updateError->getMessage());
             }
 
-            // Re-throw to trigger job retry (if attempts remain)
-            throw $e;
+            return;
         }
     }
 
     /**
      * Load image data from various sources.
      */
-private function loadImageData(GeoAnalysis $analysis)
-{
-    // 1. If localPath is a URL (Cloudinary, post-fix), fetch it via HTTP
-    if ($this->localPath && filter_var($this->localPath, FILTER_VALIDATE_URL)) {
-        Log::info('🌐 Fetching from URL: ' . $this->localPath);
-        try {
-            $response = \Illuminate\Support\Facades\Http::timeout(30)
-                ->withHeaders([
-                    'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com)',
-                ])
-                ->get($this->localPath);
-            if ($response->successful()) {
-                return $response->body();
+    private function loadImageData(GeoAnalysis $analysis)
+    {
+        // 1. If localPath is a URL (Cloudinary, post-fix), fetch it via HTTP
+        if ($this->localPath && filter_var($this->localPath, FILTER_VALIDATE_URL)) {
+            Log::info('🌐 Fetching from URL: '.$this->localPath);
+            try {
+                $response = Http::timeout(30)
+                    ->withHeaders([
+                        'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com)',
+                    ])
+                    ->get($this->localPath);
+                if ($response->successful()) {
+                    return $response->body();
+                }
+                Log::error('❌ HTTP '.$response->status().' fetching image');
+            } catch (\Exception $e) {
+                Log::error('❌ HTTP fetch failed: '.$e->getMessage());
             }
-            Log::error('❌ HTTP ' . $response->status() . ' fetching image');
-        } catch (\Exception $e) {
-            Log::error('❌ HTTP fetch failed: ' . $e->getMessage());
         }
-    }
 
-    // 2. If image_path is a URL (from DB), fetch it
-    if ($analysis->image_path && filter_var($analysis->image_path, FILTER_VALIDATE_URL)) {
-        Log::info('🌐 Fetching from DB image_path: ' . $analysis->image_path);
-        try {
-            $response = \Illuminate\Support\Facades\Http::timeout(30)
-                ->withHeaders(['User-Agent' => 'TraceGeo/1.0'])
-                ->get($analysis->image_path);
-            if ($response->successful()) {
-                return $response->body();
+        // 2. If image_path is a URL (from DB), fetch it
+        if ($analysis->image_path && filter_var($analysis->image_path, FILTER_VALIDATE_URL)) {
+            Log::info('🌐 Fetching from DB image_path: '.$analysis->image_path);
+            try {
+                $response = Http::timeout(30)
+                    ->withHeaders(['User-Agent' => 'TraceGeo/1.0'])
+                    ->get($analysis->image_path);
+                if ($response->successful()) {
+                    return $response->body();
+                }
+            } catch (\Exception $e) {
+                Log::error('❌ DB URL fetch failed: '.$e->getMessage());
             }
-        } catch (\Exception $e) {
-            Log::error('❌ DB URL fetch failed: ' . $e->getMessage());
         }
-    }
 
-    // 3. If image_url is set (Cloudinary), fetch it
-    if ($analysis->image_url && filter_var($analysis->image_url, FILTER_VALIDATE_URL)) {
-        Log::info('🌐 Fetching from image_url: ' . $analysis->image_url);
-        try {
-            $response = \Illuminate\Support\Facades\Http::timeout(30)
-                ->withHeaders(['User-Agent' => 'TraceGeo/1.0'])
-                ->get($analysis->image_url);
-            if ($response->successful()) {
-                return $response->body();
+        // 3. If image_url is set (Cloudinary), fetch it
+        if ($analysis->image_url && filter_var($analysis->image_url, FILTER_VALIDATE_URL)) {
+            Log::info('🌐 Fetching from image_url: '.$analysis->image_url);
+            try {
+                $response = Http::timeout(30)
+                    ->withHeaders(['User-Agent' => 'TraceGeo/1.0'])
+                    ->get($analysis->image_url);
+                if ($response->successful()) {
+                    return $response->body();
+                }
+            } catch (\Exception $e) {
+                Log::error('❌ image_url fetch failed: '.$e->getMessage());
             }
-        } catch (\Exception $e) {
-            Log::error('❌ image_url fetch failed: ' . $e->getMessage());
         }
-    }
 
-    // 4. Fallback: local filesystem (dev only)
-    if ($this->localPath && file_exists($this->localPath)) {
-        Log::info('📁 Loading from local path: ' . $this->localPath);
-        return file_get_contents($this->localPath);
-    }
+        // 4. Fallback: local filesystem (dev only)
+        if ($this->localPath && file_exists($this->localPath)) {
+            Log::info('📁 Loading from local path: '.$this->localPath);
 
-    if ($analysis->image_path) {
-        $disk = Storage::disk('public');
-        if ($disk->exists($analysis->image_path)) {
-            $fullPath = $disk->path($analysis->image_path);
-            Log::info('📁 Loading from Storage Disk: ' . $fullPath);
-            return file_get_contents($fullPath);
+            return file_get_contents($this->localPath);
         }
+
+        if ($analysis->image_path) {
+            $disk = Storage::disk('public');
+            if ($disk->exists($analysis->image_path)) {
+                $fullPath = $disk->path($analysis->image_path);
+                Log::info('📁 Loading from Storage Disk: '.$fullPath);
+
+                return file_get_contents($fullPath);
+            }
+        }
+
+        Log::error('❌ No image source available');
+
+        return null;
     }
 
-    Log::error('❌ No image source available');
-    return null;
-}
-        /**
+    /**
      * Gets the absolute path reliably across both the web server and queue worker.
      */
     private function getAbsolutePath(GeoAnalysis $analysis)
@@ -238,6 +255,7 @@ private function loadImageData(GeoAnalysis $analysis)
                 return $disk->path($analysis->image_path);
             }
         }
+
         return null;
     }
 
@@ -251,11 +269,11 @@ private function loadImageData(GeoAnalysis $analysis)
 
         $filePath = $this->getAbsolutePath($analysis);
 
-        if (!$filePath) {
+        if (! $filePath) {
             return $data;
         }
 
-        if (!function_exists('exif_read_data')) {
+        if (! function_exists('exif_read_data')) {
             return $data;
         }
 
@@ -278,7 +296,7 @@ private function loadImageData(GeoAnalysis $analysis)
                 }
             }
         } catch (\Exception $e) {
-            Log::warning('⚠️ EXIF extraction failed: ' . $e->getMessage());
+            Log::warning('⚠️ EXIF extraction failed: '.$e->getMessage());
         }
 
         return $data;
@@ -303,79 +321,83 @@ private function loadImageData(GeoAnalysis $analysis)
      * Upload to Cloudinary using environment configuration.
      * Returns the secure URL or null on failure.
      */
-private function uploadToCloudinary(GeoAnalysis $analysis)
-{
-    // If already on Cloudinary (post-fix flow), just return the URL
-    if ($analysis->image_url && str_contains($analysis->image_url, 'cloudinary.com')) {
-        Log::info('☁️ Already on Cloudinary, skipping re-upload');
-        return $analysis->image_url;
+    private function uploadToCloudinary(GeoAnalysis $analysis)
+    {
+        // If already on Cloudinary (post-fix flow), just return the URL
+        if ($analysis->image_url && str_contains($analysis->image_url, 'cloudinary.com')) {
+            Log::info('☁️ Already on Cloudinary, skipping re-upload');
+
+            return $analysis->image_url;
+        }
+
+        // Legacy: try to upload from local (dev only)
+        $localFile = $this->getAbsolutePath($analysis);
+        if (! $localFile) {
+            Log::warning('☁️ No local file to upload to Cloudinary');
+
+            return $analysis->image_url ?? null;
+        }
+
+        $cloudName = config('services.cloudinary.cloud_name');
+        $apiKey = config('services.cloudinary.api_key');
+        $apiSecret = config('services.cloudinary.api_secret');
+
+        if (empty($cloudName) || empty($apiKey) || empty($apiSecret)) {
+            Log::warning('☁️ Cloudinary credentials not set, skipping upload');
+
+            return null;
+        }
+
+        try {
+            Log::info('☁️ Uploading to Cloudinary...');
+            Configuration::instance([
+                'cloud' => [
+                    'cloud_name' => $cloudName,
+                    'api_key' => $apiKey,
+                    'api_secret' => $apiSecret,
+                ],
+                'url' => ['secure' => true],
+            ]);
+
+            $uploadApi = new UploadApi;
+            $publicId = pathinfo($this->filename ?? $analysis->image_path ?? 'image', PATHINFO_FILENAME);
+            $uploadResult = $uploadApi->upload($localFile, [
+                'folder' => 'tracegeo/analyses',
+                'public_id' => $publicId,
+            ]);
+
+            $url = $uploadResult['secure_url'] ?? null;
+            Log::info('✅ Cloudinary upload successful', ['url' => $url]);
+
+            return $url;
+        } catch (\Exception $e) {
+            Log::error('❌ Cloudinary upload failed: '.$e->getMessage());
+
+            return null;
+        }
     }
-
-    // Legacy: try to upload from local (dev only)
-    $localFile = $this->getAbsolutePath($analysis);
-    if (!$localFile) {
-        Log::warning('☁️ No local file to upload to Cloudinary');
-        return $analysis->image_url ?? null;
-    }
-
-    $cloudName = config('services.cloudinary.cloud_name');
-    $apiKey = config('services.cloudinary.api_key');
-    $apiSecret = config('services.cloudinary.api_secret');
-
-    if (empty($cloudName) || empty($apiKey) || empty($apiSecret)) {
-        Log::warning('☁️ Cloudinary credentials not set, skipping upload');
-        return null;
-    }
-
-    try {
-        Log::info('☁️ Uploading to Cloudinary...');
-        Configuration::instance([
-            'cloud' => [
-                'cloud_name' => $cloudName,
-                'api_key' => $apiKey,
-                'api_secret' => $apiSecret,
-            ],
-            'url' => ['secure' => true],
-        ]);
-
-        $uploadApi = new UploadApi();
-        $publicId = pathinfo($this->filename ?? $analysis->image_path ?? 'image', PATHINFO_FILENAME);
-        $uploadResult = $uploadApi->upload($localFile, [
-            'folder' => 'tracegeo/analyses',
-            'public_id' => $publicId,
-        ]);
-
-        $url = $uploadResult['secure_url'] ?? null;
-        Log::info('✅ Cloudinary upload successful', ['url' => $url]);
-
-        return $url;
-    } catch (\Exception $e) {
-        Log::error('❌ Cloudinary upload failed: ' . $e->getMessage());
-        return null;
-    }
-}
 
     /**
      * Called when all retries are exhausted.
      */
     public function failed(\Exception $exception)
     {
-        Log::error('❌❌❌ Job PERMANENTLY FAILED after ' . $this->tries . ' attempts:', [
+        Log::error('❌❌❌ Job PERMANENTLY FAILED after '.$this->tries.' attempts:', [
             'analysis_id' => $this->analysisId,
             'error' => $exception->getMessage(),
         ]);
 
         try {
             $analysis = GeoAnalysis::find($this->analysisId);
-            if ($analysis && !in_array($analysis->status, ['completed', 'failed'])) {
+            if ($analysis && ! in_array($analysis->status, ['completed', 'failed'])) {
                 $analysis->update([
                     'status' => 'failed',
-                    'error' => 'Permanent failure: ' . $exception->getMessage(),
+                    'error' => 'Permanent failure: '.$exception->getMessage(),
                     'finished_at' => now(),
                 ]);
             }
         } catch (\Exception $e) {
-            Log::error('❌ Failed to update permanent failure: ' . $e->getMessage());
+            Log::error('❌ Failed to update permanent failure: '.$e->getMessage());
         }
     }
 }
