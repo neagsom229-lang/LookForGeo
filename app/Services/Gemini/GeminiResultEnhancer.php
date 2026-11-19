@@ -77,6 +77,24 @@ class GeminiResultEnhancer
         return $data;
     }
 
+    private function isValidCoordinate($lat, $lng)
+    {
+        return is_numeric($lat) && is_numeric($lng) && abs($lat) <= 90 && abs($lng) <= 180 && $lat != 0 && $lng != 0;
+    }
+
+    private function extractCoordinatesFromText($text)
+    {
+        if (preg_match('/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/', $text, $m)) {
+            $lat = floatval($m[1]);
+            $lng = floatval($m[2]);
+            if ($this->isValidCoordinate($lat, $lng)) {
+                return ['lat' => $lat, 'lng' => $lng];
+            }
+        }
+
+        return null;
+    }
+
     /**
      * Whether the Landmark model is actually usable right now.
      * Both databaseCrossReference and multiSourceVerification rely on this

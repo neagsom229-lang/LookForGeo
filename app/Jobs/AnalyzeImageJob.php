@@ -144,7 +144,7 @@ class AnalyzeImageJob implements ShouldQueue
             $analysis->markAsCompleted($finalResult);
             Log::info('🎉 Analysis COMPLETED for ID: '.$this->analysisId);
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('❌ Job FAILED: '.$e->getMessage());
             Log::error('Stack trace: '.$e->getTraceAsString());
 
@@ -158,7 +158,7 @@ class AnalyzeImageJob implements ShouldQueue
                     $analysis->markAsFailed($e->getMessage());
                     Log::info('✅ Error status saved to database');
                 }
-            } catch (\Exception $updateError) {
+            } catch (\Throwable $updateError) {
                 Log::error('❌ Failed to save error: '.$updateError->getMessage());
             }
 
@@ -184,7 +184,7 @@ class AnalyzeImageJob implements ShouldQueue
                     return $response->body();
                 }
                 Log::error('❌ HTTP '.$response->status().' fetching image');
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 Log::error('❌ HTTP fetch failed: '.$e->getMessage());
             }
         }
@@ -199,7 +199,7 @@ class AnalyzeImageJob implements ShouldQueue
                 if ($response->successful()) {
                     return $response->body();
                 }
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 Log::error('❌ DB URL fetch failed: '.$e->getMessage());
             }
         }
@@ -214,7 +214,7 @@ class AnalyzeImageJob implements ShouldQueue
                 if ($response->successful()) {
                     return $response->body();
                 }
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 Log::error('❌ image_url fetch failed: '.$e->getMessage());
             }
         }
@@ -295,7 +295,7 @@ class AnalyzeImageJob implements ShouldQueue
                     $data['settings']['iso'] = $exif['ISOSpeedRatings'];
                 }
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::warning('⚠️ EXIF extraction failed: '.$e->getMessage());
         }
 
@@ -370,7 +370,7 @@ class AnalyzeImageJob implements ShouldQueue
             Log::info('✅ Cloudinary upload successful', ['url' => $url]);
 
             return $url;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('❌ Cloudinary upload failed: '.$e->getMessage());
 
             return null;
@@ -380,7 +380,7 @@ class AnalyzeImageJob implements ShouldQueue
     /**
      * Called when all retries are exhausted.
      */
-    public function failed(\Exception $exception)
+    public function failed(\Throwable $exception)
     {
         Log::error('❌❌❌ Job PERMANENTLY FAILED after '.$this->tries.' attempts:', [
             'analysis_id' => $this->analysisId,
@@ -396,7 +396,7 @@ class AnalyzeImageJob implements ShouldQueue
                     'finished_at' => now(),
                 ]);
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('❌ Failed to update permanent failure: '.$e->getMessage());
         }
     }
