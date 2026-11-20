@@ -51,6 +51,8 @@
     ],
     "setup-local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1",
     "smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke.ps1",
+    "latency": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-latency.ps1",
+    "latency:live": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-latency.ps1 -Live",
     "post-autoload-dump": [
         "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
         "@php artisan package:discover --ansi"
