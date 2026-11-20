@@ -50,7 +50,7 @@ return [
     */
     'gemini' => [
         'key' => env('GEMINI_API_KEY'),
-        'model' => env('GEMINI_MODEL', 'gemini-3.6-flash'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.8-flash'),
         // A stable prior-generation model so a primary outage or deprecation
         // cannot take down both attempts.
         'fallback_model' => env('GEMINI_FALLBACK_MODEL', 'gemini-3.5-flash'),

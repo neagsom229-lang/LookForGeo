@@ -31,7 +31,7 @@ class GeminiClient
     public function __construct(private GeminiCircuitBreaker $circuit)
     {
         $this->apiKey = config('services.gemini.key');
-        $this->primaryModel = config('services.gemini.model', 'gemini-3.6-flash');
+        $this->primaryModel = config('services.gemini.model', 'gemini-3.8-flash');
         // Fallback should be a *stable, different-generation* model so a
         // primary outage or deprecation doesn't take down both. As of
         // Aug 2026, gemini-3.5-flash is the prior-generation stable Flash.
@@ -43,7 +43,9 @@ class GeminiClient
         $this->maxTotalTimeSeconds = max(1, (int) config('services.gemini.max_total_time', 110));
         $this->minAttemptSeconds = max(1, (int) config('services.gemini.min_attempt_seconds', 15));
         $this->retryBackoffMs = max(0, (int) config('services.gemini.retry_backoff_ms', 1000));
-        $this->thinkingLevel = strtoupper(trim((string) config('services.gemini.thinking_level', 'low')));
+        // Keep the configured casing (default lowercase "low"). An empty
+        // value omits thinkingConfig entirely.
+        $this->thinkingLevel = trim((string) config('services.gemini.thinking_level', 'low'));
         // Base URL for the Gemini REST API. Local/testing may override it
         // (e.g. fake server in smoke tests); everywhere else only https.
         $this->baseUrl = self::resolveBaseUrl(
@@ -162,7 +164,7 @@ class GeminiClient
 
     private function noteCircuitFailure(array $result): void
     {
-        if (in_array($result['category'] ?? null, ['quota', 'overload'], true)) {
+        if (in_array($result['category'] ?? null, ['quota', 'overload', 'timeout'], true)) {
             $this->circuit->recordFailure($result['retry_after'] ?? null);
         }
     }
@@ -705,7 +707,7 @@ class GeminiClient
      * Used by `php artisan gemini:probe` / `smoke.ps1 -Live` so we can
      * measure each configured model without ever printing the API key.
      *
-     * @return array{model: string, status: int, seconds: float, ok: bool, error?: string}
+     * @return array{model: string, status: int, seconds: float, ok: bool, error?: string, error_message?: string|null, quota_metric?: string|null, quota_id?: string|null, retry_after_seconds?: int}
      */
     public function probeModel(string $model): array
     {
@@ -750,6 +752,25 @@ class GeminiClient
                 ]);
 
             $status = $response->status();
+            $errorMessage = null;
+            $quotaMetric = null;
+            $quotaId = null;
+
+            if (! $response->successful()) {
+                $body = $response->json();
+                $error = is_array($body) ? ($body['error'] ?? []) : [];
+                $errorMessage = SecretSanitizer::redact(substr(
+                    (string) ($error['message'] ?? $response->body()), 0, 200
+                ));
+                foreach ((array) ($error['details'] ?? []) as $detail) {
+                    if (! is_array($detail)) {
+                        continue;
+                    }
+                    $quotaMetric = $quotaMetric ?: SecretSanitizer::redact(substr((string) ($detail['quotaMetric'] ?? ''), 0, 200));
+                    $quotaId = $quotaId ?: SecretSanitizer::redact(substr((string) ($detail['quotaId'] ?? ''), 0, 200));
+                }
+            }
+
             Log::info('Gemini attempt', [
                 'model' => $model,
                 'http_status' => $status,
@@ -764,6 +785,9 @@ class GeminiClient
                 'status' => $status,
                 'seconds' => round(microtime(true) - $started, 2),
                 'ok' => $response->successful(),
+                'error_message' => $errorMessage,
+                'quota_metric' => $quotaMetric,
+                'quota_id' => $quotaId,
             ];
         } catch (\Throwable $e) {
             Log::info('Gemini attempt', [
@@ -781,6 +805,9 @@ class GeminiClient
                 'seconds' => round(microtime(true) - $started, 2),
                 'ok' => false,
                 'error' => SecretSanitizer::redact($e->getMessage()),
+                'error_message' => SecretSanitizer::redact(substr($e->getMessage(), 0, 200)),
+                'quota_metric' => null,
+                'quota_id' => null,
             ];
         }
     }

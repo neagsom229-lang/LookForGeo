@@ -66,8 +66,8 @@ class GeminiFailureDiagnosticsTest extends TestCase
             ->assertJsonPath('error', AnalysisController::FAILED_USER_MESSAGE);
         $this->assertAttemptLog(function (array $context) {
             return ($context['exception_class'] ?? null) === ConnectionException::class
-                && $context['model'] === 'gemini-3.6-flash'
-                && $context['thinking_level'] === 'LOW'
+                && $context['model'] === 'gemini-3.8-flash'
+                && $context['thinking_level'] === 'low'
                 && $context['image_bytes'] > 0
                 && isset($context['elapsed_ms']);
         });
@@ -84,8 +84,8 @@ class GeminiFailureDiagnosticsTest extends TestCase
             ->assertJsonPath('failure_category', 'overload');
         $this->assertAttemptLog(function (array $context) {
             return ($context['http_status'] ?? null) === 503
-                && $context['model'] === 'gemini-3.6-flash'
-                && $context['thinking_level'] === 'LOW'
+                && $context['model'] === 'gemini-3.8-flash'
+                && $context['thinking_level'] === 'low'
                 && $context['image_bytes'] > 0;
         });
     }
@@ -118,7 +118,7 @@ class GeminiFailureDiagnosticsTest extends TestCase
             ->assertJsonPath('failure_category', 'bad_request');
         $this->assertAttemptLog(function (array $context) {
             return ($context['http_status'] ?? null) === 400
-                && $context['thinking_level'] === 'LOW'
+                && $context['thinking_level'] === 'low'
                 && $context['image_bytes'] > 0;
         });
         // The secret-looking key must never appear in any captured log line.

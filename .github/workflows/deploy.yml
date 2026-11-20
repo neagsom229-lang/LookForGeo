@@ -18,15 +18,21 @@ jobs:
   deploy-and-probe:
     name: Deploy then read-only probe
     runs-on: ubuntu-latest
+    env:
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
     steps:
       - uses: actions/checkout@v4
 
+      # No secret configured (e.g. fork or first setup): do not fail the run
+      # and do not open an issue. The read-only probe below still runs.
       - name: Trigger Render deploy
-        env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        if: env.RENDER_DEPLOY_HOOK_URL != ''
         run: |
-          test -n "$RENDER_DEPLOY_HOOK_URL"
           curl -sS -X POST "$RENDER_DEPLOY_HOOK_URL" -o /dev/null -w 'deploy_hook_http=%{http_code}\n'
+
+      - name: Deploy hook not configured
+        if: env.RENDER_DEPLOY_HOOK_URL == ''
+        run: echo "RENDER_DEPLOY_HOOK_URL not set - skipping deploy hook; read-only probe still runs."
 
       - name: Wait for health endpoint
         run: |

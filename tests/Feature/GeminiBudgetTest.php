@@ -71,10 +71,56 @@ class GeminiBudgetTest extends TestCase
             return ! array_key_exists('temperature', $config)
                 && ! array_key_exists('topP', $config)
                 && ! array_key_exists('topK', $config)
-                && ($config['thinkingConfig']['thinkingLevel'] ?? null) === 'LOW'
+                && ($config['thinkingConfig']['thinkingLevel'] ?? null) === 'low'
                 && $request->hasHeader('x-goog-api-key')
                 && ! str_contains($request->url(), 'key=');
         });
+    }
+
+    private function assertThinkingLevel(?string $expected): void
+    {
+        Http::fake([
+            '*' => Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [[
+                        'text' => json_encode(['landmark_name' => 'X']),
+                    ]]],
+                ]],
+            ], 200),
+        ]);
+
+        app(GeminiClient::class)->analyzeWithFallback('img', 'prompt');
+
+        Http::assertSent(function ($request) use ($expected) {
+            $config = $request->data()['generationConfig'] ?? [];
+            $actual = $config['thinkingConfig']['thinkingLevel'] ?? null;
+
+            return $actual === $expected;
+        });
+    }
+
+    public function test_thinking_level_is_sent_lowercase_by_default(): void
+    {
+        config(['services.gemini.thinking_level' => 'low']);
+        $this->assertThinkingLevel('low');
+    }
+
+    public function test_thinking_level_casing_is_configurable(): void
+    {
+        config(['services.gemini.thinking_level' => 'HIGH']);
+        $this->assertThinkingLevel('HIGH');
+    }
+
+    public function test_empty_thinking_level_omits_thinking_config(): void
+    {
+        config(['services.gemini.thinking_level' => '']);
+        $this->assertThinkingLevel(null);
+    }
+
+    public function test_non_gemini3_model_omits_thinking_config(): void
+    {
+        config(['services.gemini.model' => 'gemini-2.5-flash', 'services.gemini.thinking_level' => 'low']);
+        $this->assertThinkingLevel(null);
     }
 
     public function test_environment_defaults_are_50s_request_and_110s_budget(): void

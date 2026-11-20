@@ -27,7 +27,7 @@ class GeminiProbeTest extends TestCase
         $text = $output->fetch();
 
         $this->assertSame(0, $exit);
-        $this->assertStringContainsString('gemini-3.6-flash', $text);
+        $this->assertStringContainsString('gemini-3.8-flash', $text);
         $this->assertStringContainsString('gemini-3.5-flash', $text);
         $this->assertStringContainsString('HTTP 200', $text);
         $this->assertMatchesRegularExpression('/\d+\.\d+s/', $text);
@@ -53,8 +53,62 @@ class GeminiProbeTest extends TestCase
             return isset($inline['data'])
                 && ($inline['mime_type'] ?? null) === 'image/png'
                 && isset($data['generationConfig']['responseSchema'])
-                && ($data['generationConfig']['thinkingConfig']['thinkingLevel'] ?? null) === 'LOW';
+                && ($data['generationConfig']['thinkingConfig']['thinkingLevel'] ?? null) === 'low';
         });
+    }
+
+    public function test_probe_models_flag_prints_sanitized_error_and_quota_details(): void
+    {
+        config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'model-a')) {
+                return Http::response([
+                    'error' => [
+                        'message' => 'quota exceeded AIzaSyFakeProbeKey1234567890',
+                        'details' => [[
+                            'quotaMetric' => 'generativelanguage.googleapis.com/generate_content_requests',
+                            'quotaId' => 'Q-123',
+                        ]],
+                    ],
+                ], 429);
+            }
+
+            return Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => '{"ok":true}']]]]],
+            ], 200);
+        });
+
+        $output = new BufferedOutput;
+        $exit = Artisan::call('gemini:probe', ['--models' => 'model-a,model-b'], $output);
+        $text = $output->fetch();
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('model-a', $text);
+        $this->assertStringContainsString('model-b', $text);
+        $this->assertStringContainsString('quotaMetric', $text);
+        $this->assertStringContainsString('Q-123', $text);
+        $this->assertStringNotContainsString('AIzaSyFakeProbeKey1234567890', $text);
+    }
+
+    public function test_gemini_models_lists_only_usable_flash_models(): void
+    {
+        config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
+        Http::fake(['*' => Http::response([
+            'models' => [
+                ['name' => 'models/gemini-3.8-flash', 'supportedGenerationMethods' => ['generateContent']],
+                ['name' => 'models/gemini-3-pro', 'supportedGenerationMethods' => ['generateContent']],
+                ['name' => 'models/gemini-3.5-flash', 'supportedGenerationMethods' => ['embedContent']],
+            ],
+        ], 200)]);
+
+        $output = new BufferedOutput;
+        $exit = Artisan::call('gemini:models', [], $output);
+        $text = $output->fetch();
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('gemini-3.8-flash', $text);
+        $this->assertStringNotContainsString('gemini-3-pro', $text);
+        $this->assertStringNotContainsString('gemini-3.5-flash', $text);
     }
 
     public function test_probe_reports_failure_without_key(): void

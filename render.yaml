@@ -54,7 +54,7 @@ services:
       - key: GEMINI_THINKING_LEVEL
         value: low
       - key: GEMINI_MODEL
-        value: gemini-3.6-flash
+        value: gemini-3.8-flash
       - key: GEMINI_FALLBACK_MODEL
         value: gemini-3.5-flash
       # Secret keys — set actual values in Render Dashboard
@@ -123,7 +123,7 @@ services:
       - key: GEMINI_THINKING_LEVEL
         value: low
       - key: GEMINI_MODEL
-        value: gemini-3.6-flash
+        value: gemini-3.8-flash
       - key: GEMINI_FALLBACK_MODEL
         value: gemini-3.5-flash
       - key: GEMINI_API_KEY

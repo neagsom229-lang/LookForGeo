@@ -15,6 +15,14 @@
   `key=`, `AIza…`, `AQ…` from every message and context, including production
   JSON logs.
 
+## Google Gemini tier and data use
+
+Google's **free tier** may use submitted prompts and images to improve its
+products. TraceGeo therefore requires a **billed Gemini tier in production**;
+the free tier must not be used for real user photos. This is also recorded in
+`.env.example` as "Production must use a billed Gemini tier." Verify the tier
+on the Google AI Studio billing page before enabling analysis in production.
+
 ## Who sees the image
 
 - You (the owner) and the services required to produce a result:

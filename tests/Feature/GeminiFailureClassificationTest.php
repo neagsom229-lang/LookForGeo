@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Services\Gemini\GeminiCircuitBreaker;
 use App\Services\Gemini\GeminiClient;
 use App\Services\Gemini\GeminiFailureClassifier;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -50,7 +51,7 @@ class GeminiFailureClassificationTest extends TestCase
     public function test_429_is_not_retried_on_the_same_model_and_retry_after_is_carried(): void
     {
         Http::fake(function ($request) {
-            if (str_contains($request->url(), 'gemini-3.6-flash')) {
+            if (str_contains($request->url(), 'gemini-3.8-flash')) {
                 return Http::response(['error' => 'quota'], 429, ['Retry-After' => '7']);
             }
 
@@ -69,7 +70,7 @@ class GeminiFailureClassificationTest extends TestCase
         Http::assertSentCount(2);
         $primaryCalls = 0;
         Http::assertSent(function ($request) use (&$primaryCalls) {
-            if (str_contains($request->url(), 'gemini-3.6-flash')) {
+            if (str_contains($request->url(), 'gemini-3.8-flash')) {
                 $primaryCalls++;
             }
 
@@ -87,6 +88,37 @@ class GeminiFailureClassificationTest extends TestCase
         $this->assertSame('quota', $result['category']);
         $this->assertSame(7, $result['retry_after']);
         $this->assertSame(GeminiFailureClassifier::MESSAGES['quota'], $result['user_message']);
+    }
+
+    public function test_three_400_failures_do_not_open_the_breaker(): void
+    {
+        config(['services.gemini.circuit_failures' => 3]);
+        Http::fake(['*' => Http::response(['error' => 'bad request'], 400)]);
+        $client = app(GeminiClient::class);
+
+        for ($i = 0; $i < 3; $i++) {
+            $result = $client->analyzeWithFallback('img', 'prompt');
+            $this->assertSame('bad_request', $result['category']);
+        }
+
+        $this->assertFalse(app(GeminiCircuitBreaker::class)->isOpen());
+        Http::assertSentCount(6);
+    }
+
+    public function test_three_timeout_failures_open_the_breaker(): void
+    {
+        config(['services.gemini.circuit_failures' => 3]);
+        Http::fake(function () {
+            throw new ConnectionException('cURL 28 timeout');
+        });
+        $client = app(GeminiClient::class);
+
+        for ($i = 0; $i < 3; $i++) {
+            $result = $client->analyzeWithFallback('img', 'prompt');
+            $this->assertContains($result['category'], ['timeout', 'circuit_open']);
+        }
+
+        $this->assertTrue(app(GeminiCircuitBreaker::class)->isOpen());
     }
 
     public function test_circuit_breaker_fails_fast_with_overload_message(): void
