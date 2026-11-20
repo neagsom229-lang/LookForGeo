@@ -50,10 +50,10 @@ return [
     */
     'gemini' => [
         'key' => env('GEMINI_API_KEY'),
-        'model' => env('GEMINI_MODEL', 'gemini-3.1-flash-lite'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.5-flash-lite'),
         // A stable prior-generation model so a primary outage or deprecation
         // cannot take down both attempts.
-        'fallback_model' => env('GEMINI_FALLBACK_MODEL', 'gemini-3.5-flash-lite'),
+        'fallback_model' => env('GEMINI_FALLBACK_MODEL', 'gemini-3.1-flash-lite'),
         // Optional second pass when calibrated confidence is low.
         // Empty escalation model = disabled.
         'escalation_model' => env('GEMINI_ESCALATION_MODEL', ''),

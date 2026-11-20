@@ -24,7 +24,7 @@ class GeminiBudgetTest extends TestCase
             'services.gemini.min_attempt_seconds' => 15,
             'services.gemini.retry_backoff_ms' => 0, // no real sleep in tests
             'services.gemini.model' => 'gemini-3.6-flash',
-            'services.gemini.fallback_model' => 'gemini-3.5-flash-lite',
+            'services.gemini.fallback_model' => 'gemini-3.1-flash-lite',
         ]);
     }
 
@@ -122,8 +122,8 @@ class GeminiBudgetTest extends TestCase
     {
         $cases = [
             'gemini-3.8-flash' => 'low',
-            'gemini-3.1-flash-lite' => 'minimal',
             'gemini-3.5-flash-lite' => 'low',
+            'gemini-3.1-flash-lite' => 'low',
             'gemini-2.5-flash' => null,
         ];
 
@@ -139,12 +139,12 @@ class GeminiBudgetTest extends TestCase
         config([
             'services.gemini.model' => 'gemini-3.8-flash',
             'services.gemini.fallback_model' => 'gemini-3.8-flash',
-            'services.gemini.thinking_overrides' => 'gemini-3.8-flash=high,gemini-3.1-flash-lite=',
+            'services.gemini.thinking_overrides' => 'gemini-3.8-flash=high,gemini-3.5-flash-lite=',
         ]);
         app()->forgetInstance(GeminiClient::class);
         $this->assertThinkingLevel('high');
 
-        config(['services.gemini.model' => 'gemini-3.1-flash-lite', 'services.gemini.fallback_model' => 'gemini-3.1-flash-lite']);
+        config(['services.gemini.model' => 'gemini-3.5-flash-lite', 'services.gemini.fallback_model' => 'gemini-3.5-flash-lite']);
         app()->forgetInstance(GeminiClient::class);
         $this->assertThinkingLevel(null);
     }

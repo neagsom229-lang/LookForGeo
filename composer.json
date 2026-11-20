@@ -45,6 +45,7 @@
     "scripts": {
     "test": "phpunit --exclude-group=slow",
     "test:slow": "phpunit --group=slow",
+    "test:decoy": "php scripts/test-decoy.php",
     "test:all": ["@test", "@test:slow"],
     "dev": [
         "Composer\\Config::disableProcessTimeout",

@@ -33,6 +33,28 @@ jobs:
       - name: Run tests (fast + slow process group)
         run: composer test:all
 
+  decoy-env:
+    name: Hermetic suite with decoy .env
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --optimize-autoloader --no-interaction
+
+      # A temp worktree gets a .env with contradicting dummy values;
+      # phpunit.xml force="true" must make them irrelevant.
+      - name: Full suite with decoy .env
+        run: composer test:decoy
+
   smoke:
     name: Smoke test (offline, fake Gemini)
     runs-on: ubuntu-latest

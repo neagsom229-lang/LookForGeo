@@ -18,30 +18,38 @@
         </include>
     </source>
     <php>
-        <env name="APP_ENV" value="testing"/>
+        <env name="APP_ENV" value="testing" force="true"/>
         <!-- Test-only fixed key: CI has no .env, so tests must not depend on it.
              This value encrypts nothing outside the test process and is not a secret. -->
-        <env name="APP_KEY" value="base64:JnjDNND9BBQ0AcXMlfrBO2rYuAwFl0N0kobr8iqLFJA="/>
-        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
-        <env name="BCRYPT_ROUNDS" value="4"/>
-        <env name="BROADCAST_CONNECTION" value="null"/>
-        <env name="CACHE_STORE" value="array"/>
+        <env name="APP_KEY" value="base64:JnjDNND9BBQ0AcXMlfrBO2rYuAwFl0N0kobr8iqLFJA=" force="true"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
+        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
+        <env name="BROADCAST_CONNECTION" value="null" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
         <!-- Force an in-memory sqlite database for tests — NEVER the prod URL from .env -->
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
-        <env name="DATABASE_URL" value="sqlite:///:memory:"/>
-        <env name="GEMINI_CONFIDENCE_REVERSE_GEOCODE" value="false"/>
-        <env name="GEMINI_HEALTH_PROBE" value="false"/>
-        <env name="CLOUDINARY_CLOUD_NAME" value=""/>
-        <env name="CLOUDINARY_API_KEY" value=""/>
-        <env name="CLOUDINARY_API_SECRET" value=""/>
-        <env name="MAIL_MAILER" value="array"/>
-        <env name="QUEUE_CONNECTION" value="sync"/>
-        <env name="SESSION_DRIVER" value="array"/>
+        <env name="DB_CONNECTION" value="sqlite" force="true"/>
+        <env name="DB_DATABASE" value=":memory:" force="true"/>
+        <env name="DATABASE_URL" value="sqlite:///:memory:" force="true"/>
+        <env name="GEMINI_CONFIDENCE_REVERSE_GEOCODE" value="false" force="true"/>
+        <env name="GEMINI_HEALTH_PROBE" value="false" force="true"/>
+        <env name="GEMINI_MODEL" value="gemini-3.5-flash-lite" force="true"/>
+        <env name="GEMINI_FALLBACK_MODEL" value="gemini-3.1-flash-lite" force="true"/>
+        <env name="GEMINI_ESCALATION_MODEL" value="" force="true"/>
+        <env name="GEMINI_TIMEOUT" value="50" force="true"/>
+        <env name="GEMINI_TOTAL_BUDGET" value="110" force="true"/>
+        <env name="GEMINI_THINKING_LEVEL" value="low" force="true"/>
+        <env name="GEMINI_THINKING_OVERRIDES" value="" force="true"/>
+        <env name="CLOUDINARY_CLOUD_NAME" value="" force="true"/>
+        <env name="CLOUDINARY_URL" value="" force="true"/>
+        <env name="CLOUDINARY_API_KEY" value="" force="true"/>
+        <env name="CLOUDINARY_API_SECRET" value="" force="true"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
         <!-- Tests log to storage/logs/laravel-test.log, never to laravel.log -->
-        <env name="LOG_CHANNEL" value="testing"/>
-        <env name="PULSE_ENABLED" value="false"/>
-        <env name="TELESCOPE_ENABLED" value="false"/>
-        <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="LOG_CHANNEL" value="testing" force="true"/>
+        <env name="PULSE_ENABLED" value="false" force="true"/>
+        <env name="TELESCOPE_ENABLED" value="false" force="true"/>
+        <env name="NIGHTWATCH_ENABLED" value="false" force="true"/>
     </php>
 </phpunit>

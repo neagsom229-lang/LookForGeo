@@ -21,7 +21,7 @@
 
 ## ✨ Key Features
 
-- **🧠 Multi-Tier AI Geolocation** — Leverages `gemini-3.1-flash-lite` (with `gemini-3.5-flash-lite` fallback) to parse subtle geographic, architectural, and ecological indicators.
+- **🧠 Multi-Tier AI Geolocation** — Leverages `gemini-3.5-flash-lite` (with `gemini-3.1-flash-lite` fallback) to parse subtle geographic, architectural, and ecological indicators.
 - **📂 Flexible Input Methods** — Upload local image files directly or paste remote image URLs (Wikimedia, Wikipedia, Imgur, etc.).
 - **⚡ Real-Time Pipeline Progress** — Live visual breakdown as the pipeline traverses stages: `Features` → `Reasoning` → `Locate`.
 - **🗺️ Interactive Mapping Engine** — Integrated Leaflet.js with Esri World Imagery and OpenStreetMap overlays (zero paid API keys required).
@@ -42,7 +42,7 @@
 | **Database** | PostgreSQL (Production) / SQLite (Local development) |
 | **Cache & Queue** | Database driver (`CACHE_STORE=database`, `QUEUE_CONNECTION=database`) |
 | **Mapping Engine** | Leaflet.js + Esri World Imagery + OpenStreetMap |
-| **AI Inference** | Google Gemini API (`gemini-3.1-flash-lite` / `gemini-3.5-flash-lite`) |
+| **AI Inference** | Google Gemini API (`gemini-3.5-flash-lite` / `gemini-3.1-flash-lite`) |
 | **Media Hosting** | Cloudinary (optional) |
 | **Authentication** | Laravel Sanctum |
 | **Offline / PWA** | Custom Service Worker (`public/sw.js`) |
@@ -123,8 +123,8 @@ QUEUE_CONNECTION=database
 
 # Google Gemini API
 GEMINI_API_KEY=your_google_ai_studio_key_here
-GEMINI_MODEL=gemini-3.1-flash-lite
-GEMINI_FALLBACK_MODEL=gemini-3.5-flash-lite
+GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_FALLBACK_MODEL=gemini-3.1-flash-lite
 GEMINI_TIMEOUT=50
 GEMINI_TOTAL_BUDGET=110
 

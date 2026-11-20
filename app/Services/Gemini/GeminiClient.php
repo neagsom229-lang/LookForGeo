@@ -34,11 +34,11 @@ class GeminiClient
     public function __construct(private GeminiCircuitBreaker $circuit)
     {
         $this->apiKey = config('services.gemini.key');
-        $this->primaryModel = config('services.gemini.model', 'gemini-3.1-flash-lite');
+        $this->primaryModel = config('services.gemini.model', 'gemini-3.5-flash-lite');
         // Fallback should be a *stable, different-generation* model so a
         // primary outage or deprecation doesn't take down both. As of
         // Aug 2026, gemini-3.5-flash is the prior-generation stable Flash.
-        $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.5-flash-lite');
+        $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.1-flash-lite');
         $this->requestTimeout = max(1, (int) config('services.gemini.timeout', 50));
         // Exactly one retry on the primary model. More retries only stack
         // latency and push the user past the two-minute failure target.
@@ -313,7 +313,9 @@ class GeminiClient
         }
 
         if (str_contains($model, 'flash-lite')) {
-            return str_contains($model, '3.1') ? 'minimal' : 'low';
+            // "minimal" is opt-in only via GEMINI_THINKING_OVERRIDES after a
+            // live 200 has been recorded in docs/DEPLOY_NOTES.md.
+            return 'low';
         }
 
         return $this->thinkingLevel === '' ? null : $this->thinkingLevel;
@@ -747,7 +749,7 @@ class GeminiClient
      *
      * @return array{model: string, status: int, seconds: float, ok: bool, category: string, error?: string, error_message?: string|null, quota_metric?: string|null, quota_id?: string|null, retry_after_seconds?: int}
      */
-    public function probeModel(string $model): array
+    public function probeModel(string $model, ?string $thinkingOverride = null): array
     {
         $started = microtime(true);
 
@@ -766,6 +768,19 @@ class GeminiClient
         $png = $this->tinyProbePng();
         $imageBytes = strlen($png);
 
+        $generationConfig = $this->generationConfig($model, [
+            'maxOutputTokens' => 32,
+            'responseMimeType' => 'application/json',
+            'responseSchema' => [
+                'type' => 'OBJECT',
+                'properties' => ['ok' => ['type' => 'BOOLEAN']],
+                'required' => ['ok'],
+            ],
+        ]);
+        if ($thinkingOverride !== null && $thinkingOverride !== '') {
+            $generationConfig['thinkingConfig'] = ['thinkingLevel' => $thinkingOverride];
+        }
+
         try {
             $response = Http::timeout($this->requestTimeout)
                 ->connectTimeout(min(10, $this->requestTimeout))
@@ -779,15 +794,7 @@ class GeminiClient
                     ]],
                     // Same shape as a real analysis request: structured JSON,
                     // a response schema and (for Gemini 3.x) thinking config.
-                    'generationConfig' => $this->generationConfig($model, [
-                        'maxOutputTokens' => 32,
-                        'responseMimeType' => 'application/json',
-                        'responseSchema' => [
-                            'type' => 'OBJECT',
-                            'properties' => ['ok' => ['type' => 'BOOLEAN']],
-                            'required' => ['ok'],
-                        ],
-                    ]),
+                    'generationConfig' => $generationConfig,
                 ]);
 
             $status = $response->status();
@@ -814,7 +821,7 @@ class GeminiClient
                 'model' => $model,
                 'http_status' => $status,
                 'elapsed_ms' => (int) round((microtime(true) - $started) * 1000),
-                'thinking_level' => $this->effectiveThinkingLevel($model),
+                'thinking_level' => $thinkingOverride ?: $this->effectiveThinkingLevel($model),
                 'image_bytes' => $imageBytes,
                 'probe' => true,
             ]);
@@ -839,7 +846,7 @@ class GeminiClient
                 'model' => $model,
                 'exception_class' => get_class($e),
                 'elapsed_ms' => (int) round((microtime(true) - $started) * 1000),
-                'thinking_level' => $this->effectiveThinkingLevel($model),
+                'thinking_level' => $thinkingOverride ?: $this->effectiveThinkingLevel($model),
                 'image_bytes' => $imageBytes,
                 'probe' => true,
             ]);

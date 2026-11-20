@@ -27,8 +27,8 @@ class GeminiProbeTest extends TestCase
         $text = $output->fetch();
 
         $this->assertSame(0, $exit);
-        $this->assertStringContainsString('gemini-3.1-flash-lite', $text);
         $this->assertStringContainsString('gemini-3.5-flash-lite', $text);
+        $this->assertStringContainsString('gemini-3.1-flash-lite', $text);
         $this->assertStringContainsString('HTTP 200', $text);
         $this->assertMatchesRegularExpression('/\d+\.\d+s/', $text);
         $this->assertStringNotContainsString($key, $text);
@@ -90,6 +90,54 @@ class GeminiProbeTest extends TestCase
         $this->assertStringNotContainsString('AIzaSyFakeProbeKey1234567890', $text);
     }
 
+    public function test_probe_repeat_prints_min_median_max(): void
+    {
+        config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
+        Http::fake(['*' => Http::response([
+            'candidates' => [['content' => ['parts' => [['text' => '{"ok":true}']]]]],
+        ], 200)]);
+
+        $output = new BufferedOutput;
+        $exit = Artisan::call('gemini:probe', ['--models' => 'model-a', '--repeat' => 3], $output);
+        $line = trim($output->fetch());
+
+        $this->assertSame(0, $exit);
+        $this->assertMatchesRegularExpression('/\d+\.\d{2}\/\d+\.\d{2}\/\d+\.\d{2}s/', $line);
+        $this->assertStringContainsString('| ok', $line);
+        Http::assertSentCount(3);
+    }
+
+    public function test_probe_thinking_override_is_sent(): void
+    {
+        config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
+        Http::fake(['*' => Http::response([
+            'candidates' => [['content' => ['parts' => [['text' => '{"ok":true}']]]]],
+        ], 200)]);
+
+        Artisan::call('gemini:probe', [
+            '--models' => 'model-a',
+            '--thinking' => 'high',
+        ], new BufferedOutput);
+
+        Http::assertSent(fn ($request) => ($request->data()['generationConfig']['thinkingConfig']['thinkingLevel'] ?? null) === 'high');
+    }
+
+    public function test_probe_minimal_override_requires_recorded_live_200(): void
+    {
+        config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
+        Http::fake(['*' => Http::response([], 200)]);
+
+        $output = new BufferedOutput;
+        $exit = Artisan::call('gemini:probe', [
+            '--models' => 'unverified-model',
+            '--thinking' => 'minimal',
+        ], $output);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('no live 200 recorded', $output->fetch());
+        Http::assertNothingSent();
+    }
+
     public function test_probe_prints_one_fresh_line_per_model(): void
     {
         config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
@@ -127,9 +175,9 @@ class GeminiProbeTest extends TestCase
         config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
         Http::fake(['*' => Http::response([
             'models' => [
-                ['name' => 'models/gemini-3.1-flash-lite', 'supportedGenerationMethods' => ['generateContent']],
+                ['name' => 'models/gemini-3.5-flash-lite', 'supportedGenerationMethods' => ['generateContent']],
                 ['name' => 'models/gemini-3-pro', 'supportedGenerationMethods' => ['generateContent']],
-                ['name' => 'models/gemini-3.5-flash-lite', 'supportedGenerationMethods' => ['embedContent']],
+                ['name' => 'models/gemini-3.1-flash-lite', 'supportedGenerationMethods' => ['embedContent']],
             ],
         ], 200)]);
 
@@ -138,9 +186,9 @@ class GeminiProbeTest extends TestCase
         $text = $output->fetch();
 
         $this->assertSame(0, $exit);
-        $this->assertStringContainsString('gemini-3.1-flash-lite', $text);
+        $this->assertStringContainsString('gemini-3.5-flash-lite', $text);
         $this->assertStringNotContainsString('gemini-3-pro', $text);
-        $this->assertStringNotContainsString('gemini-3.5-flash-lite', $text);
+        $this->assertStringNotContainsString('gemini-3.1-flash-lite', $text);
     }
 
     public function test_probe_reports_failure_without_key(): void

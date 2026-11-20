@@ -20,7 +20,7 @@ class GeminiEscalationTest extends TestCase
             'services.gemini.retries' => 0,
             'services.gemini.retry_backoff_ms' => 0,
             'services.gemini.confidence_reverse_geocode' => false,
-            'services.gemini.escalation_model' => 'gemini-3.5-flash-lite',
+            'services.gemini.escalation_model' => 'gemini-3.1-flash-lite',
             'services.gemini.escalate_below' => 60,
             'services.gemini.escalation_timeout' => 25,
         ]);
@@ -80,7 +80,7 @@ class GeminiEscalationTest extends TestCase
         $attempts = 0;
         Http::fake(function ($request) use (&$attempts) {
             $attempts++;
-            if (str_contains($request->url(), 'gemini-3.5-flash-lite')) {
+            if (str_contains($request->url(), 'gemini-3.1-flash-lite')) {
                 throw new ConnectionException('cURL 28 timeout');
             }
 
