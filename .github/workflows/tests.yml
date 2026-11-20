@@ -56,6 +56,32 @@ jobs:
       - name: Run E2E smoke test
         run: php artisan test --filter=SmokeTest
 
+  geo-eval:
+    name: geo:eval (mock, offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --optimize-autoloader --no-interaction
+
+      # No GEMINI_API_KEY: the command fakes Gemini and writes a JSON report
+      # that can be diffed between runs for regressions.
+      - name: Run offline quality eval
+        run: php artisan geo:eval --report=storage/app/eval-mock-ci.json
+
+      - name: Upload eval report
+        uses: actions/upload-artifact@v4
+        with:
+          name: geo-eval-mock
+          path: storage/app/eval-mock-ci.json
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest

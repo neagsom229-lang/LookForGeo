@@ -1,0 +1,42 @@
+name: geo:eval (live)
+
+# Manual only. Reads GEMINI_API_KEY from repository secrets; the command
+# never prints the key, only model-agnostic metrics and the report path.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Number of labelled images to evaluate (0 = all)'
+        required: false
+        default: '10'
+
+jobs:
+  live-eval:
+    name: Live Gemini quality eval
+    runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --optimize-autoloader --no-interaction
+
+      - name: Refuse to run without a key
+        run: test -n "$GEMINI_API_KEY"
+
+      - name: Run live eval
+        run: php artisan geo:eval --live --limit=${{ inputs.limit }} --report=storage/app/eval-live.json
+
+      - name: Upload live report
+        uses: actions/upload-artifact@v4
+        with:
+          name: geo-eval-live
+          path: storage/app/eval-live.json
