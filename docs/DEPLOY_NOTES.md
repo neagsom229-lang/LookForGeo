@@ -29,16 +29,22 @@ Values below are the non-secret defaults committed in `render.yaml`.
 | `GEMINI_CONFIDENCE_REVERSE_GEOCODE` | `true` | `true` | default | Country-consistency signal |
 | `GEMINI_HEALTH_PROBE` | `true` | `true` | default | 60 s cached reachability check |
 | `GEMINI_THINKING_LEVEL` | `low` | `low` | default | Lowest sensible Gemini 3.x level |
-| `GEMINI_MODEL` | `gemini-3.8-flash` | `gemini-3.8-flash` | default | Primary; change only after probing |
-| `GEMINI_FALLBACK_MODEL` | `gemini-3.5-flash` | `gemini-3.5-flash` | default | Fallback; configurable via env |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite` | `gemini-3.1-flash-lite` | default | Primary; change only after probing |
+| `GEMINI_FALLBACK_MODEL` | `gemini-3.5-flash-lite` | `gemini-3.5-flash-lite` | default | Fallback; configurable via env |
+| `GEMINI_ESCALATION_MODEL` | `""` | `""` | default | Optional second pass; empty = off |
+| `GEMINI_ESCALATE_BELOW` | `60` | `60` | default | Escalate when calibrated confidence is below this |
+| `GEMINI_ESCALATION_TIMEOUT` | `25` | `25` | default | Bounded timeout for the single second pass |
 
 **Choosing models (no guessing):** run `php artisan gemini:models` to list
 flash models that support `generateContent`, then
-`php artisan gemini:probe --models=gemini-3.8-flash,gemini-3.5-flash` to see
+`php artisan gemini:probe --models=gemini-3.1-flash-lite,gemini-3.5-flash-lite` to see
 HTTP status, seconds and any sanitized Google error/quota details for the real
 payload shape. Pick a model only if it returns HTTP 200 (no 400 from the
 thinking/schema config). Set the chosen ids as `GEMINI_MODEL` and
-`GEMINI_FALLBACK_MODEL`. The defaults are starting points, not a guarantee.
+`GEMINI_FALLBACK_MODEL`. The current defaults (`gemini-3.1-flash-lite` /
+`gemini-3.5-flash-lite`) are interim choices based on the reported hangs and
+overloads of 3.8/3.7/3.6 flash; they remain in place until real probe numbers
+are supplied. They are starting points, not a guarantee.
 
 `SESSION_SECURE_COOKIE` is not set: `config/session.php` defaults it to true
 when `APP_ENV=production`. HSTS is emitted by middleware only over HTTPS.
@@ -107,7 +113,7 @@ php artisan gemini:probe
 
 Pass criteria:
 
-- Both configured models (`gemini-3.8-flash`, `gemini-3.5-flash`) print
+- Both configured models (`gemini-3.1-flash-lite`, `gemini-3.5-flash-lite`) print
   `HTTP 200` and `OK`.
 - **No HTTP 400.** A 400 would mean `generationConfig.thinkingConfig.thinkingLevel`
   (`low`) was rejected.

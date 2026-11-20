@@ -172,6 +172,13 @@ try {
         Add-Fail 'GET /api/health body is not valid JSON'
     }
 
+    if ($null -ne $healthJson -and $healthJson.commit) {
+        Write-Host ("PASS  deploy commit=" + $healthJson.commit)
+    }
+    else {
+        Write-Host "INFO  deploy commit not reported by /api/health"
+    }
+
     if ($null -ne $healthJson -and $healthJson.status -eq 'operational') {
         Add-Pass 'GET /api/health reports status=operational'
     }

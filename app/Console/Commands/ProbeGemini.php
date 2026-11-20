@@ -43,31 +43,32 @@ class ProbeGemini extends Command
         $allOk = true;
 
         foreach ($models as $model) {
+            // Fresh result per model: no value from a previous model is reused.
             $result = $client->probeModel($model);
 
+            $extras = [];
+            if (! $result['ok']) {
+                $allOk = false;
+                $detail = $result['error_message'] ?? $result['error'] ?? null;
+                if ($detail) {
+                    $extras[] = 'error='.$detail;
+                }
+                if ($result['quota_metric'] ?? null) {
+                    $extras[] = 'quotaMetric='.$result['quota_metric'];
+                }
+                if ($result['quota_id'] ?? null) {
+                    $extras[] = 'quotaId='.$result['quota_id'];
+                }
+            }
+
             $this->line(sprintf(
-                '%-28s HTTP %-3s %6.2fs %s',
+                '%s | HTTP %s | %.2fs | %s%s',
                 $result['model'],
                 $result['status'],
                 $result['seconds'],
-                $result['ok'] ? 'OK' : 'FAIL'
+                $result['category'],
+                $extras ? ' | '.implode(' | ', $extras) : ''
             ));
-
-            if ($result['ok']) {
-                continue;
-            }
-
-            $allOk = false;
-            $detail = $result['error_message'] ?? $result['error'] ?? null;
-            if ($detail) {
-                $this->line('  error: '.$detail);
-            }
-            if ($result['quota_metric'] ?? null) {
-                $this->line('  quotaMetric: '.$result['quota_metric']);
-            }
-            if ($result['quota_id'] ?? null) {
-                $this->line('  quotaId: '.$result['quota_id']);
-            }
         }
 
         return $allOk ? self::SUCCESS : self::FAILURE;

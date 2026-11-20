@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      PUSHED_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,6 +34,23 @@ jobs:
       - name: Deploy hook not configured
         if: env.RENDER_DEPLOY_HOOK_URL == ''
         run: echo "RENDER_DEPLOY_HOOK_URL not set - skipping deploy hook; read-only probe still runs."
+
+      # Max 10 minutes (60 x 10s). The probe must only run against the SHA
+      # that was just pushed.
+      - name: Wait for deployed commit
+        if: env.RENDER_DEPLOY_HOOK_URL != ''
+        run: |
+          wanted="${PUSHED_SHA:0:7}"
+          for i in $(seq 1 60); do
+            commit=$(curl -sS https://lookforgeo.onrender.com/api/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',''))" || true)
+            echo "health commit=$commit wanted=$wanted"
+            if [ "$commit" = "$wanted" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "deployed commit never matched $wanted within 10 minutes"
+          exit 1
 
       - name: Wait for health endpoint
         run: |

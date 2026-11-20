@@ -27,8 +27,8 @@ class GeminiProbeTest extends TestCase
         $text = $output->fetch();
 
         $this->assertSame(0, $exit);
-        $this->assertStringContainsString('gemini-3.8-flash', $text);
-        $this->assertStringContainsString('gemini-3.5-flash', $text);
+        $this->assertStringContainsString('gemini-3.1-flash-lite', $text);
+        $this->assertStringContainsString('gemini-3.5-flash-lite', $text);
         $this->assertStringContainsString('HTTP 200', $text);
         $this->assertMatchesRegularExpression('/\d+\.\d+s/', $text);
         $this->assertStringNotContainsString($key, $text);
@@ -90,14 +90,46 @@ class GeminiProbeTest extends TestCase
         $this->assertStringNotContainsString('AIzaSyFakeProbeKey1234567890', $text);
     }
 
+    public function test_probe_prints_one_fresh_line_per_model(): void
+    {
+        config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'model-a')) {
+                return Http::response([
+                    'error' => [
+                        'message' => 'STALE-DETAIL-ONLY-FOR-A',
+                        'details' => [['quotaId' => 'Q-A']],
+                    ],
+                ], 429);
+            }
+
+            return Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => '{"ok":true}']]]]],
+            ], 200);
+        });
+
+        $output = new BufferedOutput;
+        $exit = Artisan::call('gemini:probe', ['--models' => 'model-a,model-b'], $output);
+        $lines = array_values(array_filter(array_map('trim', explode("\n", $output->fetch()))));
+
+        $this->assertSame(1, $exit);
+        $this->assertCount(2, $lines);
+        $this->assertStringContainsString('quota', $lines[0]);
+        $this->assertStringContainsString('STALE-DETAIL-ONLY-FOR-A', $lines[0]);
+        $this->assertStringContainsString('model-b', $lines[1]);
+        $this->assertStringContainsString('ok', $lines[1]);
+        $this->assertStringNotContainsString('STALE-DETAIL-ONLY-FOR-A', $lines[1]);
+        $this->assertStringNotContainsString('Q-A', $lines[1]);
+    }
+
     public function test_gemini_models_lists_only_usable_flash_models(): void
     {
         config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
         Http::fake(['*' => Http::response([
             'models' => [
-                ['name' => 'models/gemini-3.8-flash', 'supportedGenerationMethods' => ['generateContent']],
+                ['name' => 'models/gemini-3.1-flash-lite', 'supportedGenerationMethods' => ['generateContent']],
                 ['name' => 'models/gemini-3-pro', 'supportedGenerationMethods' => ['generateContent']],
-                ['name' => 'models/gemini-3.5-flash', 'supportedGenerationMethods' => ['embedContent']],
+                ['name' => 'models/gemini-3.5-flash-lite', 'supportedGenerationMethods' => ['embedContent']],
             ],
         ], 200)]);
 
@@ -106,9 +138,9 @@ class GeminiProbeTest extends TestCase
         $text = $output->fetch();
 
         $this->assertSame(0, $exit);
-        $this->assertStringContainsString('gemini-3.8-flash', $text);
+        $this->assertStringContainsString('gemini-3.1-flash-lite', $text);
         $this->assertStringNotContainsString('gemini-3-pro', $text);
-        $this->assertStringNotContainsString('gemini-3.5-flash', $text);
+        $this->assertStringNotContainsString('gemini-3.5-flash-lite', $text);
     }
 
     public function test_probe_reports_failure_without_key(): void
@@ -124,7 +156,7 @@ class GeminiProbeTest extends TestCase
 
         $this->assertSame(1, $exit);
         $this->assertStringContainsString('HTTP 503', $text);
-        $this->assertStringContainsString('FAIL', $text);
+        $this->assertStringContainsString('overload', $text);
         $this->assertStringNotContainsString($key, $text);
     }
 }

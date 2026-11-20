@@ -77,6 +77,9 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
+    // Set by Render (RENDER_GIT_COMMIT); exposed by /api/health for deploy gating.
+    'deploy_commit' => env('RENDER_GIT_COMMIT', ''),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

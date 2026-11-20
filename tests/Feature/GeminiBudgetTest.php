@@ -24,7 +24,7 @@ class GeminiBudgetTest extends TestCase
             'services.gemini.min_attempt_seconds' => 15,
             'services.gemini.retry_backoff_ms' => 0, // no real sleep in tests
             'services.gemini.model' => 'gemini-3.6-flash',
-            'services.gemini.fallback_model' => 'gemini-3.5-flash',
+            'services.gemini.fallback_model' => 'gemini-3.5-flash-lite',
         ]);
     }
 
@@ -101,19 +101,51 @@ class GeminiBudgetTest extends TestCase
 
     public function test_thinking_level_is_sent_lowercase_by_default(): void
     {
-        config(['services.gemini.thinking_level' => 'low']);
+        // A 3.x model outside the known lite families uses the generic level.
+        config(['services.gemini.model' => 'gemini-3.9-flash', 'services.gemini.thinking_level' => 'low']);
         $this->assertThinkingLevel('low');
     }
 
     public function test_thinking_level_casing_is_configurable(): void
     {
-        config(['services.gemini.thinking_level' => 'HIGH']);
+        config(['services.gemini.model' => 'gemini-3.9-flash', 'services.gemini.thinking_level' => 'HIGH']);
         $this->assertThinkingLevel('HIGH');
     }
 
     public function test_empty_thinking_level_omits_thinking_config(): void
     {
-        config(['services.gemini.thinking_level' => '']);
+        config(['services.gemini.model' => 'gemini-3.9-flash', 'services.gemini.thinking_level' => '']);
+        $this->assertThinkingLevel(null);
+    }
+
+    public function test_thinking_level_matrix_by_model_family(): void
+    {
+        $cases = [
+            'gemini-3.8-flash' => 'low',
+            'gemini-3.1-flash-lite' => 'minimal',
+            'gemini-3.5-flash-lite' => 'low',
+            'gemini-2.5-flash' => null,
+        ];
+
+        foreach ($cases as $model => $expected) {
+            config(['services.gemini.model' => $model, 'services.gemini.fallback_model' => $model]);
+            app()->forgetInstance(GeminiClient::class);
+            $this->assertThinkingLevel($expected);
+        }
+    }
+
+    public function test_thinking_overrides_win_over_family_defaults(): void
+    {
+        config([
+            'services.gemini.model' => 'gemini-3.8-flash',
+            'services.gemini.fallback_model' => 'gemini-3.8-flash',
+            'services.gemini.thinking_overrides' => 'gemini-3.8-flash=high,gemini-3.1-flash-lite=',
+        ]);
+        app()->forgetInstance(GeminiClient::class);
+        $this->assertThinkingLevel('high');
+
+        config(['services.gemini.model' => 'gemini-3.1-flash-lite', 'services.gemini.fallback_model' => 'gemini-3.1-flash-lite']);
+        app()->forgetInstance(GeminiClient::class);
         $this->assertThinkingLevel(null);
     }
 

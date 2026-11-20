@@ -6,6 +6,7 @@ use App\Services\Gemini\GeminiClient;
 use App\Services\Gemini\GeminiPrompt;
 use App\Services\Gemini\GeminiResultEnhancer;
 use App\Services\Gemini\GeminiResultValidator;
+use App\Services\Gemini\SecretSanitizer;
 use Illuminate\Support\Facades\Log;
 
 class GeminiService
@@ -62,7 +63,51 @@ class GeminiService
             return $this->client->getFallbackResponse('AI response was not valid for the geolocation schema ('.implode(',', $errors).')');
         }
 
-        return $this->enhancer->enhance($result, $metadata);
+        $enhanced = $this->enhancer->enhance($result, $metadata);
+
+        return $this->maybeEscalate($enhanced, $imageData, $prompt, $metadata);
+    }
+
+    /**
+     * Optional one-shot second pass with a bounded timeout. Any failure keeps
+     * the first-pass result, explicitly marked low confidence.
+     */
+    private function maybeEscalate(array $first, $imageData, string $prompt, array $metadata): array
+    {
+        $model = trim((string) config('services.gemini.escalation_model', ''));
+        if ($model === '') {
+            return $first;
+        }
+
+        $threshold = (int) config('services.gemini.escalate_below', 60);
+        $firstConfidence = (int) ($first['confidence'] ?? 100);
+        if ($firstConfidence >= $threshold) {
+            return $first;
+        }
+
+        try {
+            $timeout = max(1, (int) config('services.gemini.escalation_timeout', 25));
+            $second = $this->client->analyzeWithModel($model, $imageData, $prompt, $timeout);
+
+            if (is_array($second)
+                && ! isset($second['error'])
+                && ! isset($second['is_error'])
+                && $this->validator->validate($second) === []) {
+                $improved = $this->enhancer->enhance($second, $metadata);
+                if ((int) ($improved['confidence'] ?? 0) > $firstConfidence) {
+                    $improved['escalated'] = true;
+
+                    return $improved;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Gemini escalation failed: '.SecretSanitizer::redact($e->getMessage()));
+        }
+
+        $first['low_confidence'] = true;
+        $first['escalation_failed'] = true;
+
+        return $first;
     }
 
     /**

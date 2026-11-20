@@ -51,7 +51,7 @@ class GeminiFailureClassificationTest extends TestCase
     public function test_429_is_not_retried_on_the_same_model_and_retry_after_is_carried(): void
     {
         Http::fake(function ($request) {
-            if (str_contains($request->url(), 'gemini-3.8-flash')) {
+            if (str_contains($request->url(), 'gemini-3.1-flash-lite')) {
                 return Http::response(['error' => 'quota'], 429, ['Retry-After' => '7']);
             }
 
@@ -70,7 +70,7 @@ class GeminiFailureClassificationTest extends TestCase
         Http::assertSentCount(2);
         $primaryCalls = 0;
         Http::assertSent(function ($request) use (&$primaryCalls) {
-            if (str_contains($request->url(), 'gemini-3.8-flash')) {
+            if (str_contains($request->url(), 'gemini-3.1-flash-lite')) {
                 $primaryCalls++;
             }
 
@@ -90,6 +90,32 @@ class GeminiFailureClassificationTest extends TestCase
         $this->assertSame(GeminiFailureClassifier::MESSAGES['quota'], $result['user_message']);
     }
 
+    public function test_open_primary_breaker_skips_primary_and_calls_fallback_once(): void
+    {
+        config(['services.gemini.circuit_failures' => 1]);
+        $breaker = app(GeminiCircuitBreaker::class);
+        $primary = (string) config('services.gemini.model');
+        $fallback = (string) config('services.gemini.fallback_model');
+
+        $breaker->recordFailure($primary, 60);
+        $this->assertTrue($breaker->isOpen($primary));
+        $this->assertFalse($breaker->isOpen($fallback));
+
+        Http::fake(['*' => Http::response([
+            'candidates' => [[
+                'content' => ['parts' => [[
+                    'text' => json_encode(['landmark_name' => 'Fallback']),
+                ]]],
+            ]],
+        ], 200)]);
+
+        $result = app(GeminiClient::class)->analyzeWithFallback('img', 'prompt');
+
+        $this->assertSame('Fallback', $result['landmark_name']);
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => str_contains($request->url(), $fallback));
+    }
+
     public function test_three_400_failures_do_not_open_the_breaker(): void
     {
         config(['services.gemini.circuit_failures' => 3]);
@@ -101,7 +127,7 @@ class GeminiFailureClassificationTest extends TestCase
             $this->assertSame('bad_request', $result['category']);
         }
 
-        $this->assertFalse(app(GeminiCircuitBreaker::class)->isOpen());
+        $this->assertFalse(app(GeminiCircuitBreaker::class)->isOpen('gemini-3.1-flash-lite'));
         Http::assertSentCount(6);
     }
 
@@ -118,21 +144,22 @@ class GeminiFailureClassificationTest extends TestCase
             $this->assertContains($result['category'], ['timeout', 'circuit_open']);
         }
 
-        $this->assertTrue(app(GeminiCircuitBreaker::class)->isOpen());
+        $this->assertTrue(app(GeminiCircuitBreaker::class)->isOpen('gemini-3.1-flash-lite'));
     }
 
     public function test_circuit_breaker_fails_fast_with_overload_message(): void
     {
+        config(['services.gemini.circuit_failures' => 3]);
         Http::fake(['*' => Http::response(['error' => 'unavailable'], 503)]);
         $client = app(GeminiClient::class);
 
-        // Three analyses x (primary + fallback) = six failures = threshold.
+        // Three analyses give the primary three failures; its breaker opens.
         for ($i = 0; $i < 3; $i++) {
             $client->analyzeWithFallback('img', 'prompt');
         }
 
         $breaker = app(GeminiCircuitBreaker::class);
-        $this->assertTrue($breaker->isOpen());
+        $this->assertTrue($breaker->isOpen('gemini-3.1-flash-lite'));
         Http::assertSentCount(6);
 
         $result = $client->analyzeWithFallback('img', 'prompt');

@@ -26,16 +26,19 @@ class GeminiClient
 
     protected $thinkingLevel;
 
+    /** @var array<string,string> */
+    protected array $thinkingOverrides = [];
+
     protected $baseUrl;
 
     public function __construct(private GeminiCircuitBreaker $circuit)
     {
         $this->apiKey = config('services.gemini.key');
-        $this->primaryModel = config('services.gemini.model', 'gemini-3.8-flash');
+        $this->primaryModel = config('services.gemini.model', 'gemini-3.1-flash-lite');
         // Fallback should be a *stable, different-generation* model so a
         // primary outage or deprecation doesn't take down both. As of
         // Aug 2026, gemini-3.5-flash is the prior-generation stable Flash.
-        $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.5-flash');
+        $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.5-flash-lite');
         $this->requestTimeout = max(1, (int) config('services.gemini.timeout', 50));
         // Exactly one retry on the primary model. More retries only stack
         // latency and push the user past the two-minute failure target.
@@ -46,6 +49,13 @@ class GeminiClient
         // Keep the configured casing (default lowercase "low"). An empty
         // value omits thinkingConfig entirely.
         $this->thinkingLevel = trim((string) config('services.gemini.thinking_level', 'low'));
+
+        foreach (explode(',', (string) config('services.gemini.thinking_overrides', '')) as $pair) {
+            if (str_contains($pair, '=')) {
+                [$modelName, $level] = explode('=', trim($pair), 2);
+                $this->thinkingOverrides[trim($modelName)] = trim($level);
+            }
+        }
         // Base URL for the Gemini REST API. Local/testing may override it
         // (e.g. fake server in smoke tests); everywhere else only https.
         $this->baseUrl = self::resolveBaseUrl(
@@ -93,68 +103,59 @@ class GeminiClient
      */
     public function analyzeWithFallback($imageData, $prompt, ?callable $onRetry = null)
     {
-        // Fail fast while the shared breaker is open: no model call at all.
-        if ($this->circuit->isOpen()) {
-            return $this->circuitOpenResult();
-        }
-
         $deadline = microtime(true) + $this->maxTotalTimeSeconds;
-        $primaryAttempts = 1 + $this->maxRetries;
+        $models = array_values(array_unique([$this->primaryModel, $this->fallbackModel]));
+        $last = ['error' => 'unknown', 'message' => 'No model attempted'];
+        $isPrimary = true;
 
-        $result = $this->sendGeminiRequestWithRetry(
-            $this->primaryModel,
-            $imageData,
-            $prompt,
-            $deadline,
-            $primaryAttempts,
-            $onRetry,
-            1
-        );
+        // Per-model breakers: an open primary is skipped immediately so a
+        // hung/overloaded primary cannot delay the fallback.
+        foreach ($models as $model) {
+            if ($this->circuit->isOpen($model)) {
+                Log::warning('Gemini breaker open, skipping model', ['model' => $model]);
+                $last = $this->circuitOpenResult($model);
+                $isPrimary = false;
 
-        if (! isset($result['error'])) {
-            $this->circuit->recordSuccess();
+                continue;
+            }
 
-            return $result;
+            if (! $this->hasBudgetForAttempt($deadline)) {
+                Log::warning('Time budget exhausted before attempt for '.$model);
+                $last = [
+                    'error' => 'time_budget_exhausted',
+                    'message' => 'Ran out of time budget before request could be made',
+                ];
+
+                break;
+            }
+
+            $attempts = $isPrimary ? 1 + $this->maxRetries : 1;
+            $retryNumber = $isPrimary ? 1 : $this->maxRetries + 1;
+            if (! $isPrimary) {
+                $this->notifyRetry($onRetry, $model, $retryNumber);
+            }
+
+            $result = $this->sendGeminiRequestWithRetry(
+                $model, $imageData, $prompt, $deadline, $attempts, $onRetry, $retryNumber
+            );
+
+            if (! isset($result['error'])) {
+                $this->circuit->recordSuccess($model);
+
+                return $result;
+            }
+
+            $result = $this->withClassification($result);
+            if ($result['error'] === 'api_key_missing') {
+                return $result;
+            }
+
+            $this->noteCircuitFailure($model, $result);
+            $last = $result;
+            $isPrimary = false;
         }
 
-        $result = $this->withClassification($result);
-        if ($result['error'] === 'api_key_missing') {
-            return $result;
-        }
-
-        $this->noteCircuitFailure($result);
-
-        // A 429 is never retried on the same model (see retryableErrors).
-        // The fallback is a different model, so it is still allowed.
-        if (! $this->hasBudgetForAttempt($deadline)) {
-            Log::warning('Time budget exhausted before fallback attempt', ['primary_error' => $result['message']]);
-
-            return $result;
-        }
-
-        $fallbackRetryNumber = $this->maxRetries + 1;
-        $this->notifyRetry($onRetry, $this->fallbackModel, $fallbackRetryNumber);
-
-        Log::warning('Primary model failed, using fallback', ['error' => $result['message']]);
-
-        $fallback = $this->sendGeminiRequestWithRetry(
-            $this->fallbackModel,
-            $imageData,
-            $prompt,
-            $deadline,
-            1
-        );
-
-        if (! isset($fallback['error'])) {
-            $this->circuit->recordSuccess();
-
-            return $fallback;
-        }
-
-        $fallback = $this->withClassification($fallback);
-        $this->noteCircuitFailure($fallback);
-
-        return $fallback;
+        return $last;
     }
 
     private function withClassification(array $result): array
@@ -162,21 +163,22 @@ class GeminiClient
         return array_merge($result, GeminiFailureClassifier::classify($result));
     }
 
-    private function noteCircuitFailure(array $result): void
+    private function noteCircuitFailure(string $model, array $result): void
     {
         if (in_array($result['category'] ?? null, ['quota', 'overload', 'timeout'], true)) {
-            $this->circuit->recordFailure($result['retry_after'] ?? null);
+            $this->circuit->recordFailure($model, $result['retry_after'] ?? null);
         }
     }
 
-    private function circuitOpenResult(): array
+    private function circuitOpenResult(string $model): array
     {
         $classified = GeminiFailureClassifier::classify(['error' => 'circuit_open']);
 
         return array_merge([
             'error' => 'circuit_open',
             'message' => $classified['user_message'],
-            'retry_after_seconds' => $this->circuit->remainingSeconds(),
+            'model' => $model,
+            'retry_after_seconds' => $this->circuit->remainingSeconds($model),
         ], $classified);
     }
 
@@ -286,11 +288,35 @@ class GeminiClient
      */
     private function generationConfig(string $model, array $config): array
     {
-        if ($this->thinkingLevel !== '' && str_starts_with($model, 'gemini-3')) {
-            $config['thinkingConfig'] = ['thinkingLevel' => $this->thinkingLevel];
+        $level = $this->thinkingLevelFor($model);
+        if ($level !== null) {
+            $config['thinkingConfig'] = ['thinkingLevel' => $level];
         }
 
         return $config;
+    }
+
+    /**
+     * Per-family thinking level, with exact-model overrides taking priority.
+     * Gemini 2.x has no thinkingConfig; omit it there.
+     */
+    private function thinkingLevelFor(string $model): ?string
+    {
+        if (array_key_exists($model, $this->thinkingOverrides)) {
+            $override = $this->thinkingOverrides[$model];
+
+            return $override === '' ? null : $override;
+        }
+
+        if (! str_starts_with($model, 'gemini-3')) {
+            return null;
+        }
+
+        if (str_contains($model, 'flash-lite')) {
+            return str_contains($model, '3.1') ? 'minimal' : 'low';
+        }
+
+        return $this->thinkingLevel === '' ? null : $this->thinkingLevel;
     }
 
     /**
@@ -328,7 +354,7 @@ class GeminiClient
 
     private function effectiveThinkingLevel(string $model): string
     {
-        return str_starts_with($model, 'gemini-3') ? $this->thinkingLevel : 'n/a';
+        return $this->thinkingLevelFor($model) ?? 'n/a';
     }
 
     /**
@@ -649,6 +675,18 @@ class GeminiClient
      * Throws \RuntimeException on transport or API failure so callers can
      * surface a clean 500 instead of an opaque crash.
      */
+    /**
+     * Single bounded attempt used by the optional escalation pass.
+     */
+    public function analyzeWithModel(string $model, $imageData, string $prompt, int $timeout = 25): array
+    {
+        if ($this->circuit->isOpen($model)) {
+            return $this->circuitOpenResult($model);
+        }
+
+        return $this->sendSingleGeminiRequest($model, $imageData, $prompt, $timeout);
+    }
+
     public function generateText(string $prompt): string
     {
         if (empty($this->apiKey)) {
@@ -707,7 +745,7 @@ class GeminiClient
      * Used by `php artisan gemini:probe` / `smoke.ps1 -Live` so we can
      * measure each configured model without ever printing the API key.
      *
-     * @return array{model: string, status: int, seconds: float, ok: bool, error?: string, error_message?: string|null, quota_metric?: string|null, quota_id?: string|null, retry_after_seconds?: int}
+     * @return array{model: string, status: int, seconds: float, ok: bool, category: string, error?: string, error_message?: string|null, quota_metric?: string|null, quota_id?: string|null, retry_after_seconds?: int}
      */
     public function probeModel(string $model): array
     {
@@ -719,6 +757,7 @@ class GeminiClient
                 'status' => 0,
                 'seconds' => round(microtime(true) - $started, 2),
                 'ok' => false,
+                'category' => 'other',
                 'error' => 'Gemini API key not configured',
             ];
         }
@@ -785,6 +824,12 @@ class GeminiClient
                 'status' => $status,
                 'seconds' => round(microtime(true) - $started, 2),
                 'ok' => $response->successful(),
+                'category' => $response->successful() ? 'ok' : match (true) {
+                    $status === 429 => 'quota',
+                    $status === 503 => 'overload',
+                    $status >= 400 && $status < 500 => 'bad_request',
+                    default => 'other',
+                },
                 'error_message' => $errorMessage,
                 'quota_metric' => $quotaMetric,
                 'quota_id' => $quotaId,
@@ -804,6 +849,7 @@ class GeminiClient
                 'status' => 0,
                 'seconds' => round(microtime(true) - $started, 2),
                 'ok' => false,
+                'category' => $e instanceof ConnectionException ? 'timeout' : 'other',
                 'error' => SecretSanitizer::redact($e->getMessage()),
                 'error_message' => SecretSanitizer::redact(substr($e->getMessage(), 0, 200)),
                 'quota_metric' => null,

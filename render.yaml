@@ -53,10 +53,19 @@ services:
         value: true
       - key: GEMINI_THINKING_LEVEL
         value: low
+      - key: GEMINI_THINKING_OVERRIDES
+        value: ""
       - key: GEMINI_MODEL
-        value: gemini-3.8-flash
+        value: gemini-3.1-flash-lite
       - key: GEMINI_FALLBACK_MODEL
-        value: gemini-3.5-flash
+        value: gemini-3.5-flash-lite
+      # Optional escalation: empty = off
+      - key: GEMINI_ESCALATION_MODEL
+        value: ""
+      - key: GEMINI_ESCALATE_BELOW
+        value: 60
+      - key: GEMINI_ESCALATION_TIMEOUT
+        value: 25
       # Secret keys — set actual values in Render Dashboard
       - key: GEMINI_API_KEY
         sync: false
@@ -122,10 +131,19 @@ services:
         value: true
       - key: GEMINI_THINKING_LEVEL
         value: low
+      - key: GEMINI_THINKING_OVERRIDES
+        value: ""
       - key: GEMINI_MODEL
-        value: gemini-3.8-flash
+        value: gemini-3.1-flash-lite
       - key: GEMINI_FALLBACK_MODEL
-        value: gemini-3.5-flash
+        value: gemini-3.5-flash-lite
+      # Optional escalation: empty = off
+      - key: GEMINI_ESCALATION_MODEL
+        value: ""
+      - key: GEMINI_ESCALATE_BELOW
+        value: 60
+      - key: GEMINI_ESCALATION_TIMEOUT
+        value: 25
       - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_MAPS_EMBED_KEY

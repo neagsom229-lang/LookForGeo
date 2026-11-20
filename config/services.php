@@ -50,10 +50,15 @@ return [
     */
     'gemini' => [
         'key' => env('GEMINI_API_KEY'),
-        'model' => env('GEMINI_MODEL', 'gemini-3.8-flash'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.1-flash-lite'),
         // A stable prior-generation model so a primary outage or deprecation
         // cannot take down both attempts.
-        'fallback_model' => env('GEMINI_FALLBACK_MODEL', 'gemini-3.5-flash'),
+        'fallback_model' => env('GEMINI_FALLBACK_MODEL', 'gemini-3.5-flash-lite'),
+        // Optional second pass when calibrated confidence is low.
+        // Empty escalation model = disabled.
+        'escalation_model' => env('GEMINI_ESCALATION_MODEL', ''),
+        'escalate_below' => (int) env('GEMINI_ESCALATE_BELOW', 60),
+        'escalation_timeout' => (int) env('GEMINI_ESCALATION_TIMEOUT', 25),
         // One retry on the primary model, then one fallback attempt. The
         // whole sequence shares GEMINI_TOTAL_BUDGET seconds. A request that
         // cannot get a meaningful answer in GEMINI_TIMEOUT seconds is cut
@@ -70,6 +75,9 @@ return [
         'circuit_open_seconds' => (int) env('GEMINI_CIRCUIT_OPEN_SECONDS', 60),
         // Gemini 3.x: LOW is the cheapest sensible level for extraction.
         'thinking_level' => env('GEMINI_THINKING_LEVEL', 'low'),
+        // Exact-model overrides, e.g. "gemini-3.8-flash=high,gemini-2.5-flash=".
+        // An empty value omits the thinking config for that model.
+        'thinking_overrides' => env('GEMINI_THINKING_OVERRIDES', ''),
         // Downscale before sending to Gemini. EXIF GPS is parsed from the
         // stored ORIGINAL by AnalyzeImageJob, so resizing the copy sent to
         // the model loses no metadata. 1024px keeps vision tokens low.

@@ -21,6 +21,7 @@ class AnalysisApiController extends Controller
             'success' => true,
             'status' => $report['status'],
             'version' => '1.0.0',
+            'commit' => substr((string) config('app.deploy_commit'), 0, 7),
             'timestamp' => now()->toISOString(),
             'checks' => $report['checks'],
         ]);

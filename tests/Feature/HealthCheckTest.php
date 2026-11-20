@@ -27,6 +27,15 @@ class HealthCheckTest extends TestCase
         $this->assertSame('disabled', $response->json('checks.gemini.state'));
     }
 
+    public function test_health_reports_short_deploy_commit(): void
+    {
+        config(['app.deploy_commit' => 'abcdef1234567890']);
+
+        $this->getJson('/api/health')
+            ->assertOk()
+            ->assertJsonPath('commit', 'abcdef1');
+    }
+
     public function test_gemini_probe_result_is_cached_for_60_seconds(): void
     {
         Cache::forget('health_gemini_reachability');

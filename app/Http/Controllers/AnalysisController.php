@@ -302,7 +302,8 @@ class AnalysisController extends Controller
                 $response['failure_category'] = GeminiFailureClassifier::categoryFromStageLabel($analysis->stage_label);
 
                 if (in_array($response['failure_category'], ['quota', 'overload', 'circuit_open'], true)) {
-                    $response['retry_after_seconds'] = app(GeminiCircuitBreaker::class)->remainingSeconds();
+                    $response['retry_after_seconds'] = app(GeminiCircuitBreaker::class)
+                        ->remainingSeconds((string) config('services.gemini.model'));
                 }
             }
 
