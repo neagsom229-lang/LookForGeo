@@ -4,7 +4,17 @@
 /public/hot
 /public/storage
 /storage/*.key
-/storage/framework/*
+# Runtime directories are created by tracked .gitignore placeholders: git
+# cannot track empty dirs, and a fresh clone (or CI checkout) without these
+# fails with "bootstrap/cache directory must be present and writable".
+/storage/framework/cache/data/*
+!/storage/framework/cache/data/.gitignore
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitignore
+/storage/framework/testing/*
+!/storage/framework/testing/.gitignore
+/storage/framework/views/*
+!/storage/framework/views/.gitignore
 /storage/logs/*
 bootstrap/cache/*.php
 .env

@@ -19,6 +19,9 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!-- Test-only fixed key: CI has no .env, so tests must not depend on it.
+             This value encrypts nothing outside the test process and is not a secret. -->
+        <env name="APP_KEY" value="base64:JnjDNND9BBQ0AcXMlfrBO2rYuAwFl0N0kobr8iqLFJA="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
