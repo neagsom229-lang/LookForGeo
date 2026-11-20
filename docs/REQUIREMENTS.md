@@ -56,7 +56,7 @@ Format: item — who uses it (file:line) — decision.
 | GET `/health` | `scripts/probe-prod.ps1`, `scripts/smoke.ps1`, `CspTest.php` | KEEP |
 | POST `/register`, `/login`, GET `/verify/{token}` | `AuthController`; external/mobile clients | KEEP |
 | POST `/identify` | `LandmarkController.php:31`; `SecurityTest.php:23,89,110,168` | KEEP (Phase A auth gate, cost-bearing) |
-| POST `/identify-gps`, `/extract-exif`, GET `/nearby` | `SecurityTest.php:24-26`; controller methods absent (pre-existing authenticated 500) | KEEP (Phase A auth gate; broken upstream, documented in `docs/RELEASE.md`) |
+| POST `/identify-gps`, `/extract-exif`, GET `/nearby` | No controller methods existed; no UI/test/doc caller (verified by grep) | **DELETED in pre-deploy gate** — paths now return 404; `SecurityTest` pins this. `docs/RELEASE.md` from the hotfix described them as pre-existing 500s; this branch removes them. |
 | GET `/search` | `LandmarkController@searchPlace` at :525; `SecurityTest.php:27,94,116` | KEEP |
 | GET `/user`, PUT `/profile`, POST `/logout` | `AuthController`; Sanctum clients | KEEP |
 | POST `/gemini-chat` | `GeminiController@chat`; no UI caller, external API | KEEP |
@@ -107,8 +107,8 @@ Routes went from 48 to 35. Added documentation is not counted as code.
 ## 4. What needs your decision
 
 1. Confirm or replace R5 (cost/analysis), R6 (daily cap), R7/R8 (accuracy), R10 (global limit).
-2. Confirm that keeping the three auth-gated but method-less endpoints
-   (`identify-gps`, `extract-exif`, `nearby`) is correct; they are 500 for
-   authenticated callers and are only kept because Phase A gated them.
+2. Resolved in the pre-deploy gate: the three auth-gated but method-less
+   endpoints (`identify-gps`, `extract-exif`, `nearby`) were deleted; they now
+   return 404 and no longer route into missing controller methods.
 3. Confirm that deleting the undocumented landmark/favorites API block is safe
    for any mobile client you run (grep found no in-repo caller).

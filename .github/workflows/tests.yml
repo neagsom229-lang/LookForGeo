@@ -147,3 +147,120 @@ jobs:
       # error fails the job. Regenerate the baseline only with intent.
       - name: Static analysis
         run: composer analyse
+
+  pgsql-upgrade:
+    name: Postgres migration upgrade (origin/main -> PR)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tg
+          POSTGRES_PASSWORD: tg
+          POSTGRES_DB: tg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tg"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: tg
+      DB_USERNAME: tg
+      DB_PASSWORD: tg
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath, pdo_pgsql
+          coverage: none
+
+      # origin/main first: prove the old schema migrates cleanly.
+      - name: Create origin/main worktree
+        run: git worktree add ../main-tree origin/main
+
+      - name: Install origin/main dependencies
+        working-directory: ../main-tree
+        run: composer install --optimize-autoloader --no-interaction
+
+      - name: Migrate origin/main schema
+        working-directory: ../main-tree
+        run: php artisan migrate --force
+
+      # Then the PR commit: install, migrate on top, run everything on Postgres.
+      - name: Install PR dependencies
+        run: composer install --optimize-autoloader --no-interaction
+
+      - name: Migrate PR schema on top
+        run: php artisan migrate --force
+
+      # phpunit.pgsql.xml is phpunit.xml without the SQLite env overrides.
+      - name: Full PHPUnit suite on Postgres
+        run: vendor/bin/phpunit -c phpunit.pgsql.xml
+
+  docker:
+    name: Docker build + /api/health on Postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tg
+          POSTGRES_PASSWORD: tg
+          POSTGRES_DB: tg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tg"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Dockerfile
+        run: docker build -t tracegeo-ci .
+
+      - name: Start container
+        run: |
+          docker run -d --name tracegeo-ci --network host \
+            -e APP_ENV=production \
+            -e APP_DEBUG=false \
+            -e APP_KEY="base64:$(openssl rand -base64 32)" \
+            -e APP_URL=http://127.0.0.1:8080 \
+            -e DB_CONNECTION=pgsql \
+            -e DB_HOST=127.0.0.1 \
+            -e DB_PORT=5432 \
+            -e DB_DATABASE=tg \
+            -e DB_USERNAME=tg \
+            -e DB_PASSWORD=tg \
+            -e CACHE_STORE=database \
+            -e SESSION_DRIVER=database \
+            -e QUEUE_CONNECTION=database \
+            tracegeo-ci
+
+      - name: Wait for /api/health
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1/api/health || true)
+            if [ "$code" = "200" ]; then
+              echo "health_http=200"
+              exit 0
+            fi
+            sleep 5
+          done
+          docker logs tracegeo-ci || true
+          echo "container never became healthy"
+          exit 1
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs tracegeo-ci || true

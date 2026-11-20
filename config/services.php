@@ -34,6 +34,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Analysis lifecycle
+    |--------------------------------------------------------------------------
+    */
+    'analysis' => [
+        // A pending/processing row older than this is failed on read, so no
+        // scheduler is required on Render.
+        'reap_stuck_minutes' => (int) env('ANALYSIS_REAP_MINUTES', 10),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | GEMINI AI - Google AI Studio
     |--------------------------------------------------------------------------
     */

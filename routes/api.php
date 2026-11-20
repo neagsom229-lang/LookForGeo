@@ -32,10 +32,10 @@ Route::get('/verify/{token}', [AuthController::class, 'verifyEmail']);
 // (The api middleware group already applies the 'api' rate limiter.)
 // ============================================================
 Route::middleware(['auth.any', StartSession::class])->group(function () {
+    // Phase C/pre-deploy: identify-gps, extract-exif and nearby pointed at
+    // controller methods that do not exist (authenticated 500) and had no
+    // caller. Removed; only the two implemented cost-bearing endpoints stay.
     Route::post('/identify', [LandmarkController::class, 'identify']);
-    Route::post('/identify-gps', [LandmarkController::class, 'identifyGpsOnly']);
-    Route::post('/extract-exif', [LandmarkController::class, 'extractExif']);
-    Route::get('/nearby', [LandmarkController::class, 'nearby']);
     Route::get('/search', [LandmarkController::class, 'searchPlace']);
 });
 

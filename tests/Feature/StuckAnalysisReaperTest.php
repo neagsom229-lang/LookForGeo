@@ -54,6 +54,25 @@ class StuckAnalysisReaperTest extends TestCase
         $this->assertSame('completed', $completed->status);
     }
 
+    public function test_status_reaps_a_stuck_analysis_on_read(): void
+    {
+        $user = User::factory()->create();
+        $analysis = $this->analysisFor($user, [
+            'status' => 'pending',
+            'started_at' => now()->subMinutes(30),
+            'created_at' => now()->subMinutes(30),
+        ]);
+
+        $this->actingAs($user, 'web')
+            ->getJson("/api/analyze/{$analysis->id}/status")
+            ->assertOk()
+            ->assertJsonPath('status', 'failed')
+            ->assertJsonPath('reaped', true)
+            ->assertJsonPath('error', 'This analysis waited too long for a worker and was stopped. Use Retry analysis to try again.');
+
+        $this->assertSame('failed', $analysis->fresh()->status);
+    }
+
     public function test_dry_run_does_not_change_rows(): void
     {
         $user = User::factory()->create();

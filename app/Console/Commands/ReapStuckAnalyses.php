@@ -15,7 +15,7 @@ use Illuminate\Console\Command;
 class ReapStuckAnalyses extends Command
 {
     protected $signature = 'analyses:reap-stuck
-                            {--minutes=10 : Consider processing older than this stuck}
+                            {--minutes= : Consider processing older than this stuck (default: config)}
                             {--requeue : Re-queue stuck jobs instead of failing them}
                             {--dry-run : Report what would change without writing}';
 
@@ -23,7 +23,8 @@ class ReapStuckAnalyses extends Command
 
     public function handle(): int
     {
-        $minutes = max(1, (int) $this->option('minutes'));
+        $raw = $this->option('minutes');
+        $minutes = max(1, (int) ($raw !== null && $raw !== '' ? $raw : config('services.analysis.reap_stuck_minutes', 10)));
         $cutoff = now()->subMinutes($minutes);
         $dryRun = (bool) $this->option('dry-run');
         $requeue = (bool) $this->option('requeue');

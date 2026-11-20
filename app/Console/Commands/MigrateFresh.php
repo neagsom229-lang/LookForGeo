@@ -13,7 +13,8 @@ class MigrateFresh extends Command
     public function handle()
     {
         // Create database if not exists
-        $path = env('DB_DATABASE', '/tmp/database.sqlite');
+        // Read resolved config, never the raw environment: config may be cached.
+        $path = (string) (config('database.connections.sqlite.database') ?: '/tmp/database.sqlite');
         $dir = dirname($path);
 
         if (! is_dir($dir)) {

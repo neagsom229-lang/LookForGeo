@@ -235,6 +235,23 @@ class AnalysisController extends Controller
                 ], 404);
             }
 
+            // Reap on read: Render has no scheduler. Any pending/processing row
+            // older than the configured window is failed here so the user
+            // always gets a clear message and a Retry action.
+            $reaped = false;
+            $reapMinutes = (int) config('services.analysis.reap_stuck_minutes', 10);
+            $stuckSince = $analysis->started_at ?? $analysis->created_at;
+            if (in_array($analysis->status, ['pending', 'processing'], true)
+                && $stuckSince && $stuckSince->lt(now()->subMinutes($reapMinutes))) {
+                $analysis->update([
+                    'status' => 'failed',
+                    'stage_label' => 'Timed out',
+                    'error' => 'Analysis stopped after waiting too long for a worker.',
+                    'finished_at' => now(),
+                ]);
+                $reaped = true;
+            }
+
             $elapsed = 0;
             if ($analysis->started_at) {
                 $end = $analysis->finished_at ?? now();
@@ -277,6 +294,11 @@ class AnalysisController extends Controller
                 // User-facing failure text is always generic; the sanitized
                 // details live in the log (and in the DB error column).
                 $response['error'] = self::FAILED_USER_MESSAGE;
+            }
+
+            if ($reaped) {
+                $response['error'] = 'This analysis waited too long for a worker and was stopped. Use Retry analysis to try again.';
+                $response['reaped'] = true;
             }
 
             // Queued too long without the worker picking it up?

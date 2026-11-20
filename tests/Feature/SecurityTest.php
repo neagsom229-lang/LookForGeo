@@ -21,10 +21,12 @@ class SecurityTest extends TestCase
     public function test_cost_bearing_endpoints_require_authentication(): void
     {
         $this->postJson('/api/identify', [])->assertStatus(401);
-        $this->postJson('/api/identify-gps', [])->assertStatus(401);
-        $this->postJson('/api/extract-exif', [])->assertStatus(401);
-        $this->getJson('/api/nearby')->assertStatus(401);
         $this->getJson('/api/search')->assertStatus(401);
+
+        // Method-less endpoints were removed in the pre-deploy gate.
+        $this->postJson('/api/identify-gps', [])->assertStatus(404);
+        $this->postJson('/api/extract-exif', [])->assertStatus(404);
+        $this->getJson('/api/nearby')->assertStatus(404);
     }
 
     /**

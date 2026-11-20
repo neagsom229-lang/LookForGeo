@@ -174,7 +174,7 @@ Access the dashboard in your browser at **http://localhost:8000**.
 
 - **CSP Middleware (`ForceCsp`)** — Content Security Policy headers enforced on all application responses.
 - **SSRF Protection** — Outbound image fetchers validate target destinations; private IP blocks (`10.0.0.0/8`, `192.168.0.0/16`, `127.0.0.0/8`) and localhost endpoints are strictly blocked, with a re-check after redirects.
-- **Protected Gemini Endpoints** — Interactive endpoints (`/api/gemini-chat`, `/api/identify`, `/api/identify-gps`, `/api/extract-exif`, `/api/nearby`, `/api/search`) require active authentication (web session or Sanctum token).
+- **Protected Gemini Endpoints** — Implemented interactive endpoints (`/api/gemini-chat`, `/api/identify`, `/api/search`) require active authentication (web session or Sanctum token). The method-less `/api/identify-gps`, `/api/extract-exif` and `/api/nearby` routes were removed in the pre-deploy gate (they returned 500 for authenticated callers); their paths now return 404.
 - **Ownership scoping** — Read/poll/delete/retry of an analysis are scoped to their owner.
 - **Strict Rate Limiting** — Configured at `throttle:10,1` on `/api/gemini-chat` and `throttle:60,1` on `/api/analyze`.
 - **Secret hygiene** — `gitleaks` scans every commit locally (`core.hooksPath .githooks`) and runs in CI on every push; see `docs/SECURITY_INCIDENT.md`.

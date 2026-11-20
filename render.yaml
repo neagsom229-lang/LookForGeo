@@ -4,6 +4,7 @@ services:
     env: docker
     dockerfilePath: ./Dockerfile
     plan: free
+    healthCheckPath: /api/health
     envVars:
       - key: APP_ENV
         value: production
@@ -38,6 +39,15 @@ services:
         value: 50
       - key: GEMINI_DAILY_LIMIT
         value: 0
+      # Reap-on-read window (no Render scheduler needed)
+      - key: ANALYSIS_REAP_MINUTES
+        value: 10
+      - key: GEMINI_CONFIDENCE_REVERSE_GEOCODE
+        value: true
+      - key: GEMINI_HEALTH_PROBE
+        value: true
+      - key: GEMINI_THINKING_LEVEL
+        value: low
       - key: GEMINI_MODEL
         value: gemini-3.6-flash
       - key: GEMINI_FALLBACK_MODEL
@@ -54,6 +64,9 @@ services:
     name: queue-worker
     env: php
     buildCommand: composer install --no-dev --optimize-autoloader && chmod -R 775 storage bootstrap/cache && php artisan config:cache
+    # Deploy order: the web service runs `php artisan migrate --force` (see entrypoint)
+    # before serving; the worker can start immediately because every new column
+    # (e.g. geo_analyses.image_hash) is additive and nullable. See docs/DEPLOY_NOTES.md.
     startCommand: php artisan queue:work --tries=1 --timeout=180 --sleep=1
     envVars:
       - key: APP_ENV
@@ -90,6 +103,15 @@ services:
         value: 50
       - key: GEMINI_DAILY_LIMIT
         value: 0
+      # Reap-on-read window (no Render scheduler needed)
+      - key: ANALYSIS_REAP_MINUTES
+        value: 10
+      - key: GEMINI_CONFIDENCE_REVERSE_GEOCODE
+        value: true
+      - key: GEMINI_HEALTH_PROBE
+        value: true
+      - key: GEMINI_THINKING_LEVEL
+        value: low
       - key: GEMINI_MODEL
         value: gemini-3.6-flash
       - key: GEMINI_FALLBACK_MODEL
