@@ -6,6 +6,7 @@ use App\Models\GeoAnalysis;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
@@ -43,6 +44,26 @@ class HotfixSecurityTest extends TestCase
     public function test_public_health_check_still_works(): void
     {
         $this->getJson('/api/health')->assertOk();
+    }
+
+    public function test_api_history_route_is_not_shadowed_and_is_owner_scoped(): void
+    {
+        $owner = User::factory()->create();
+        $other = User::factory()->create();
+        $this->analysisFor($owner);
+        $this->analysisFor($other);
+
+        Sanctum::actingAs($owner);
+
+        $this->getJson('/api/history')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.landmark', 'Eiffel Tower');
+    }
+
+    public function test_api_history_rejects_anonymous_requests(): void
+    {
+        $this->get('/api/history')->assertStatus(401);
     }
 
     public function test_cross_user_status_and_results_return_404(): void

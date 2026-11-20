@@ -22,6 +22,9 @@ Do not deploy until every item in "Pre-flight" is true. Never push directly to
 - `/api/fetch-image` rejects private, loopback, link-local, reserved, CGNAT,
   and non-HTTP(S) targets. Redirect targets are checked before they are
   followed, and exception details are no longer echoed to the client.
+- `/api/history` now resolves to `Api\AnalysisApiController@history` (Sanctum,
+  owner-scoped). The duplicate session route in `routes/web.php` and the dead
+  `AnalysisController@getHistory` method are removed.
 - CI runs PHPUnit and Gitleaks on this branch.
 
 ## Known limitations
