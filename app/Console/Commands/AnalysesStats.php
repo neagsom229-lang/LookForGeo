@@ -31,6 +31,8 @@ class AnalysesStats extends Command
         $hedgeWins = 0;
         $abandoned = 0;
         $abandonedMs = [];
+        $promptTokens = [];
+        $outputTokens = [];
 
         foreach ($analyses as $analysis) {
             $model = $analysis->model_used ?: 'unknown';
@@ -46,16 +48,22 @@ class AnalysesStats extends Command
                 continue;
             }
 
+            if (isset($result['prompt_tokens'])) {
+                $promptTokens[] = (int) $result['prompt_tokens'];
+            }
+            if (isset($result['output_tokens'])) {
+                $outputTokens[] = (int) $result['output_tokens'];
+            }
             if (isset($result['abandoned_primary'])) {
                 $abandoned++;
                 if (isset($result['primary_abandoned_ms'])) {
                     $abandonedMs[] = (int) $result['primary_abandoned_ms'];
                 }
             }
-
             if (isset($result['hedged'])) {
                 $hedged++;
-                if (($result['hedge_winner'] ?? null) === (string) config('services.gemini.fallback_model')) {
+                $answeredBy = $result['winner'] ?? $result['hedge_winner'] ?? null;
+                if ($answeredBy === (string) config('services.gemini.fallback_model')) {
                     $hedgeWins++;
                 }
             }
@@ -98,6 +106,15 @@ class AnalysesStats extends Command
         }
         $this->line("Failed: {$failed} (".round(100 * $failed / max(1, $analyses->count()), 1).'%)');
         $this->table(['failure_category', 'count', 'share of all'], $failureRows);
+
+        sort($promptTokens);
+        sort($outputTokens);
+        if ($promptTokens) {
+            $p50In = $promptTokens[intdiv(count($promptTokens), 2)];
+            $p50Out = $outputTokens ? $outputTokens[intdiv(count($outputTokens), 2)] : 0;
+            $share = ($p50In + $p50Out) ? round(100 * $p50Out / ($p50In + $p50Out), 1) : 0;
+            $this->line("Tokens p50: prompt={$p50In} output={$p50Out} output_share={$share}%");
+        }
 
         sort($abandonedMs);
         $abCount = count($abandonedMs);

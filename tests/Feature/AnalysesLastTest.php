@@ -29,14 +29,14 @@ class AnalysesLastTest extends TestCase
                 'low_confidence' => true,
             ],
         ]);
-        config(['services.gemini.model' => 'gemini-3.5-flash-lite']);
+        $analysis->update(['model_used' => 'gemini-3.5-flash-lite']);
 
         $output = new BufferedOutput;
         $exit = Artisan::call('analyses:last', [], $output);
         $text = $output->fetch();
 
         $this->assertSame(0, $exit);
-        foreach (['id', 'status', 'model', 'processing_seconds', 'landmark', 'confidence', 'low_confidence', 'failure_category'] as $field) {
+        foreach (['id', 'status', 'model (winner)', 'processing_seconds', 'landmark', 'confidence', 'low_confidence', 'failure_category'] as $field) {
             $this->assertStringContainsString($field, $text);
         }
         $this->assertStringContainsString((string) $analysis->id, $text);

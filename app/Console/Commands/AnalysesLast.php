@@ -38,7 +38,7 @@ class AnalysesLast extends Command
         $rows = [
             ['id', $analysis->id],
             ['status', $analysis->status],
-            ['model', (string) config('services.gemini.model')],
+            ['model (winner)', $analysis->model_used ?: 'unknown'],
             ['processing_seconds', $processing ?? 'n/a'],
             ['queue_ms', $analysis->queue_ms ?? 'n/a'],
             ['gemini_ms', $analysis->gemini_ms ?? 'n/a'],

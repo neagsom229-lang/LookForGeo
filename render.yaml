@@ -54,7 +54,7 @@ services:
       - key: GEMINI_THINKING_LEVEL
         value: low
       - key: GEMINI_HEDGE_AFTER
-        value: 10
+        value: 18
       - key: GEMINI_TIMEOUT_OVERRIDES
         value: ""
       - key: GEMINI_THINKING_OVERRIDES
@@ -136,7 +136,7 @@ services:
       - key: GEMINI_THINKING_LEVEL
         value: low
       - key: GEMINI_HEDGE_AFTER
-        value: 10
+        value: 18
       - key: GEMINI_TIMEOUT_OVERRIDES
         value: ""
       - key: GEMINI_THINKING_OVERRIDES

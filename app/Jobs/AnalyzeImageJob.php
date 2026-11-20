@@ -75,6 +75,24 @@ class AnalyzeImageJob implements ShouldQueue
         }
     }
 
+    private function maybeRequeueOnce(GeoAnalysis $analysis): bool
+    {
+        if (! config('services.analysis.auto_requeue', true)) {
+            return false;
+        }
+        $key = 'analysis_auto_requeue:'.$analysis->id;
+        if ((int) Cache::get($key, 0) >= 1) {
+            return false;
+        }
+        $elapsed = $analysis->started_at ? (int) abs($analysis->started_at->diffInSeconds(now())) : 0;
+        if ($elapsed + 8 > 60) {
+            return false;
+        }
+        Cache::put($key, 1, now()->addMinutes(10));
+
+        return true;
+    }
+
     public function handle(GeminiService $geminiService)
     {
         Log::info('🔥 AnalyzeImageJob STARTED for ID '.$this->analysisId);
@@ -163,6 +181,20 @@ class AnalyzeImageJob implements ShouldQueue
                 $errorMsg = $aiResult['error_message'] ?? 'AI analysis failed without specific message';
                 Log::error('❌ Gemini API returned error: '.SecretSanitizer::redact($errorMsg));
 
+                // One automatic requeue when BOTH models failed with an
+                // overload/timeout. Never for bad_request or other failures.
+                if (in_array($aiResult['category'] ?? null, ['overload', 'timeout'], true)
+                    && $this->maybeRequeueOnce($analysis)) {
+                    $analysis->update([
+                        'stage_label' => 'Retrying',
+                        'status' => 'processing',
+                        'progress' => 40,
+                    ]);
+                    $this->release(8);
+
+                    return;
+                }
+
                 // Store only the classified generic message and stage label;
                 // raw provider details stay in the (sanitized) log.
                 $analysis->update([
@@ -194,7 +226,7 @@ class AnalyzeImageJob implements ShouldQueue
             $analysis->markAsCompleted($finalResult);
             $finishedAt = $analysis->finished_at ?? now();
             $this->writeTelemetry($analysis, [
-                'model_used' => $aiResult['hedge_winner'] ?? (string) config('services.gemini.model'),
+                'model_used' => $aiResult['winner'] ?? $aiResult['hedge_winner'] ?? (string) config('services.gemini.model'),
                 'processing_ms' => $analysis->started_at
                     ? (int) abs($analysis->started_at->diffInMilliseconds($finishedAt))
                     : null,

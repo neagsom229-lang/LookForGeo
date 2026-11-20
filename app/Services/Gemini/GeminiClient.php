@@ -205,6 +205,7 @@ class GeminiClient
 
             if (! isset($result['error'])) {
                 $this->circuit->recordSuccess($hedged['winner']);
+                $result['winner'] = $hedged['winner'];
 
                 return $result;
             }
@@ -255,6 +256,7 @@ class GeminiClient
 
             if (! isset($result['error'])) {
                 $this->circuit->recordSuccess($model);
+                $result['winner'] = $model;
 
                 return $result;
             }
@@ -470,6 +472,8 @@ class GeminiClient
             'elapsed_ms' => (int) round((microtime(true) - $started) * 1000),
             'thinking_level' => str_starts_with($model, 'gemini-3') ? $this->thinkingLevel : 'n/a',
             'image_bytes' => $imageBytes,
+            'prompt_tokens' => (int) ($result['prompt_tokens'] ?? 0),
+            'output_tokens' => (int) ($result['output_tokens'] ?? 0),
             'category' => isset($result['error'])
                 ? GeminiFailureClassifier::classify($result)['category']
                 : 'success',
@@ -538,30 +542,19 @@ class GeminiClient
                         'landmark_name' => ['type' => 'STRING'],
                         'city' => ['type' => 'STRING'],
                         'country' => ['type' => 'STRING'],
-                        'region' => ['type' => 'STRING'],
                         'latitude' => ['type' => 'NUMBER', 'nullable' => true],
                         'longitude' => ['type' => 'NUMBER', 'nullable' => true],
                         'confidence' => ['type' => 'INTEGER'],
                         'reasoning' => ['type' => 'STRING'],
-                        'negative_evidence' => ['type' => 'STRING'],
+                        'description' => ['type' => 'STRING'],
                         'vantage_point' => ['type' => 'STRING', 'enum' => ['ground', 'elevated', 'aerial', 'satellite', 'indoor']],
                         'visual_clues' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-                        'tags' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-                        'description' => ['type' => 'STRING'],
-                        'type' => ['type' => 'STRING'],
-                        'nearby_landmarks' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-                        'wikipedia_url' => ['type' => 'STRING', 'nullable' => true],
-                        'nearest_airport' => ['type' => 'STRING', 'nullable' => true],
                         'candidates' => [
                             'type' => 'ARRAY',
                             'items' => [
                                 'type' => 'OBJECT',
                                 'properties' => [
                                     'location' => ['type' => 'STRING'],
-                                    'city' => ['type' => 'STRING'],
-                                    'country' => ['type' => 'STRING'],
-                                    'latitude' => ['type' => 'NUMBER', 'nullable' => true],
-                                    'longitude' => ['type' => 'NUMBER', 'nullable' => true],
                                     'probability' => ['type' => 'INTEGER'],
                                     'reasoning' => ['type' => 'STRING'],
                                 ],
@@ -630,6 +623,7 @@ class GeminiClient
             }
 
             $data = $response->json();
+            $usage = is_array($data['usageMetadata'] ?? null) ? $data['usageMetadata'] : [];
             $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 
             if (empty($text)) {
@@ -648,7 +642,11 @@ class GeminiClient
                 );
             }
 
-            return $this->finishAttempt($this->cleanArray($parsed), $model, $attemptStarted, $imageBytes, $status);
+            $result = $this->cleanArray($parsed);
+            $result['prompt_tokens'] = (int) ($usage['promptTokenCount'] ?? 0);
+            $result['output_tokens'] = (int) ($usage['candidatesTokenCount'] ?? 0);
+
+            return $this->finishAttempt($result, $model, $attemptStarted, $imageBytes, $status);
 
         } catch (ConnectionException $e) {
             return $this->finishAttempt(
