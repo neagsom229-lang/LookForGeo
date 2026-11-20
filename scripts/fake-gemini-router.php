@@ -32,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($path ?? '', ':generateConte
             'finishReason' => 'STOP',
         ]],
     ]);
+
     return;
 }
 

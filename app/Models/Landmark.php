@@ -9,7 +9,7 @@ class Landmark extends Model
     protected $fillable = [
         'name', 'city', 'country', 'region',
         'latitude', 'longitude', 'description',
-        'historical_context', 'tags', 'type', 'image_url'
+        'historical_context', 'tags', 'type', 'image_url',
     ];
 
     protected $casts = [

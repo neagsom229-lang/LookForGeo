@@ -4,7 +4,7 @@
 // Usage: php scripts/make-smoke-image.php <output.png>
 
 $dest = $argv[1] ?? null;
-if (!$dest) {
+if (! $dest) {
     fwrite(STDERR, "Usage: php scripts/make-smoke-image.php <output.png>\n");
     exit(1);
 }

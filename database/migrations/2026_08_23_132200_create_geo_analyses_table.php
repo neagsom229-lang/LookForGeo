@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::dropIfExists('geo_analyses');
-        
+
         Schema::create('geo_analyses', function (Blueprint $table) {
             $table->id();  // ✅ Auto-increment
             $table->string('status')->default('processing');

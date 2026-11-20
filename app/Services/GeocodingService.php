@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Log;
 class GeocodingService
 {
     private string $baseUrl = 'https://nominatim.openstreetmap.org/search';
+
     private int $cacheTtl = 86400; // 24 hours
 
     /**
@@ -23,7 +24,7 @@ class GeocodingService
             return null;
         }
 
-        $cacheKey = 'geocode_' . md5($query . '_' . ($hintLat ?? '') . '_' . ($hintLng ?? ''));
+        $cacheKey = 'geocode_'.md5($query.'_'.($hintLat ?? '').'_'.($hintLng ?? ''));
 
         if (Cache::has($cacheKey)) {
             return Cache::get($cacheKey);
@@ -41,7 +42,7 @@ class GeocodingService
             if ($hintLat !== null && $hintLng !== null) {
                 $params['lat'] = $hintLat;
                 $params['lon'] = $hintLng;
-                $params['viewbox'] = ($hintLng - 5) . ',' . ($hintLat + 5) . ',' . ($hintLng + 5) . ',' . ($hintLat - 5);
+                $params['viewbox'] = ($hintLng - 5).','.($hintLat + 5).','.($hintLng + 5).','.($hintLat - 5);
                 $params['bounded'] = 1;
             }
 
@@ -49,11 +50,12 @@ class GeocodingService
                 'User-Agent' => 'TraceGeo/1.0',
             ])->timeout(10)->get($this->baseUrl, $params);
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning('GeocodingService: API request failed', [
                     'query' => $query,
                     'status' => $response->status(),
                 ]);
+
                 return null;
             }
 
@@ -61,6 +63,7 @@ class GeocodingService
 
             if (empty($data)) {
                 Log::info('GeocodingService: No results found', ['query' => $query]);
+
                 return null;
             }
 
@@ -78,7 +81,7 @@ class GeocodingService
                 Cache::put($cacheKey, $result, now()->addSeconds($this->cacheTtl));
                 Log::info('GeocodingService: Success', [
                     'query' => $query,
-                    'coords' => $result['lat'] . ', ' . $result['lng'],
+                    'coords' => $result['lat'].', '.$result['lng'],
                 ]);
 
                 return $result;
@@ -86,7 +89,8 @@ class GeocodingService
 
             return null;
         } catch (\Exception $e) {
-            Log::error('GeocodingService: Error: ' . $e->getMessage(), ['query' => $query]);
+            Log::error('GeocodingService: Error: '.$e->getMessage(), ['query' => $query]);
+
             return null;
         }
     }
@@ -127,6 +131,7 @@ class GeocodingService
              cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
              sin($dLng / 2) * sin($dLng / 2);
         $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+
         return $earthRadius * $c;
     }
 }

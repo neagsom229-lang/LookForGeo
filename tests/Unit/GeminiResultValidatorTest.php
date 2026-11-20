@@ -11,7 +11,7 @@ class GeminiResultValidatorTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->validator = new GeminiResultValidator();
+        $this->validator = new GeminiResultValidator;
     }
 
     public function test_valid_result_passes(): void

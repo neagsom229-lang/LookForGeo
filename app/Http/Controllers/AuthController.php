@@ -2,12 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
-use App\Models\User;
-use Laravel\Sanctum\HasApiTokens;
 
 class AuthController extends Controller
 {
@@ -44,7 +43,8 @@ class AuthController extends Controller
 
         if (Auth::attempt($credentials, $request->remember_me ?? false)) {
             $request->session()->regenerate();
-            return redirect('/')->with('success', 'Welcome back, ' . Auth::user()->name . '!');
+
+            return redirect('/')->with('success', 'Welcome back, '.Auth::user()->name.'!');
         }
 
         return redirect()->back()
@@ -79,10 +79,11 @@ class AuthController extends Controller
             Auth::login($user);
             $request->session()->regenerate();
 
-            return redirect('/')->with('success', 'Welcome to TraceGeo, ' . $user->name . '!');
+            return redirect('/')->with('success', 'Welcome to TraceGeo, '.$user->name.'!');
 
         } catch (\Exception $e) {
-            \Log::error('Registration error: ' . $e->getMessage());
+            \Log::error('Registration error: '.$e->getMessage());
+
             return redirect()->back()
                 ->withErrors(['error' => 'Registration failed. Please try again.'])
                 ->withInput();
@@ -101,7 +102,7 @@ class AuthController extends Controller
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => 'Logged out successfully!'
+                'message' => 'Logged out successfully!',
             ]);
         }
 
@@ -121,17 +122,17 @@ class AuthController extends Controller
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
         // Manual credential check (no web session side effects)
         $user = User::where('email', $request->email)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid email or password.'
+                'message' => 'Invalid email or password.',
             ], 401);
         }
 
@@ -143,7 +144,7 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Login successful!',
             'user' => $user,
-            'token' => $token
+            'token' => $token,
         ]);
     }
 
@@ -158,7 +159,7 @@ class AuthController extends Controller
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
@@ -175,14 +176,15 @@ class AuthController extends Controller
                 'success' => true,
                 'message' => 'Registration successful!',
                 'user' => $user,
-                'token' => $token
+                'token' => $token,
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Registration error: ' . $e->getMessage());
+            \Log::error('Registration error: '.$e->getMessage());
+
             return response()->json([
                 'success' => false,
-                'message' => 'Registration failed: ' . $e->getMessage()
+                'message' => 'Registration failed: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -194,14 +196,14 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Logged out successfully!'
+            'message' => 'Logged out successfully!',
         ]);
     }
 
     public function user(Request $request)
     {
         return response()->json([
-            'user' => $request->user()
+            'user' => $request->user(),
         ]);
     }
 
@@ -209,7 +211,7 @@ class AuthController extends Controller
     {
         return response()->json([
             'success' => true,
-            'message' => 'Profile updated!'
+            'message' => 'Profile updated!',
         ]);
     }
 
@@ -217,7 +219,7 @@ class AuthController extends Controller
     {
         return response()->json([
             'success' => true,
-            'message' => 'Email verified!'
+            'message' => 'Email verified!',
         ]);
     }
 }

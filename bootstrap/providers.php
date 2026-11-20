@@ -1,6 +1,9 @@
 <?php
 
+use App\Providers\AppServiceProvider;
+use App\Providers\GeminiServiceProvider;
+
 return [
-    App\Providers\AppServiceProvider::class,
-    App\Providers\GeminiServiceProvider::class,
+    AppServiceProvider::class,
+    GeminiServiceProvider::class,
 ];
