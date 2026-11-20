@@ -1,0 +1,32 @@
+# Keep the production image lean and free of local/secret files.
+#
+# The Dockerfile does `COPY . /var/www/html`, so EVERYTHING that is not
+# listed here ends up inside the image -- including .git history and any
+# local .env. This file is the only thing standing between the two.
+
+# --- Secrets / local environment -------------------------------
+.env
+.env.*
+!.env.example
+
+# --- VCS & CI (never needed at runtime) ------------------------
+.git
+.github
+.githooks
+.gitleaks.toml
+.gitattributes
+.gitignore
+
+# --- Rebuilt inside the image by `composer install` -------------
+vendor/
+
+# --- Runtime state, created by the Dockerfile + entrypoint ------
+storage/
+bootstrap/cache/*.php
+
+# --- Dev-only tooling, tests and docs ---------------------------
+tests/
+docs/
+scripts/
+phpunit.xml
+.phpunit.result.cache

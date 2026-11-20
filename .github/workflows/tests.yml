@@ -24,8 +24,11 @@ jobs:
           extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
           coverage: none
 
+      # Dev dependencies ARE required here: `composer test` runs phpunit,
+      # which lives in require-dev. A --no-dev install removes phpunit and
+      # the job would fail with "phpunit: command not found".
       - name: Install dependencies
-        run: composer install --no-dev --optimize-autoloader --no-interaction
+        run: composer install --optimize-autoloader --no-interaction
 
       - name: Run tests
         run: composer test
@@ -46,8 +49,9 @@ jobs:
           extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
           coverage: none
 
+      # `php artisan test` also needs phpunit from require-dev.
       - name: Install dependencies
-        run: composer install --no-dev --optimize-autoloader --no-interaction
+        run: composer install --optimize-autoloader --no-interaction
 
       - name: Run E2E smoke test
         run: php artisan test --filter=SmokeTest
