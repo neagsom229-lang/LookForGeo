@@ -20,6 +20,7 @@ class GeoAnalysis extends Model
         'progress',
         'image_path',
         'image_url',
+        'image_hash',
         'result',
         'error',
         'started_at',
@@ -96,6 +97,20 @@ class GeoAnalysis extends Model
     public function scopePending($query)
     {
         return $query->where('status', 'pending');
+    }
+
+    /**
+     * Repeat-upload cache lookup. Scoped by user_id: identical bytes from a
+     * different user never share a result (no privacy cross-talk).
+     */
+    public static function findCachedForUser(string $hash, int $userId): ?self
+    {
+        return self::where('user_id', $userId)
+            ->where('image_hash', $hash)
+            ->where('status', 'completed')
+            ->whereNotNull('result')
+            ->latest('finished_at')
+            ->first();
     }
 
     // ============================================

@@ -62,6 +62,30 @@ class AnalysisController extends Controller
             $file = $request->file('image');
             $filename = time().'_'.$file->getClientOriginalName();
 
+            // Repeat-upload cache: identical bytes from the SAME user return
+            // the existing completed analysis instantly (zero Gemini cost).
+            $imageHash = hash_file('sha256', $file->getRealPath());
+            $cached = GeoAnalysis::findCachedForUser($imageHash, (int) auth()->id());
+            if ($cached) {
+                Log::info('Repeat upload served from cache', [
+                    'user_id' => auth()->id(),
+                    'analysis_id' => $cached->id,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'id' => $cached->id,
+                    'cached' => true,
+                    'message' => 'Analysis already completed.',
+                    'data' => [
+                        'id' => $cached->id,
+                        'status' => 'completed',
+                        'progress' => 100,
+                        'image_url' => $cached->image_url,
+                    ],
+                ]);
+            }
+
             Log::info('🚀 Starting async upload', [
                 'user_id' => auth()->id(),
                 'filename' => $filename,
@@ -127,6 +151,7 @@ class AnalysisController extends Controller
                 'progress' => 10,
                 'image_path' => $path,
                 'image_url' => $imageUrl,
+                'image_hash' => $imageHash,
                 'started_at' => now(),
             ]);
 

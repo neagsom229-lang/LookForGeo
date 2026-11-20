@@ -62,6 +62,25 @@ class AnalysisApiController extends Controller
     {
         $file = $request->file('image');
 
+        // Repeat-upload cache (same rule as the session endpoint): identical
+        // bytes from this user return the completed row with zero AI cost.
+        $imageHash = hash_file('sha256', $file->getRealPath());
+        $cached = GeoAnalysis::findCachedForUser($imageHash, (int) $request->user()->id);
+        if ($cached) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Analysis already completed.',
+                'id' => $cached->id,
+                'cached' => true,
+                'data' => [
+                    'id' => $cached->id,
+                    'status' => 'completed',
+                    'image_url' => $cached->image_url,
+                    'result' => $cached->result,
+                ],
+            ], 200);
+        }
+
         // ✅ Wrap storage operation in try-catch to handle errors gracefully
         try {
             $path = $file->store('uploads/analyses', 'public');
@@ -93,6 +112,7 @@ class AnalysisApiController extends Controller
             'status' => 'processing',
             'image_path' => $path,
             'image_url' => $imageUrl,
+            'image_hash' => $imageHash,
             'progress' => 10,
             'stage' => 0,
         ]);
