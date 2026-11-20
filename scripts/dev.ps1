@@ -3,6 +3,9 @@
 #
 # Usage:  composer dev
 # Stop with Ctrl+C.
+#
+# Refuses to start if another serve/worker is already running, reaps stuck
+# analyses every 60s, and always kills the whole process tree on exit.
 
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 try { $OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
@@ -10,9 +13,32 @@ try { $OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
 $root = (Get-Item $PSScriptRoot).Parent.FullName
 Set-Location $root
 
+function Find-ExistingDevProcesses {
+    $all = @(Get-CimInstance Win32_Process -Filter "Name = 'php.exe'" -ErrorAction SilentlyContinue)
+    $found = @()
+    foreach ($p in $all) {
+        $line = "$($p.CommandLine)"
+        if ($line -match 'artisan\s+serve' -or $line -match 'queue:work') {
+            $found += $p
+        }
+    }
+    return $found
+}
+
+$existing = @(Find-ExistingDevProcesses)
+if ($existing.Count -gt 0) {
+    Write-Host "FAILED: a dev server or queue worker is already running:" -ForegroundColor Red
+    foreach ($p in $existing) {
+        Write-Host ("  pid {0}: {1}" -f $p.ProcessId, $p.CommandLine)
+    }
+    Write-Host "Stop it first, then run composer dev again. Refusing to start a duplicate."
+    exit 1
+}
+
 Write-Host "=== TraceGeo local dev ==="
 Write-Host "Starting php artisan serve on http://127.0.0.1:8000 ..."
 Write-Host "Starting queue worker (database, --tries=1 --timeout=180) ..."
+Write-Host "Reaping stuck analyses every 60s."
 Write-Host "Tailing storage\logs\laravel.log (Ctrl+C to stop everything)"
 Write-Host ""
 
@@ -32,6 +58,7 @@ function Stop-ProcessTree($procId) {
 if (-not $server -or -not $worker) {
     Write-Host "FAILED to start child processes."
     if ($server) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
+    if ($worker) { Stop-Process -Id $worker.Id -Force -ErrorAction SilentlyContinue }
     exit 1
 }
 
@@ -56,6 +83,7 @@ try {
     }
     $logReader = Open-LogTail $logPath
     $failure = $null
+    $nextReap = (Get-Date).AddSeconds(60)
 
     # PS 5.1 quirk: a force-killed child reports ExitCode as EMPTY (not a
     # number), and redirected parents also read empty -- only use it when
@@ -79,6 +107,16 @@ try {
             $failure = "DEV SERVER DIED (exit code $(Get-ExitCodeLabel $server)) -- http://127.0.0.1:8000 is down!`n" +
                        "  Restart with: composer dev"
             break
+        }
+
+        if ((Get-Date) -ge $nextReap) {
+            $reapOut = & php artisan analyses:reap-stuck --minutes=10 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "WARNING: analyses:reap-stuck failed: $reapOut" -ForegroundColor Yellow
+            } elseif ($reapOut.Trim()) {
+                Write-Host "reaper: $($reapOut.Trim())"
+            }
+            $nextReap = (Get-Date).AddSeconds(60)
         }
 
         if ($logReader) {

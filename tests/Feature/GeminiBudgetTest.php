@@ -22,6 +22,7 @@ class GeminiBudgetTest extends TestCase
             'services.gemini.retries' => 1,
             'services.gemini.max_total_time' => 90,
             'services.gemini.min_attempt_seconds' => 15,
+            'services.gemini.retry_backoff_ms' => 0, // no real sleep in tests
             'services.gemini.model' => 'gemini-3.6-flash',
             'services.gemini.fallback_model' => 'gemini-3.5-flash',
         ]);

@@ -30,8 +30,8 @@ jobs:
       - name: Install dependencies
         run: composer install --optimize-autoloader --no-interaction
 
-      - name: Run tests
-        run: composer test
+      - name: Run tests (fast + slow process group)
+        run: composer test:all
 
   smoke:
     name: Smoke test (offline, fake Gemini)

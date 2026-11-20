@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 class ConfigBootTest extends TestCase
@@ -32,7 +33,11 @@ class ConfigBootTest extends TestCase
      * The full application boot (config + service providers) must print
      * nothing — any deprecation leaks into HTTP response bodies and breaks
      * headers (Set-Cookie) and csrf tokens.
+     *
+     * Spawns a real `php artisan` process, so it lives in the `slow` group:
+     * composer test excludes it, CI/smoke run it via composer test:slow.
      */
+    #[Group('slow')]
     public function test_artisan_boot_emits_no_notices(): void
     {
         $output = shell_exec('php artisan db:show 2>&1');

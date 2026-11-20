@@ -22,6 +22,8 @@ class GeminiClient
 
     protected $minAttemptSeconds;
 
+    protected $retryBackoffMs;
+
     protected $thinkingLevel;
 
     protected $baseUrl;
@@ -40,6 +42,7 @@ class GeminiClient
         $this->maxRetries = min(1, max(0, (int) config('services.gemini.retries', 1)));
         $this->maxTotalTimeSeconds = max(1, (int) config('services.gemini.max_total_time', 90));
         $this->minAttemptSeconds = max(1, (int) config('services.gemini.min_attempt_seconds', 15));
+        $this->retryBackoffMs = max(0, (int) config('services.gemini.retry_backoff_ms', 1000));
         $this->thinkingLevel = strtoupper(trim((string) config('services.gemini.thinking_level', 'low')));
         // Base URL for the Gemini REST API. Local/testing may override it
         // (e.g. fake server in smoke tests); everywhere else only https.
@@ -146,7 +149,7 @@ class GeminiClient
         ?callable $onRetry = null,
         int $retryNumber = 1
     ) {
-        $backoff = 1000000; // microseconds
+        $backoff = $this->retryBackoffMs * 1000; // milliseconds -> microseconds
         $attempts = max(1, $maxAttempts);
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {

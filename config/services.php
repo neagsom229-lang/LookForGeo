@@ -51,6 +51,8 @@ return [
         'retries' => (int) env('GEMINI_RETRIES', 1),
         'max_total_time' => (int) env('GEMINI_MAX_TOTAL_TIME', 90),
         'min_attempt_seconds' => (int) env('GEMINI_MIN_ATTEMPT_SECONDS', 15),
+        // Sleep between the primary attempt and its one retry. Tests set 0.
+        'retry_backoff_ms' => (int) env('GEMINI_RETRY_BACKOFF_MS', 1000),
         // Gemini 3.x: LOW is the cheapest sensible level for extraction.
         'thinking_level' => env('GEMINI_THINKING_LEVEL', 'low'),
         // Override to point at a fake endpoint (smoke tests). Default is the real REST base path.
