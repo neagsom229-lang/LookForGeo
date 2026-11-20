@@ -1,0 +1,17 @@
+title = "TraceGeo / LookForGeo"
+
+[extend]
+useDefault = true
+
+# Historical Google Maps keys were committed before the hotfix and have been
+# rotated. These allowlists are deliberately narrow: one path plus one commit
+# each. Do not widen them, and do not add new secrets here.
+[[allowlists]]
+description = "Rotated Google Maps key in historical render.yaml (b28ae6c)"
+paths = ['''render\.yaml''']
+commits = ["b28ae6c502c2a0c6dab21568f8ab2ea44fae8af2"]
+
+[[allowlists]]
+description = "Rotated Google Maps key in historical analysis view (b5dff6b, removed in 1dc3603)"
+paths = ['''resources/views/analysis\.blade\.php''']
+commits = ["b5dff6b5441b8daaf374fd718300acd2894c8829"]
