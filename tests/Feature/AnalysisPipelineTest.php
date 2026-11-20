@@ -99,7 +99,11 @@ class AnalysisPipelineTest extends TestCase
         $this->assertSame('France', $result['country']);
         $this->assertSame(48.8584, (float) $result['latitude']);
         $this->assertSame(2.2945, (float) $result['longitude']);
-        $this->assertGreaterThanOrEqual(80, (int) $result['confidence']);
+        // Phase E: a 10x10 thumbnail has no EXIF and no checkable country
+        // signal, so it must NOT inherit the model's self-reported 90.
+        $this->assertLessThan(50, (int) $result['confidence']);
+        $this->assertSame(90, (int) ($result['model_reported_confidence'] ?? -1));
+        $this->assertTrue((bool) ($result['low_confidence'] ?? false));
         $this->assertNotEmpty($result['reasoning']);
     }
 

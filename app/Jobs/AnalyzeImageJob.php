@@ -93,6 +93,12 @@ class AnalyzeImageJob implements ShouldQueue
 
             // STEP 3: Extract metadata
             $metadata = $this->extractMetadata($analysis);
+            // Resolution is a checkable confidence signal. The model never
+            // sees this; it only feeds the calibrated score.
+            $size = @getimagesizefromstring($imageData);
+            if (is_array($size)) {
+                $metadata['resolution'] = ['width' => $size[0], 'height' => $size[1]];
+            }
             Log::info('✅ Metadata extracted', ['has_gps' => isset($metadata['gps'])]);
 
             // STEP 4: AI Analysis

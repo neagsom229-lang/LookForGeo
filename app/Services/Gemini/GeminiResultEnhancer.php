@@ -8,73 +8,21 @@ use Illuminate\Support\Facades\Schema;
 
 class GeminiResultEnhancer
 {
+    public function __construct(private ConfidenceCalculator $confidence) {}
+
     /**
      * RUN THE ENRICHMENT CHAIN + FIELD VALIDATION.
-     * Equivalent to the previous GeminiService::ultimateEnrichment +
-     * validateAllFields sequence, now isolated for reuse and testing.
+     * Confidence is computed from checkable signals by ConfidenceCalculator,
+     * never from the model's self-reported number.
      */
-    public function enhance($data)
+    public function enhance($data, array $metadata = [])
     {
         $data = $this->databaseCrossReference($data);
         $data = $this->multiSourceVerification($data);
-        $data = $this->calculateUltimateConfidence($data);
-        $data = $this->calibrateConfidenceWithCandidates($data);
+        $data = $this->confidence->calculate($data, $metadata);
         $data = $this->addRichMetadata($data);
-        $data = $this->humanizeLabels($data);
 
         return $this->validateAllFields($data);
-    }
-
-    /**
-     * Adjust confidence based on how close the top candidate is to the
-     * runner-up. A model that names one landmark but whose own second
-     * candidate is nearly as likely is telling you the image is
-     * genuinely ambiguous — the earlier boost logic had no way to see
-     * that, since it only looked at the single reported confidence.
-     */
-    private function calibrateConfidenceWithCandidates($data)
-    {
-        $candidates = $data['candidates'] ?? [];
-        if (! is_array($candidates) || count($candidates) < 2) {
-            return $data;
-        }
-
-        $probs = array_values(array_filter(array_map(
-            fn ($c) => is_numeric($c['probability'] ?? null) ? (int) $c['probability'] : null,
-            $candidates
-        ), fn ($p) => $p !== null));
-
-        if (count($probs) < 2) {
-            return $data;
-        }
-
-        rsort($probs);
-        $gap = $probs[0] - $probs[1];
-
-        $adjustment = 0;
-        $note = null;
-
-        if ($gap < 10) {
-            $adjustment = -15;
-            $note = 'Top two candidates nearly tied — treated as ambiguous';
-        } elseif ($gap < 25) {
-            $adjustment = -5;
-            $note = 'Runner-up candidate still plausible';
-        } elseif ($gap > 50) {
-            $adjustment = 5;
-            $note = 'Clear separation from alternate candidates';
-        }
-
-        if ($adjustment !== 0) {
-            $data['confidence'] = (int) max(0, min(100, ($data['confidence'] ?? 0) + $adjustment));
-            $factors = $data['confidence_factors'] ?? [];
-            $factors[] = $note;
-            $data['confidence_factors'] = $factors;
-        }
-
-        $data['candidate_gap'] = $gap;
-
-        return $data;
     }
 
     private function isValidCoordinate($lat, $lng)
@@ -209,51 +157,6 @@ class GeminiResultEnhancer
     }
 
     /**
-     * ULTIMATE CONFIDENCE CALCULATION
-     */
-    private function calculateUltimateConfidence($data)
-    {
-        $base = $data['confidence'] ?? 0;
-        $boost = 0;
-        $factors = [];
-
-        if (isset($data['coordinate_sources']) && $data['coordinate_sources'] >= 2) {
-            $boost += 15;
-            $factors[] = 'Multiple coordinate sources confirmed';
-        }
-
-        if (isset($data['matched_landmark'])) {
-            $boost += 20;
-            $factors[] = 'Exact landmark match in database';
-        }
-
-        if (! empty($data['city']) && ! empty($data['country']) && $data['city'] !== 'Unknown' && $data['country'] !== 'Unknown') {
-            $boost += 10;
-            $factors[] = 'City and country identified';
-        }
-
-        if (isset($data['visual_clues']) && count($data['visual_clues']) >= 4) {
-            $boost += 10;
-            $factors[] = 'Multiple visual clues identified';
-        }
-
-        if ($base >= 70) {
-            $boost += 5;
-            $factors[] = 'AI expressed high confidence';
-        }
-
-        // No forced rounding to nearest 5 — that was discarding real
-        // signal (e.g. 82 vs 83 landing on the same bucket for no reason).
-        $final = (int) min(100, $base + $boost);
-
-        $data['confidence'] = $final;
-        $data['confidence_boost'] = $boost;
-        $data['confidence_factors'] = $factors;
-
-        return $data;
-    }
-
-    /**
      * ADD RICH METADATA
      */
     private function addRichMetadata($data)
@@ -271,18 +174,6 @@ class GeminiResultEnhancer
         }
         if (empty($data['tags'])) {
             $data['tags'] = ['Geolocation', 'OSINT', 'AI Analysis'];
-        }
-
-        return $data;
-    }
-
-    /**
-     * HUMANIZE LABELS
-     */
-    private function humanizeLabels($data)
-    {
-        if (isset($data['confidence'])) {
-            $data['confidence_level'] = $this->getConfidenceLevel($data['confidence']);
         }
 
         return $data;
@@ -308,7 +199,12 @@ class GeminiResultEnhancer
             'type' => 'unknown',
             'continent' => 'Unknown',
             'timezone' => 'Unknown',
-            'confidence_level' => 'None',
+            'confidence_level' => 'Very Low',
+            'low_confidence' => true,
+            'model_reported_confidence' => 0,
+            'confidence_basis' => 'calibrated-signals',
+            'confidence_signals' => [],
+            'alternatives' => [],
             'coordinate_sources' => 0,
             'negative_evidence' => 'Not specified.',
             'vantage_point' => 'ground',
@@ -377,26 +273,5 @@ class GeminiResultEnhancer
         }
 
         return 'Unknown';
-    }
-
-    private function getConfidenceLevel($confidence)
-    {
-        if ($confidence >= 95) {
-            return 'Verified - Very High';
-        }
-        if ($confidence >= 80) {
-            return 'Very High';
-        }
-        if ($confidence >= 65) {
-            return 'High';
-        }
-        if ($confidence >= 50) {
-            return 'Medium';
-        }
-        if ($confidence >= 30) {
-            return 'Low';
-        }
-
-        return 'Very Low';
     }
 }

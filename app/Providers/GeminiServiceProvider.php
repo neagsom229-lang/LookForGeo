@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Services\Gemini\ConfidenceCalculator;
 use App\Services\Gemini\GeminiClient;
 use App\Services\Gemini\GeminiPrompt;
 use App\Services\Gemini\GeminiResultEnhancer;
@@ -21,8 +22,12 @@ class GeminiServiceProvider extends ServiceProvider
             return new GeminiPrompt;
         });
 
+        $this->app->singleton(ConfidenceCalculator::class, function ($app) {
+            return new ConfidenceCalculator($app->make(\App\Services\OpenStreetMapService::class));
+        });
+
         $this->app->singleton(GeminiResultEnhancer::class, function ($app) {
-            return new GeminiResultEnhancer;
+            return new GeminiResultEnhancer($app->make(ConfidenceCalculator::class));
         });
 
         $this->app->singleton(GeminiResultValidator::class, function ($app) {

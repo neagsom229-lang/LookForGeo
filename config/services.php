@@ -61,6 +61,9 @@ return [
         'compress_images' => env('GEMINI_COMPRESS_IMAGES', true),
         'max_image_dimension' => (int) env('GEMINI_MAX_IMAGE_DIMENSION', 1024),
         'compress_threshold_bytes' => (int) env('GEMINI_COMPRESS_THRESHOLD_BYTES', 1_000_000),
+        // Optional reverse-geocode check for calibrated confidence. Off in
+        // phpunit so tests never make an un-faked network call.
+        'confidence_reverse_geocode' => env('GEMINI_CONFIDENCE_REVERSE_GEOCODE', true),
         // Override to point at a fake endpoint (smoke tests). Default is the real REST base path.
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
     ],

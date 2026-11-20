@@ -49,7 +49,7 @@ class GeminiService
             return $this->client->getFallbackResponse('AI response was not valid for the geolocation schema ('.implode(',', $errors).')');
         }
 
-        return $this->enhancer->enhance($result);
+        return $this->enhancer->enhance($result, $metadata);
     }
 
     /**
