@@ -1,0 +1,9 @@
+#!/bin/sh
+# Gitleaks pre-commit hook (Phase 0 – secrets hygiene)
+# Install: git config core.hooksPath .githooks
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged
+else
+  echo "WARNING: gitleaks is not installed locally. Install it (https://github.com/gitleaks/gitleaks) to enable pre-commit scans."
+fi
+exit 0

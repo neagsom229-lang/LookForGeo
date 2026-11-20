@@ -7,12 +7,7 @@
 [![Laravel Version](https://img.shields.io/badge/Laravel-12.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white)](https://laravel.com)
 [![PHP Version](https://img.shields.io/badge/PHP-8.2+-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://php.net)
 [![Gemini API](https://img.shields.io/badge/Google%20Gemini-Flash-8E75B2?style=for-the-badge&logo=google&logoColor=white)](https://aistudio.google.com/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
-[![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](#license)
-
-<br />
-
-<img src="public/images/logo.png" alt="TraceGeo Banner" width="750" />
+[![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
 </div>
 
@@ -26,7 +21,7 @@
 
 ## ✨ Key Features
 
-- **🧠 Multi-Tier AI Geolocation** — Leverages `gemini-3.6-flash` (with `gemini-3.5-flash` fallback) to parse subtle geographic, architectural, and ecological indicators.
+- **🧠 Multi-Tier AI Geolocation** — Leverages `gemini-3.5-flash-lite` (with `gemini-3.1-flash-lite` fallback) to parse subtle geographic, architectural, and ecological indicators.
 - **📂 Flexible Input Methods** — Upload local image files directly or paste remote image URLs (Wikimedia, Wikipedia, Imgur, etc.).
 - **⚡ Real-Time Pipeline Progress** — Live visual breakdown as the pipeline traverses stages: `Features` → `Reasoning` → `Locate`.
 - **🗺️ Interactive Mapping Engine** — Integrated Leaflet.js with Esri World Imagery and OpenStreetMap overlays (zero paid API keys required).
@@ -43,11 +38,11 @@
 |---|---|
 | **Framework** | [Laravel 12](https://laravel.com) |
 | **Language** | PHP 8.2+ |
-| **Frontend** | Blade, Tailwind CSS, Font Awesome 6 |
+| **Frontend** | Blade + static assets (`public/css`, `public/js`), Font Awesome 6 |
 | **Database** | PostgreSQL (Production) / SQLite (Local development) |
 | **Cache & Queue** | Database driver (`CACHE_STORE=database`, `QUEUE_CONNECTION=database`) |
 | **Mapping Engine** | Leaflet.js + Esri World Imagery + OpenStreetMap |
-| **AI Inference** | Google Gemini API (`gemini-3.6-flash` / `gemini-3.5-flash`) |
+| **AI Inference** | Google Gemini API (`gemini-3.5-flash-lite` / `gemini-3.1-flash-lite`) |
 | **Media Hosting** | Cloudinary (optional) |
 | **Authentication** | Laravel Sanctum |
 | **Offline / PWA** | Custom Service Worker (`public/sw.js`) |
@@ -60,11 +55,31 @@
 
 Ensure the following tools are installed on your host system:
 
-- **PHP 8.2+** with extensions: `pdo_sqlite`, `pdo_pgsql`, `curl`, `mbstring`, `openssl`
+- **PHP 8.2+** with extensions: `pdo_sqlite`, `pdo_pgsql`, `curl`, `mbstring`, `openssl`, `gd`, `exif`
 - **Composer 2.x**
-- **Node.js 18+** & **npm** (for compiling frontend assets)
 
-### Installation
+### Installation (fast path)
+
+Two commands bootstrap a fresh clone. `composer install` fetches PHP dependencies;
+`composer setup-local` then copies `.env.example` → `.env`, generates the app key,
+creates `database/database.sqlite`, links storage, runs migrations and seeds a demo
+user (`demo@example.com` / `password`):
+
+```bash
+composer install        # PHP dependencies (required before any artisan command)
+composer setup-local    # .env, APP_KEY, sqlite, migrate, demo user
+# add your GEMINI_API_KEY to .env when you have one
+composer dev
+# open http://127.0.0.1:8000 — register or use the demo account
+```
+
+To prove the whole flow works end-to-end offline:
+
+```bash
+composer smoke     # register → login → upload → completed analysis (fake Gemini)
+```
+
+### Installation (manual)
 
 **1. Clone & install dependencies**
 
@@ -75,10 +90,6 @@ cd LookForGeo
 
 # Install PHP dependencies
 composer install
-
-# Install & compile Node dependencies (if modifying assets)
-npm install
-npm run build
 ```
 
 **2. Environment configuration**
@@ -112,9 +123,10 @@ QUEUE_CONNECTION=database
 
 # Google Gemini API
 GEMINI_API_KEY=your_google_ai_studio_key_here
-GEMINI_MODEL=gemini-3.6-flash
-GEMINI_FALLBACK_MODEL=gemini-3.5-flash
-GEMINI_MAX_TOTAL_TIME=120
+GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_FALLBACK_MODEL=gemini-3.1-flash-lite
+GEMINI_TIMEOUT=50
+GEMINI_TOTAL_BUDGET=110
 
 # Cloudinary (Optional - local fallback supported)
 CLOUDINARY_CLOUD_NAME=
@@ -162,28 +174,37 @@ Access the dashboard in your browser at **http://localhost:8000**.
 ## 🔒 Security
 
 - **CSP Middleware (`ForceCsp`)** — Content Security Policy headers enforced on all application responses.
-- **SSRF Protection** — Outbound image fetchers validate target destinations; private IP blocks (`10.0.0.0/8`, `192.168.0.0/16`, `127.0.0.0/8`) and localhost endpoints are strictly blocked.
-- **Protected Gemini Endpoints** — Diagnostic and interactive endpoints (`/api/test-gemini`, `/api/gemini-chat`) require active authentication.
+- **SSRF Protection** — Outbound image fetchers validate target destinations; private IP blocks (`10.0.0.0/8`, `192.168.0.0/16`, `127.0.0.0/8`) and localhost endpoints are strictly blocked, with a re-check after redirects.
+- **Protected Gemini Endpoints** — Implemented interactive endpoints (`/api/gemini-chat`, `/api/identify`, `/api/search`) require active authentication (web session or Sanctum token). The method-less `/api/identify-gps`, `/api/extract-exif` and `/api/nearby` routes were removed in the pre-deploy gate (they returned 500 for authenticated callers); their paths now return 404.
+- **Ownership scoping** — Read/poll/delete/retry of an analysis are scoped to their owner.
 - **Strict Rate Limiting** — Configured at `throttle:10,1` on `/api/gemini-chat` and `throttle:60,1` on `/api/analyze`.
+- **Secret hygiene** — `gitleaks` scans every commit locally (`core.hooksPath .githooks`) and runs in CI on every push; see `docs/SECURITY_INCIDENT.md`.
 - **Persistent Sessions** — Session driver strictly configured to `database` or `file` (the `array` driver is barred in production).
 - **Legitimate User-Agent** — Outbound asset fetchers provide a fully-formed User-Agent header to comply with Wikimedia and CDN upstream policies.
 
-🛡️ **Reporting security issues:** please report any vulnerabilities privately to the project maintainers.
+🛡️ **Reporting security issues:** please use the process in [SECURITY.md](SECURITY.md); do not open public issues for vulnerabilities.
 
 ---
 
 ## 🔌 API Endpoints
 
+Session routes (web middleware, browser clients) live under `/api/*` in `routes/web.php`.
+Stateless routes (Bearer tokens) live in `routes/api.php`.
+Unauthenticated clients may only reach the health check and the auth endpoints.
+
 | Method | Endpoint | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/analyze/store` | Session | Upload an image for geolocation analysis |
-| GET | `/api/analyze/{id}/status` | Session | Poll processing status & retrieve results |
-| GET | `/api/fetch-image?url=` | Session | Fetch remote image securely (SSRF-guarded) |
-| GET | `/api/dashboard-data` | Session | Retrieve past user analyses & history |
-| POST | `/api/gemini-chat` | Sanctum + Throttle | Direct Gemini chat session (rate limit: 10/min) |
-| POST | `/api/login` | Public | Authenticate user & issue token / session |
+| GET | `/api/health` | Public | Health check |
+| POST | `/api/login` | Public | Authenticate & issue Sanctum token |
 | POST | `/api/register` | Public | Register a new user account |
-| POST | `/api/logout` | Sanctum | Revoke current user session / token |
+| GET | `/api/verify/{token}` | Public | Verify email token |
+| POST | `/api/logout` | Sanctum | Revoke current token |
+| GET | `/api/history` | Sanctum | List completed analyses |
+| POST | `/api/analyze` | Sanctum + throttle | Upload image, enqueue analysis (60/min) |
+| POST | `/api/identify` | Web session or Sanctum | Identify a landmark (cost-bearing) |
+| GET | `/api/analyze/{id}/status` | Web session | Poll analysis status (owner-scoped) |
+| GET | `/api/results/{id}` | Web session | Fetch result JSON (owner-scoped) |
+| POST | `/api/gemini-chat` | Sanctum + throttle | Direct Gemini chat (10/min) |
 
 ---
 
@@ -205,7 +226,8 @@ php artisan queue:work --tries=1 --timeout=180
 **"cURL error 28: Connection timed out"**
 High-resolution multimodal analysis can take 20–40 seconds depending on upstream load. Increase the Gemini timeout in `.env`:
 ```env
-GEMINI_MAX_TOTAL_TIME=120
+GEMINI_TIMEOUT=50
+GEMINI_TOTAL_BUDGET=110
 ```
 Then refresh the configuration cache:
 ```bash
@@ -219,7 +241,7 @@ The Gemini API configuration received an unaccepted field in `generationConfig`.
 Wikimedia and certain CDNs block generic automated HTTP clients. While `fetchImage` attaches an outbound User-Agent, some hosts block datacenter IPs completely. If this occurs, download the image locally and upload it directly.
 
 **"API KEY REQUIRED watermark on the map"**
-The map view is attempting to load CARTO tiles (which now require paid tokens). Ensure your tile layer in `resources/views/analysis.blade.php` points to free OpenStreetMap or Esri endpoints:
+The map view attempted to load CARTO tiles, which require paid tokens. The tile layer in `public/js/analysis.js` points to free OpenStreetMap and Esri endpoints:
 - OSM tiles: `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`
 - Esri satellite: `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`
 
@@ -231,52 +253,84 @@ The map view is attempting to load CARTO tiles (which now require paid tokens). 
 app/
 ├── Http/
 │   ├── Controllers/
-│   │   ├── AnalysisController.php    # Upload handling, proxy fetch, polling status
+│   │   ├── AnalysisController.php    # Upload handling, SSRF-guarded fetch, polling status
 │   │   ├── AuthController.php        # User registration, login, session states
 │   │   ├── GeminiController.php      # Direct Gemini chat interface
-│   │   └── LandmarkController.php    # Landmark search and coordinate resolution
-│   └── Middleware/
-│       └── ForceCsp.php              # Content Security Policy header injector
+│   │   ├── HomeController.php        # Dashboard stats & history
+│   │   ├── LandmarkController.php    # Landmark identify/search API surface
+│   │   └── Api/AnalysisApiController.php # Stateless API (health, history, analyze)
+│   ├── Middleware/
+│   │   ├── AuthenticateAny.php       # Web session OR Sanctum guard (registered alias: auth.any)
+│   │   └── ForceCsp.php              # Content Security Policy header injector
+│   ├── Requests/
+│   │   └── StoreAnalysisImageRequest.php # Shared image-upload validation
 ├── Jobs/
 │   └── AnalyzeImageJob.php           # Asynchronous Gemini vision processing pipeline
+├── Models/
+│   ├── GeoAnalysis.php               # Analysis records ($appends-serialized)
+│   └── … (User, Landmark, Favorite)
 ├── Providers/
-│   ├── AppServiceProvider.php        # Global rate limiters & forceScheme helpers
-│   └── GeminiServiceProvider.php     # Gemini client singleton registration
-└── Services/
-    └── GeminiService.php             # Upstream client wrapper with fallback logic
+│   ├── AppServiceProvider.php        # Service bindings, rate limiter, prod-DB boot guard
+│   └── GeminiServiceProvider.php     # Gemini dependency registration
+├── Services/
+│   ├── Gemini/
+│   │   ├── GeminiClient.php          # HTTP transport, retries, model fallback, generateText
+│   │   ├── GeminiPrompt.php          # Prompt builder + EXIF formatting
+│   │   ├── GeminiResultEnhancer.php  # Enrichment & field validation
+│   │   └── GeminiResultValidator.php # Strict schema validation of AI output
+│   ├── GeminiService.php             # Thin orchestrator
+│   ├── LandmarkRecognitionService.php # /api/identify pipeline
+│   ├── OpenStreetMapService.php      # Free OSM enrichment
+│   └── GeocodingService.php          # Shared geocode helper
+└── Support/
+    └── LocalDatabaseGuard.php        # Refuses local runs pointed at prod database
 
 resources/views/
 ├── home.blade.php                    # Landing layout & direct upload form
-├── analysis.blade.php                # Interactive coordinates, Leaflet map, reasoning
+├── analysis.blade.php                # Analysis screen shell (assets in public/)
 ├── auth/
 │   ├── login.blade.php               # Login interface
 │   └── register.blade.php            # Registration interface
-└── landmark/
-    └── identify.blade.php            # Map pinpoint picker
+├── docs.blade.php                    # Public API documentation
+├── history.blade.php                 # History list
+├── how-it-works.blade.php            # Explainer page
+└── partials/how-it-works.blade.php   # Shared explainer partial
+
+public/
+├── js/analysis.js                    # Map, 3D globe, polling, UI logic
+├── css/analysis.css                  # Styles for the analysis screen
+├── sw.js                             # Dev-safe Service Worker (network-first)
+└── …
+
+scripts/
+├── dev.ps1                           # One-command local dev (server + worker + logs)
+├── setup.ps1                         # Bootstrap fresh clone (idempotent)
+└── smoke.ps1                         # End-to-end smoke test (fake Gemini, offline)
 
 routes/
 ├── web.php                           # Web interface & session-authenticated routes
 └── api.php                           # Token & Sanctum-authenticated endpoints
-
-public/
-└── sw.js                             # Dev-safe Service Worker (network-first)
 ```
 
 ---
 
 ## 📋 Post-Setup Verification
 
-After setting up the project, verify that your local logo asset exists:
+After setting up the project, verify the app boots and the test suite passes:
 
 ```bash
-# Windows (PowerShell)
-Test-Path "public\images\logo.png"
+# Run the test suite (PHPUnit, SQLite in-memory, offline)
+composer test
 
-# Linux / macOS (Bash)
-test -f public/images/logo.png && echo "Logo found" || echo "Logo missing"
+# End-to-end smoke test (register → login → upload → completed, fake Gemini)
+composer smoke
+
+# Sanity-check the route table
+php artisan route:list
 ```
 
-If the logo image does not exist in your repository, replace it with your own banner or remove the `<img>` reference at the top of this document.
+The test suite covers security behaviour (auth gating, ownership scoping) and
+should be green before you ship any change.
 
 ---
 
@@ -291,4 +345,4 @@ If the logo image does not exist in your repository, replace it with your own ba
 
 ## 📜 License
 
-This project is open-source software licensed under the [MIT License](#license).
+This project is open-source software licensed under the [MIT License](LICENSE).

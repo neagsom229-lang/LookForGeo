@@ -18,12 +18,14 @@ WORKDIR /var/www/html
 COPY . /var/www/html
 
 # Create directories and set permissions
-RUN mkdir -p bootstrap/cache storage/framework/views storage/framework/cache storage/framework/sessions storage/logs \
+RUN mkdir -p bootstrap/cache storage/framework/views storage/framework/cache/data storage/framework/sessions storage/logs \
     && chmod -R 775 storage bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
 # Install dependencies (no npm needed for pure PHP apps, skip if not required)
-RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
+# Platform is pinned to php 8.2.27 in composer.json and the lock has no
+# extension the base image lacks, so no platform-requirement bypass is used.
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-progress
 
 # Enable Apache mod_rewrite and mod_headers
 RUN a2enmod rewrite headers

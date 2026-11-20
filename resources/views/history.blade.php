@@ -386,6 +386,17 @@
         }
     }
 
+    .card-action {
+        margin-top: 10px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--accent, #6ee7b7);
+    }
+
+    .card:hover .card-action {
+        text-decoration: underline;
+    }
+
     .card .body {
         padding: 16px 20px 20px;
         flex-grow: 1;
@@ -658,6 +669,12 @@
                         </span>
                         @if($status === 'processing')
                         <span style="color: var(--warning);"><i class="fas fa-spinner fa-spin"></i></span>
+                        @endif
+                    </div>
+                    <div class="card-action" aria-hidden="true">
+                        @if($status === 'completed') View result &rarr;
+                        @elseif($status === 'failed') Retry analysis &rarr;
+                        @else Check progress &rarr;
                         @endif
                     </div>
                 </div>

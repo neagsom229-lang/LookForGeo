@@ -1,21 +1,38 @@
 # Security Policy
 
-## Supported Versions
+## Reporting a vulnerability
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+**Do not open a public issue for security vulnerabilities.**
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+Instead, please report them privately to the maintainers (see the contact on the
+repository profile: https://github.com/neagsom229-lang/LookForGeo).
 
-## Reporting a Vulnerability
+Include:
 
-Use this section to tell people how to report a vulnerability.
+- A description of the vulnerability and its impact
+- Steps to reproduce or a proof of concept
+- The affected endpoint, file, or dependency
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+You will receive an acknowledgement as soon as the report is triaged.
+
+## Scope
+
+- Cost-bearing endpoints are authenticated and throttled (session auth or
+  Sanctum bearer tokens; see `routes/api.php`).
+- Analysis reads/writes are scoped to their owner.
+- Outbound image fetchers validate destination hosts and block private IP ranges.
+- Secrets must never be committed to git — `gitleaks` runs on every push and on
+  staged commits locally (`core.hooksPath .githooks`).
+- **Never print, log, paste or share secret values in chat, logs, PRs or issues.**
+  When a secret must be referenced, redact it to at most the first 6 characters
+  (e.g. `AIzaSy…`) and otherwise refer to it by key name only (`GEMINI_API_KEY`).
+- No credential backup files (`.env`, `.env.*`, `*.bak`) may exist in the
+  repository, its history, or be committed. They must stay local and
+  untracked. If one appears, delete or quarantine it immediately.
+- Full handling of any past credential exposure is tracked in
+  `docs/SECURITY_INCIDENT.md`.
+
+## Supported versions
+
+The `main` branch is the supported version. This repository does not backport
+fixes.

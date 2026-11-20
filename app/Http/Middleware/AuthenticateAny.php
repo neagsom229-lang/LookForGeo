@@ -8,15 +8,18 @@ use Illuminate\Http\Request;
 
 /**
  * Accepts a request authenticated by EITHER:
- *  - the web (session) guard - browser sessions, or
- *  - the sanctum guard - stateless API/mobile clients with a personal access token.
+ *  - the web (session) guard — browser sessions, or
+ *  - the sanctum guard — stateless API/mobile clients with a personal access token.
  *
- * Used for the cost-bearing API endpoints so anonymous callers receive 401
- * instead of being able to spend Gemini / paid quota.
+ * Used for the cost-bearing public-ish API endpoints so that unauthenticated
+ * callers receive 401 instead of being able to spend Gemini / paid quota.
  */
 class AuthenticateAny extends Middleware
 {
     /**
+     * Authenticate the request against the given guards, falling back to
+     * the Sanctum guard before rejecting.
+     *
      * @param  Request  $request
      * @return mixed
      *

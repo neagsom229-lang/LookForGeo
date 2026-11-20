@@ -10,7 +10,7 @@ class StripBOM
     public function handle(Request $request, Closure $next)
     {
         $response = $next($request);
-        
+
         // Strip UTF-8 BOM from JSON responses
         if (str_contains($response->headers->get('Content-Type'), 'application/json')) {
             $content = $response->getContent();
@@ -18,7 +18,7 @@ class StripBOM
                 $response->setContent(substr($content, 3));
             }
         }
-        
+
         return $response;
     }
 }

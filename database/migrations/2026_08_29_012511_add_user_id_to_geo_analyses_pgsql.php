@@ -10,12 +10,12 @@ return new class extends Migration
     {
         Schema::table('geo_analyses', function (Blueprint $table) {
             // Add user_id only if it doesn't already exist
-            if (!Schema::hasColumn('geo_analyses', 'user_id')) {
+            if (! Schema::hasColumn('geo_analyses', 'user_id')) {
                 $table->unsignedBigInteger('user_id')->nullable();
                 $table->foreign('user_id')
-                      ->references('id')
-                      ->on('users')
-                      ->onDelete('cascade');
+                    ->references('id')
+                    ->on('users')
+                    ->onDelete('cascade');
                 $table->index('user_id');
             }
         });

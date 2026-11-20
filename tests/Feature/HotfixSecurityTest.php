@@ -21,15 +21,17 @@ class HotfixSecurityTest extends TestCase
     {
         $requests = [
             ['post', '/api/identify'],
-            ['post', '/api/identify-gps'],
-            ['post', '/api/extract-exif'],
-            ['get', '/api/nearby'],
             ['get', '/api/search'],
         ];
 
         foreach ($requests as [$method, $uri]) {
             $this->{$method}($uri)->assertStatus(401);
         }
+
+        // These method-less routes were deleted in the pre-deploy gate.
+        $this->postJson('/api/identify-gps', [])->assertStatus(404);
+        $this->postJson('/api/extract-exif', [])->assertStatus(404);
+        $this->getJson('/api/nearby')->assertStatus(404);
 
         $this->post('/api/identify')
             ->assertStatus(401)

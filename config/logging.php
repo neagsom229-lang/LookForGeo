@@ -1,5 +1,9 @@
 <?php
 
+use App\Logging\NoEmojiProcessor;
+use App\Logging\RequestIdProcessor;
+use App\Logging\SecretLogProcessor;
+use Monolog\Formatter\JsonFormatter;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -18,7 +22,7 @@ return [
     |
     */
 
-    'default' => env('LOG_CHANNEL', 'stack'),
+    'default' => env('LOG_CHANNEL', env('APP_ENV') === 'production' ? 'production' : 'stack'),
 
     /*
     |--------------------------------------------------------------------------
@@ -58,10 +62,32 @@ return [
             'ignore_exceptions' => false,
         ],
 
+        // Production: one JSON object per line on stderr (Render captures
+        // it), with request id, no emoji and secrets redacted by processors.
+        'production' => [
+            'driver' => 'stderr',
+            'level' => env('LOG_LEVEL', 'info'),
+            'formatter' => JsonFormatter::class,
+            'formatter_with' => [],
+            'processors' => [
+                SecretLogProcessor::class,
+                RequestIdProcessor::class,
+                NoEmojiProcessor::class,
+            ],
+        ],
+
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
+            'replace_placeholders' => true,
+        ],
+
+        // Test-only channel: keeps phpUnit runs out of the real laravel.log.
+        'testing' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/laravel-test.log'),
+            'level' => 'debug',
             'replace_placeholders' => true,
         ],
 

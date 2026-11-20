@@ -1,10 +1,9 @@
 name: Gitleaks
-
 on:
   push:
     branches:
       - main
-      - 'hotfix/**'
+      - 'phase-*'
   pull_request:
 
 jobs:

@@ -22,7 +22,7 @@ return new class extends Migration
             $table->string('type')->default('landmark');
             $table->string('image_url')->nullable();
             $table->timestamps();
-            
+
             $table->index('name');
             $table->index('country');
             $table->index('latitude');

@@ -1,0 +1,83 @@
+name: Deploy and probe
+
+# Runs after a merge to main (or manually). The Render deploy hook URL is a
+# secret and is never printed. The only request this repository makes to the
+# live site is the read-only GET-only probe script.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  deploy-and-probe:
+    name: Deploy then read-only probe
+    runs-on: ubuntu-latest
+    env:
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      PUSHED_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # No secret configured (e.g. fork or first setup): do not fail the run
+      # and do not open an issue. The read-only probe below still runs.
+      - name: Trigger Render deploy
+        if: env.RENDER_DEPLOY_HOOK_URL != ''
+        run: |
+          curl -sS -X POST "$RENDER_DEPLOY_HOOK_URL" -o /dev/null -w 'deploy_hook_http=%{http_code}\n'
+
+      - name: Deploy hook not configured
+        if: env.RENDER_DEPLOY_HOOK_URL == ''
+        run: echo "RENDER_DEPLOY_HOOK_URL not set - skipping deploy hook; read-only probe still runs."
+
+      # Max 10 minutes (60 x 10s). The probe must only run against the SHA
+      # that was just pushed.
+      - name: Wait for deployed commit
+        if: env.RENDER_DEPLOY_HOOK_URL != ''
+        run: |
+          wanted="${PUSHED_SHA:0:7}"
+          for i in $(seq 1 60); do
+            commit=$(curl -sS https://lookforgeo.onrender.com/api/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',''))" || true)
+            echo "health commit=$commit wanted=$wanted"
+            if [ "$commit" = "$wanted" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "deployed commit never matched $wanted within 10 minutes"
+          exit 1
+
+      - name: Wait for health endpoint
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' https://lookforgeo.onrender.com/api/health || true)
+            if [ "$code" = "200" ]; then
+              echo "health_http=200"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "health check never returned 200"
+          exit 1
+
+      - name: Run read-only production probe
+        shell: pwsh
+        run: ./scripts/probe-prod.ps1 -BaseUrl https://lookforgeo.onrender.com
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Deploy probe failed for ' + context.sha.substring(0, 7),
+              body: 'Render deploy or the read-only production probe failed. See the workflow run for details.',
+              labels: ['ci']
+            });

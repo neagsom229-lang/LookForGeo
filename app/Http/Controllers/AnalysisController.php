@@ -2,38 +2,44 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Support\Facades\Storage;
+use App\Http\Requests\StoreAnalysisImageRequest;
+use App\Jobs\AnalyzeImageJob;
+use App\Jobs\DeleteCloudinaryImageJob;
+use App\Models\GeoAnalysis;
+use App\Services\AnalysisCostGuard;
+use App\Services\Gemini\GeminiCircuitBreaker;
+use App\Services\Gemini\GeminiFailureClassifier;
+use App\Services\Gemini\SecretSanitizer;
+use Cloudinary\Cloudinary;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
+use Illuminate\Http\Client\Response;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Cloudinary\Configuration\Configuration;
-use Cloudinary\Api\Upload\UploadApi;
-use Illuminate\Http\Request;
-use App\Models\GeoAnalysis;
-use App\Jobs\AnalyzeImageJob;
-use App\Models\Analysis;
-use App\Services\GeminiService;
+use Illuminate\Support\Facades\Storage;
 
 class AnalysisController extends Controller
 {
-    protected $geminiService;
-
-    public function __construct(GeminiService $geminiService)
-    {
-        $this->geminiService = $geminiService;
-    }
+    /**
+     * The only failure text ever shown to the user through the API.
+     * Details stay in storage/logs (sanitized).
+     */
+    public const FAILED_USER_MESSAGE = 'The AI service did not respond. Please retry.';
 
     /**
      * Show the analysis page
      */
     public function index()
-{
-    $googleMapsEmbedKey = config('services.google_maps.embed_key');
-    // Ensure it's a string
-    if (!is_string($googleMapsEmbedKey)) {
-        $googleMapsEmbedKey = '';
+    {
+        $googleMapsEmbedKey = config('services.google_maps.embed_key');
+        // Ensure it's a string
+        if (! is_string($googleMapsEmbedKey)) {
+            $googleMapsEmbedKey = '';
+        }
+
+        return view('analysis', ['googleMapsEmbedKey' => $googleMapsEmbedKey]);
     }
-    return view('analysis', ['googleMapsEmbedKey' => $googleMapsEmbedKey]);
-}
 
     /**
      * Show history page (filtered by logged-in user)
@@ -50,126 +56,172 @@ class AnalysisController extends Controller
     /**
      * ✅ ASYNC UPLOAD – Stores file, creates record, dispatches job
      */
-    public function store(Request $request)
-{
-    if (!auth()->check()) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Please login to upload images.'
-        ], 401);
-    }
+    public function store(StoreAnalysisImageRequest $request)
+    {
+        if (! auth()->check()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please login to upload images.',
+            ], 401);
+        }
 
-    $request->validate([
-        'image' => 'required|file|mimes:jpeg,png,jpg,gif,webp|max:20480',
-    ]);
-
-    try {
-        $file = $request->file('image');
-        $filename = time() . '_' . $file->getClientOriginalName();
-
-        Log::info('🚀 Starting async upload', [
-            'user_id' => auth()->id(),
-            'filename' => $filename,
-            'size' => $file->getSize()
-        ]);
-
-// Upload to Cloudinary FIRST — the worker container has no local disk
-try {
-    $cloudinary = new \Cloudinary\Cloudinary([
-        'cloud' => [
-            'cloud_name' => config('services.cloudinary.cloud_name'),
-            'api_key'    => config('services.cloudinary.api_key'),
-            'api_secret' => config('services.cloudinary.api_secret'),
-        ],
-        'url' => ['secure' => true],
-    ]);
-
-    $uploadResult = $cloudinary->uploadApi()->upload(
-        $file->getRealPath(),
-        [
-            'folder'        => 'tracegeo/analyses',
-            'resource_type' => 'image',
-        ]
-    );
-
-    $imageUrl = $uploadResult['secure_url'];
-    $path = $imageUrl;
-    $fullPath = $imageUrl;  // keep variable name so downstream code doesn't break
-
-    Log::info('Uploaded to Cloudinary', [
-        'url' => $imageUrl,
-        'public_id' => $uploadResult['public_id'] ?? null,
-    ]);
-} catch (\Exception $e) {
-    Log::error('Cloudinary upload failed: ' . $e->getMessage());
-    return response()->json([
-        'success' => false,
-        'message' => 'Failed to upload image. Please try again.'
-    ], 500);
-}
-        // Create the record
-        $analysis = GeoAnalysis::create([
-            'user_id' => auth()->id(),
-            'status' => 'processing',
-            'stage' => 0,
-            'stage_label' => 'Uploaded',
-            'progress' => 10,
-            'image_path' => $path,
-            'image_url' => $imageUrl,
-            'started_at' => now(),
-        ]);
-
-        Log::info('✅ GeoAnalysis created with ID: ' . $analysis->id);
-
-        // ============================================================
-        // ✅ DISPATCH JOB WITH TRY-CATCH
-        // ============================================================
         try {
-            AnalyzeImageJob::dispatch($analysis->id, $fullPath, $filename);
-            Log::info('✅ Job dispatched successfully for analysis ID: ' . $analysis->id);
-        } catch (\Exception $jobException) {
-            Log::error('❌ Job dispatch FAILED: ' . $jobException->getMessage());
-            Log::error('Stack trace: ' . $jobException->getTraceAsString());
+            $file = $request->file('image');
+            $filename = time().'_'.$file->getClientOriginalName();
 
-            // Update the analysis to failed since the job couldn't be dispatched
-            $analysis->update([
-                'status' => 'failed',
-                'error' => 'Job dispatch failed: ' . $jobException->getMessage(),
-                'finished_at' => now(),
+            // Repeat-upload cache: identical bytes from the SAME user return
+            // the existing completed analysis instantly (zero Gemini cost).
+            $imageHash = hash_file('sha256', $file->getRealPath());
+            $cached = GeoAnalysis::findCachedForUser($imageHash, (int) auth()->id());
+            if ($cached) {
+                Log::info('Repeat upload served from cache', [
+                    'user_id' => auth()->id(),
+                    'analysis_id' => $cached->id,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'id' => $cached->id,
+                    'cached' => true,
+                    'message' => 'Analysis already completed.',
+                    'data' => [
+                        'id' => $cached->id,
+                        'status' => 'completed',
+                        'progress' => 100,
+                        'image_url' => $cached->image_url,
+                    ],
+                ]);
+            }
+
+            // Cached uploads are free; only real analyses consume cost.
+            $costGuard = app(AnalysisCostGuard::class);
+            if ($blocked = $costGuard->blocked((int) auth()->id())) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $blocked['message'],
+                ], 429)->header('Retry-After', (string) $blocked['retry_after']);
+            }
+
+            Log::info('🚀 Starting async upload', [
+                'user_id' => auth()->id(),
+                'filename' => $filename,
+                'size' => $file->getSize(),
             ]);
+
+            // Local-disk friendly storage: use Cloudinary in production, or when
+            // it is configured, and the local public disk otherwise. This keeps
+            // the whole flow working offline on a dev machine.
+            if (! $this->usingCloudinary()) {
+                $storedPath = $file->store('analyses', 'public');
+                $path = $storedPath;
+                $imageUrl = Storage::disk('public')->url($storedPath);
+                $fullPath = Storage::disk('public')->path($storedPath);
+
+                Log::info('Stored upload on local public disk', [
+                    'path' => $storedPath,
+                    'url' => $imageUrl,
+                ]);
+            } else {
+                // Upload to Cloudinary FIRST — the worker container has no local disk
+                try {
+                    $cloudinary = new Cloudinary([
+                        'cloud' => [
+                            'cloud_name' => config('services.cloudinary.cloud_name'),
+                            'api_key' => config('services.cloudinary.api_key'),
+                            'api_secret' => config('services.cloudinary.api_secret'),
+                        ],
+                        'url' => ['secure' => true],
+                    ]);
+
+                    $uploadResult = $cloudinary->uploadApi()->upload(
+                        $file->getRealPath(),
+                        [
+                            'folder' => 'tracegeo/analyses',
+                            'resource_type' => 'image',
+                        ]
+                    );
+
+                    $imageUrl = $uploadResult['secure_url'];
+                    $path = $imageUrl;
+                    $fullPath = $imageUrl;  // keep variable name so downstream code doesn't break
+
+                    Log::info('Uploaded to Cloudinary', [
+                        'public_id' => $uploadResult['public_id'] ?? null,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Cloudinary upload failed: '.$e->getMessage());
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Image storage unavailable. The upload service is not configured correctly (missing CLOUDINARY_* values).',
+                    ], 503);
+                }
+            }
+            // Create the record -- 'pending' until a worker picks the job up
+            // (the job flips it to 'processing' when it starts).
+            $analysis = GeoAnalysis::create([
+                'user_id' => auth()->id(),
+                'status' => 'pending',
+                'stage' => 0,
+                'stage_label' => 'Uploaded',
+                'progress' => 10,
+                'image_path' => $path,
+                'image_url' => $imageUrl,
+                'image_hash' => $imageHash,
+                'started_at' => now(),
+            ]);
+
+            Log::info('✅ GeoAnalysis created with ID: '.$analysis->id);
+
+            // ============================================================
+            // ✅ DISPATCH JOB WITH TRY-CATCH
+            // ============================================================
+            try {
+                AnalyzeImageJob::dispatch($analysis->id, $fullPath, $filename);
+                Log::info('✅ Job dispatched successfully for analysis ID: '.$analysis->id);
+                $costGuard->record((int) auth()->id());
+            } catch (\Exception $jobException) {
+                Log::error('❌ Job dispatch FAILED: '.$jobException->getMessage());
+                Log::error('Stack trace: '.$jobException->getTraceAsString());
+
+                // Update the analysis to failed since the job couldn't be dispatched
+                $analysis->update([
+                    'status' => 'failed',
+                    'error' => SecretSanitizer::redact('Job dispatch failed: '.$jobException->getMessage()),
+                    'finished_at' => now(),
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => self::FAILED_USER_MESSAGE,
+                ], 500);
+            }
+
+            return response()->json([
+                'success' => true,
+                'id' => $analysis->id,
+                'message' => 'Analysis started successfully',
+                'data' => [
+                    'id' => $analysis->id,
+                    'status' => 'pending',
+                    'progress' => 10,
+                    'image_url' => $imageUrl,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('❌ Analysis store error: '.$e->getMessage());
+            Log::error('Stack trace: '.$e->getTraceAsString());
 
             return response()->json([
                 'success' => false,
-                'message' => 'Analysis could not be started: ' . $jobException->getMessage()
+                'message' => self::FAILED_USER_MESSAGE,
             ], 500);
         }
-
-        return response()->json([
-            'success' => true,
-            'id' => $analysis->id,
-            'message' => 'Analysis started successfully',
-            'data' => [
-                'id' => $analysis->id,
-                'status' => 'processing',
-                'progress' => 10,
-                'image_url' => $imageUrl,
-            ]
-        ]);
-
-    } catch (\Exception $e) {
-        Log::error('❌ Analysis store error: ' . $e->getMessage());
-        Log::error('Stack trace: ' . $e->getTraceAsString());
-
-        return response()->json([
-            'success' => false,
-            'message' => 'Error starting analysis: ' . $e->getMessage()
-        ], 500);
     }
-}
 
     /**
-     * Polling endpoint. Scoped to the authenticated owner so an ID alone
-     * cannot reveal another user's analysis.
+     * ✅ POLLING ENDPOINT – Scoped to the authenticated user (IDOR-safe).
      */
     public function status($id)
     {
@@ -178,11 +230,28 @@ try {
                 ->where('user_id', auth()->id())
                 ->first();
 
-            if (!$analysis) {
+            if (! $analysis) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Analysis not found'
+                    'message' => 'Analysis not found',
                 ], 404);
+            }
+
+            // Reap on read: Render has no scheduler. Any pending/processing row
+            // older than the configured window is failed here so the user
+            // always gets a clear message and a Retry action.
+            $reaped = false;
+            $reapMinutes = (int) config('services.analysis.reap_stuck_minutes', 10);
+            $stuckSince = $analysis->started_at ?? $analysis->created_at;
+            if (in_array($analysis->status, ['pending', 'processing'], true)
+                && $stuckSince && $stuckSince->lt(now()->subMinutes($reapMinutes))) {
+                $analysis->update([
+                    'status' => 'failed',
+                    'stage_label' => 'Timed out',
+                    'error' => 'Analysis stopped after waiting too long for a worker.',
+                    'finished_at' => now(),
+                ]);
+                $reaped = true;
             }
 
             $elapsed = 0;
@@ -224,16 +293,53 @@ try {
             }
 
             if ($analysis->status === 'failed') {
-                $response['error'] = $analysis->error;
+                // Only the fixed, classified generic messages are ever
+                // returned. Unknown/legacy error text falls back to the
+                // catch-all message; raw provider details stay in logs.
+                $response['error'] = GeminiFailureClassifier::isSafeUserMessage($analysis->error)
+                    ? $analysis->error
+                    : self::FAILED_USER_MESSAGE;
+                $response['failure_category'] = GeminiFailureClassifier::categoryFromStageLabel($analysis->stage_label);
+
+                if (in_array($response['failure_category'], ['quota', 'overload', 'circuit_open'], true)) {
+                    $response['retry_after_seconds'] = app(GeminiCircuitBreaker::class)
+                        ->remainingSeconds((string) config('services.gemini.model'));
+                }
+            }
+
+            if ($reaped) {
+                $response['error'] = 'This analysis waited too long for a worker and was stopped. Use Retry analysis to try again.';
+                $response['reaped'] = true;
+            }
+
+            // Queued too long without the worker picking it up?
+            // "pending", or still sitting at stage 0 of "processing".
+            $queuedSince = $analysis->started_at ?? $analysis->created_at;
+            $looksQueued = $analysis->status === 'pending'
+                || ($analysis->status === 'processing'
+                    && (int) ($analysis->stage ?? 0) === 0
+                    && (int) ($analysis->progress ?? 0) <= 10);
+
+            if ($looksQueued && $queuedSince) {
+                // Carbon 3 diffInSeconds() is signed (negative for past dates).
+                $queuedSeconds = (int) abs(now()->diffInSeconds($queuedSince));
+                if ($queuedSeconds >= 20) {
+                    $response['queued_seconds'] = $queuedSeconds;
+
+                    if (app()->environment(['local', 'testing'])) {
+                        $response['hint'] = 'queue worker not running? run composer dev';
+                    }
+                }
             }
 
             return response()->json($response);
 
         } catch (\Exception $e) {
-            Log::error('❌ Status fetch error: ' . $e->getMessage());
+            Log::error('❌ Status fetch error: '.$e->getMessage());
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error fetching status: ' . $e->getMessage()
+                'message' => 'Could not load analysis status. Please retry.',
             ], 500);
         }
     }
@@ -243,10 +349,10 @@ try {
      */
     public function destroy($id)
     {
-        if (!auth()->check()) {
+        if (! auth()->check()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Please login to delete analysis.'
+                'message' => 'Please login to delete analysis.',
             ], 401);
         }
 
@@ -255,30 +361,37 @@ try {
                 ->where('user_id', auth()->id())
                 ->first();
 
-            if (!$analysis) {
+            if (! $analysis) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Analysis not found or does not belong to you.'
+                    'message' => 'Analysis not found or does not belong to you.',
                 ], 404);
             }
 
-                        // Delete local file if exists
+            // Delete local file if exists
             if ($analysis->image_path && Storage::disk('public_uploads')->exists($analysis->image_path)) {
                 Storage::disk('public_uploads')->delete($analysis->image_path);
+            }
+
+            // Retention: remove the Cloudinary asset too, without blocking
+            // the user's response on the remote API call.
+            if ($analysis->image_url && str_contains($analysis->image_url, 'cloudinary.com')) {
+                DeleteCloudinaryImageJob::dispatch($analysis->image_url);
             }
 
             $analysis->delete();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Analysis deleted successfully'
+                'message' => 'Analysis deleted successfully',
             ]);
 
         } catch (\Exception $e) {
-            Log::error('❌ Delete error: ' . $e->getMessage());
+            Log::error('❌ Delete error: '.$e->getMessage());
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error deleting analysis: ' . $e->getMessage()
+                'message' => 'Could not delete analysis. Please retry.',
             ], 500);
         }
     }
@@ -288,10 +401,10 @@ try {
      */
     public function retry($id)
     {
-        if (!auth()->check()) {
+        if (! auth()->check()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Please login to retry analysis.'
+                'message' => 'Please login to retry analysis.',
             ], 401);
         }
 
@@ -300,17 +413,17 @@ try {
                 ->where('user_id', auth()->id())
                 ->first();
 
-            if (!$analysis) {
+            if (! $analysis) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Analysis not found or does not belong to you.'
+                    'message' => 'Analysis not found or does not belong to you.',
                 ], 404);
             }
 
             if ($analysis->status !== 'failed') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Only failed analyses can be retried.'
+                    'message' => 'Only failed analyses can be retried.',
                 ], 400);
             }
 
@@ -330,242 +443,17 @@ try {
             return response()->json([
                 'success' => true,
                 'id' => $analysis->id,
-                'message' => 'Analysis retry started'
+                'message' => 'Analysis retry started',
             ]);
 
         } catch (\Exception $e) {
-            Log::error('❌ Retry error: ' . $e->getMessage());
+            Log::error('❌ Retry error: '.$e->getMessage());
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error retrying analysis: ' . $e->getMessage()
+                'message' => 'Could not retry analysis. Please retry.',
             ], 500);
         }
-    }
-
-    /**
-     * ⚡ SYNC ANALYZE – Legacy method (backward compatibility)
-     * Note: This also creates a record with user_id now.
-     */
-    public function analyze(Request $request)
-    {
-        if (!auth()->check()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Please login to upload images.'
-            ], 401);
-        }
-
-        $request->validate([
-            'image' => 'required|file|mimes:jpeg,png,jpg,gif,webp|max:20480',
-        ]);
-
-        try {
-            $file = $request->file('image');
-            $filename = time() . '_' . $file->getClientOriginalName();
-
-// Upload to Cloudinary FIRST — worker container has no shared disk
-try {
-    $cloudName = config('services.cloudinary.cloud_name');
-    $apiKey = config('services.cloudinary.api_key');
-    $apiSecret = config('services.cloudinary.api_secret');
-
-    if (empty($cloudName) || empty($apiKey) || empty($apiSecret)) {
-        throw new \Exception('Cloudinary credentials not configured');
-    }
-
-    \Cloudinary\Configuration\Configuration::instance([
-        'cloud' => [
-            'cloud_name' => $cloudName,
-            'api_key'    => $apiKey,
-            'api_secret' => $apiSecret,
-        ],
-        'url' => ['secure' => true],
-    ]);
-
-    $uploadApi = new \Cloudinary\Api\Upload\UploadApi();
-    $uploadResult = $uploadApi->upload(
-        $file->getRealPath(),
-        [
-            'folder' => 'tracegeo/analyses',
-            'public_id' => pathinfo($filename, PATHINFO_FILENAME),
-        ]
-    );
-
-    $imageUrl = $uploadResult['secure_url'];
-    $path = $imageUrl;          // keep variable name (URL now)
-    $fullPath = $imageUrl;      // keep variable name (URL now)
-
-    Log::info('📤 Uploaded to Cloudinary', [
-        'url' => $imageUrl,
-        'public_id' => $uploadResult['public_id'] ?? null,
-    ]);
-} catch (\Exception $e) {
-    Log::error('❌ Cloudinary upload failed: ' . $e->getMessage());
-    return response()->json([
-        'success' => false,
-        'message' => 'Failed to upload image: ' . $e->getMessage()
-    ], 500);
-}
-
-            // ✅ ADDED user_id here
-            $analysis = GeoAnalysis::create([
-                'user_id' => auth()->id(),
-                'status' => 'completed',
-                'stage' => 4,
-                'stage_label' => 'Complete',
-                'progress' => 100,
-                'image_path' => $path,
-                'image_url' => $imageUrl,
-                'result' => json_encode(array_merge($aiResult, ['image_url' => $imageUrl])),
-                'started_at' => now(),
-                'finished_at' => now(),
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'id' => $analysis->id,
-                'data' => array_merge($aiResult, [
-                    'id' => $analysis->id,
-                    'image_url' => $imageUrl,
-                ])
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('❌ Sync analysis error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Error processing analysis: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * 📸 Get image data with compression
-     */
-    private function getImageData($file)
-    {
-        if (extension_loaded('gd') && function_exists('imagecreatefromstring')) {
-            try {
-                $compressed = $this->compressImage($file);
-                if ($compressed) {
-                    return $compressed;
-                }
-            } catch (\Exception $e) {
-                Log::warning('Image compression failed, using original: ' . $e->getMessage());
-            }
-        }
-        return file_get_contents($file->path());
-    }
-
-    /**
-     * 🖼️ Compress image to reduce size
-     */
-    private function compressImage($file)
-    {
-        if (!function_exists('imagecreatefromstring')) {
-            return null;
-        }
-
-        $image = @imagecreatefromstring(file_get_contents($file->path()));
-        if (!$image) {
-            return null;
-        }
-
-        $width = imagesx($image);
-        $height = imagesy($image);
-
-        $maxDimension = 1024;
-        if ($width > $maxDimension || $height > $maxDimension) {
-            $ratio = min($maxDimension / $width, $maxDimension / $height);
-            $newWidth = (int) ($width * $ratio);
-            $newHeight = (int) ($height * $ratio);
-        } else {
-            $newWidth = $width;
-            $newHeight = $height;
-        }
-
-        $newImage = imagecreatetruecolor($newWidth, $newHeight);
-        imagecopyresampled($newImage, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-
-        ob_start();
-        imagejpeg($newImage, null, 80);
-        $compressed = ob_get_clean();
-
-        imagedestroy($image);
-        imagedestroy($newImage);
-
-        return $compressed;
-    }
-
-    /**
-     * 📋 Extract EXIF metadata
-     */
-    private function extractFullMetadata($file)
-    {
-        $data = [];
-
-        if (function_exists('exif_read_data')) {
-            $exif = @exif_read_data($file->path());
-            if ($exif) {
-                if (isset($exif['GPSLatitude']) && isset($exif['GPSLongitude'])) {
-                    $data['gps'] = [
-                        'latitude' => $this->gpsToDecimal($exif['GPSLatitude'], $exif['GPSLatitudeRef'] ?? 'N'),
-                        'longitude' => $this->gpsToDecimal($exif['GPSLongitude'], $exif['GPSLongitudeRef'] ?? 'E')
-                    ];
-                }
-                $data['camera'] = [
-                    'make' => $exif['Make'] ?? null,
-                    'model' => $exif['Model'] ?? null,
-                ];
-                $data['datetime'] = $exif['DateTimeOriginal'] ?? $exif['DateTime'] ?? null;
-                $data['software'] = $exif['Software'] ?? null;
-                $data['copyright'] = $exif['Copyright'] ?? null;
-                $data['settings'] = [
-                    'aperture' => $exif['ApertureFNumber'] ?? null,
-                    'iso' => $exif['ISOSpeedRatings'] ?? null,
-                    'focal_length' => $exif['FocalLength'] ?? null,
-                ];
-            }
-        }
-
-        return $data;
-    }
-
-    /**
-     * 📍 Convert GPS to decimal
-     */
-    private function gpsToDecimal($gps, $ref)
-    {
-        $degrees = $gps[0] ?? 0;
-        $minutes = $gps[1] ?? 0;
-        $seconds = $gps[2] ?? 0;
-
-        $decimal = $degrees + ($minutes / 60) + ($seconds / 3600);
-
-        if (in_array($ref, ['S', 'W'])) {
-            $decimal = -$decimal;
-        }
-
-        return $decimal;
-    }
-
-    /**
-     * 🌍 Get street view URL
-     */
-    public function streetView(Request $request)
-    {
-        $request->validate([
-            'lat' => 'required|numeric',
-            'lng' => 'required|numeric'
-        ]);
-
-        $lat = $request->input('lat');
-        $lng = $request->input('lng');
-
-        return response()->json([
-            'success' => true,
-            'url' => "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint={$lat},{$lng}"
-        ]);
     }
 
     /**
@@ -573,21 +461,18 @@ try {
      */
     public function fetchImage(Request $request)
     {
-        if (!auth()->check()) {
+        if (! auth()->check()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Please login to fetch images.'
+                'message' => 'Please login to fetch images.',
             ], 401);
         }
 
         $request->validate(['url' => 'required|url']);
 
-        $blockedRedirect = false;
-
         try {
-            // SSRF guard: block private/internal hosts before any request.
+            // ⚠️ SSRF guard: resolve the host and block private/reserved IPs (fail closed)
             $url = $request->input('url');
-
             if ($this->isPrivateHost($url)) {
                 return response()->json([
                     'success' => false,
@@ -595,56 +480,36 @@ try {
                 ], 400);
             }
 
-            // Wikimedia + most CDNs require a real User-Agent, or they return 403
-            $response = Http::timeout(30)
-                ->withHeaders([
-                    'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com; chheangsamnang.wu@gmail.com)',
-                    'Accept' => 'image/*,*/*;q=0.8',
-                    'Referer' => 'https://lookforgeo.onrender.com/',
-                ])
-                ->withOptions([
-                    'allow_redirects' => [
-                        'max' => 5,
-                        // Check each redirect target BEFORE it is requested, so a
-                        // public URL cannot bounce the server into the private network.
-                        'on_redirect' => function ($request, $response, $uri) use (&$blockedRedirect) {
-                            if ($this->isPrivateHost((string) $uri)) {
-                                $blockedRedirect = true;
-
-                                throw new \RuntimeException('Blocked redirect to a private address.');
-                            }
-                        },
-                    ],
-                ])
-                ->get($url);
-
-            // Defense in depth: re-check the effective URL after redirects.
-            $effectiveUri = (string) ($response->effectiveUri() ?? '');
-            if ($effectiveUri !== '' && $this->isPrivateHost($effectiveUri)) {
+            // Wikimedia + most CDNs require a real User-Agent, or they return 403.
+            // Redirects are followed manually so every hop is validated
+            // BEFORE a request is made (following a redirect to an internal
+            // address must never issue that request at all).
+            $response = $this->fetchImageSafely($url);
+            if ($response === null) {
                 return response()->json([
                     'success' => false,
                     'message' => 'That URL points to a private/internal address and cannot be fetched.',
                 ], 400);
             }
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Could not fetch image from URL: HTTP ' . $response->status()
+                    'message' => 'Could not fetch image from URL: HTTP '.$response->status(),
                 ], 400);
             }
 
             $content = $response->body();
             $contentType = (string) $response->header('Content-Type');
 
-            if (!str_starts_with($contentType, 'image/')) {
+            if (! str_starts_with($contentType, 'image/')) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'URL does not point to an image. Content-Type: ' . $contentType
+                    'message' => 'URL does not point to an image. Content-Type: '.$contentType,
                 ], 400);
             }
 
-            $extension = match($contentType) {
+            $extension = match ($contentType) {
                 'image/jpeg' => 'jpg',
                 'image/png' => 'png',
                 'image/gif' => 'gif',
@@ -652,7 +517,7 @@ try {
                 default => 'jpg'
             };
 
-            $filename = 'url_' . time() . '.' . $extension;
+            $filename = 'url_'.time().'.'.$extension;
 
             return response()->json([
                 'success' => true,
@@ -661,71 +526,96 @@ try {
                 'filename' => $filename,
             ]);
 
-        } catch (\Throwable $e) {
-            if ($blockedRedirect) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'That URL points to a private/internal address and cannot be fetched.',
-                ], 400);
-            }
+        } catch (\Exception $e) {
+            Log::error('URL fetch error: '.$e->getMessage());
 
-            Log::error('URL fetch error: ' . $e->getMessage());
-
-            // Do not echo exception details back to the client (they can contain
-            // internal hostnames, paths, or credentials from the request URL).
             return response()->json([
                 'success' => false,
-                'message' => 'Could not fetch the image. Please try another URL.',
+                'message' => 'Could not fetch that image. Please retry.',
             ], 500);
         }
     }
 
     /**
-     * Reject URLs whose host resolves to a private, loopback, link-local,
-     * reserved or CGNAT address. Fails closed when DNS cannot resolve.
+     * Storage decision for uploads: Cloudinary only when it is configured
+     * (and we're not explicitly in local dev); otherwise the local public disk.
+     */
+    private function usingCloudinary(): bool
+    {
+        if (app()->environment('local')) {
+            return false;
+        }
+
+        return ! empty(config('services.cloudinary.cloud_name'))
+            && ! empty(config('services.cloudinary.api_key'))
+            && ! empty(config('services.cloudinary.api_secret'));
+    }
+
+    /**
+     * SSRF guard: resolve the host and fail closed when it points to a
+     * private/reserved IP (IPv4 or IPv6) or cannot be resolved.
      */
     private function isPrivateHost(string $url): bool
     {
         $parts = parse_url($url);
+        $host = (string) ($parts['host'] ?? '');
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
 
-        if (! is_array($parts) || ! in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)) {
+        // Only HTTP(S) is ever fetched: no file://, gopher://, etc.
+        if ($host === '' || ! in_array($scheme, ['http', 'https'], true)) {
             return true;
         }
 
-        $host = trim((string) ($parts['host'] ?? ''), '[]');
+        $ip = gethostbyname($host);
+        if (filter_var($ip, FILTER_VALIDATE_IP) === false) {
+            return true; // unresolvable -> fail closed
+        }
 
-        if ($host === '') {
+        // FILTER_FLAG_NO_* covers RFC1918/loopback/link-local/multicast but
+        // not CGNAT (100.64.0.0/10), which is used by cloud metadata proxies.
+        $octets = array_map('intval', explode('.', $ip));
+        if (count($octets) === 4 && $octets[0] === 100 && $octets[1] >= 64 && $octets[1] <= 127) {
             return true;
         }
 
-        if (filter_var($host, FILTER_VALIDATE_IP)) {
-            $ips = [$host];
-        } else {
-            $ips = gethostbynamel($host);
-        }
-
-        if ($ips === false || $ips === []) {
-            return true;
-        }
-
-        foreach ($ips as $ip) {
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-                return true;
-            }
-
-            // CGNAT (100.64.0.0/10) is not covered by PHP's private/reserved flags.
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
-                && ip2long($ip) >= ip2long('100.64.0.0')
-                && ip2long($ip) <= ip2long('100.127.255.255')) {
-                return true;
-            }
-        }
-
-        return false;
+        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
     }
 
     /**
-     * Get analysis results by ID (scoped to the authenticated user - IDOR-safe).
+     * Follow redirects manually, validating each hop before requesting it.
+     *
+     * @return Response|null null when any hop is unsafe
+     */
+    private function fetchImageSafely(string $url, int $maxRedirects = 5)
+    {
+        for ($hop = 0; $hop <= $maxRedirects; $hop++) {
+            if ($this->isPrivateHost($url)) {
+                return null;
+            }
+
+            $response = Http::timeout(30)
+                ->withHeaders([
+                    'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com)',
+                    'Accept' => 'image/*,*/*;q=0.8',
+                    'Referer' => 'https://lookforgeo.onrender.com/',
+                ])
+                ->withOptions(['allow_redirects' => false])
+                ->get($url);
+
+            $location = $response->header('Location');
+            if (! $response->redirect() || ! is_string($location) || $location === '') {
+                return $response;
+            }
+
+            $current = new Uri($url);
+            $url = (string) UriResolver::resolve($current, new Uri($location));
+        }
+
+        return null; // too many redirects
+    }
+
+    /**
+     * Get analysis results by ID (scoped to the authenticated user — IDOR-safe).
      */
     public function getResults($id)
     {
@@ -759,12 +649,12 @@ try {
                     'image_url' => $analysis->image_url,
                     'tags' => $result['tags'] ?? [],
                     'reasoning' => $result['reasoning'] ?? null,
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Analysis not found'
+                'message' => 'Analysis not found',
             ], 404);
         }
     }
@@ -775,16 +665,8 @@ try {
     public function getSessionData(Request $request)
     {
         $result = $request->session()->get('analysis_result');
+
         return $result ? response()->json(['success' => true, 'data' => $result])
                        : response()->json(['success' => false, 'message' => 'No data found'], 404);
-    }
-
-    /**
-     * Clear analysis cache
-     */
-    public function clearCache(Request $request)
-    {
-        $request->session()->forget('analysis_result');
-        return response()->json(['success' => true, 'message' => 'Cache cleared']);
     }
 }

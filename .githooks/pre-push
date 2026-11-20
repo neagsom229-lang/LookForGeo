@@ -1,0 +1,22 @@
+#!/bin/sh
+# Block the push when the test suite fails.
+# Install: git config core.hooksPath .githooks
+echo "pre-push: running composer test ..."
+
+if command -v composer >/dev/null 2>&1; then
+  composer test
+elif command -v cmd.exe >/dev/null 2>&1; then
+  # Git Bash on Windows may not expose composer.bat directly.
+  cmd.exe /c composer test
+else
+  echo "pre-push: composer not found; blocking push." >&2
+  exit 1
+fi
+
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo "pre-push: composer test FAILED (exit $status). Push blocked." >&2
+  exit "$status"
+fi
+echo "pre-push: composer test passed."
+exit 0

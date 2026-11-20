@@ -1,0 +1,173 @@
+# Deploy notes — `fix/local-workflow` pre-deploy gate
+
+Branch: `fix/local-workflow`. Base: `origin/main`. Nothing here has been pushed
+or deployed. This document is the handover for the deploy owner.
+
+## 1. New and changed environment variables
+
+Secrets must be set in the Render dashboard (`sync: false` in `render.yaml`).
+Values below are the non-secret defaults committed in `render.yaml`.
+
+| Variable | Web | Worker | Kind | Purpose |
+|---|---|---|---|---|
+| `DATABASE_URL` | sync:false | sync:false | secret | Postgres connection |
+| `GEMINI_API_KEY` | sync:false | sync:false | secret | Gemini inference |
+| `GOOGLE_MAPS_EMBED_KEY` | sync:false | sync:false | secret | Map embed |
+| `CLOUDINARY_URL` | sync:false | sync:false | secret | Image hosting |
+| `CACHE_STORE` | `database` | `database` | default | Shared cache/invalidations |
+| `SESSION_DRIVER` | `database` | `file` | default | Worker has no sessions |
+| `QUEUE_CONNECTION` | `database` | `database` | default | Shared job queue |
+| `DB_QUEUE_RETRY_AFTER` | `240` | `240` | default | Must exceed 180 s job timeout |
+| `GEMINI_TIMEOUT` | `50` | `50` | default | Per-request timeout |
+| `GEMINI_TOTAL_BUDGET` | `110` | `110` | default | Shared retry/fallback budget (fallback skipped when <15 s remain) |
+| `GEMINI_RETRIES` | `1` | `1` | default | One primary retry, then fallback |
+| `GEMINI_CIRCUIT_FAILURES` | `3` | `3` | default | Failures before the breaker opens |
+| `GEMINI_CIRCUIT_OPEN_SECONDS` | `60` | `60` | default | Breaker open window; 429 `Retry-After` can extend it |
+| `GEMINI_DAILY_PER_USER` | `50` | `50` | default | Per-user daily quota |
+| `GEMINI_DAILY_LIMIT` | `0` | `0` | default | Global kill switch, 0 = off |
+| `ANALYSIS_REAP_MINUTES` | `10` | `10` | default | Reap-on-read window |
+| `GEMINI_CONFIDENCE_REVERSE_GEOCODE` | `true` | `true` | default | Country-consistency signal |
+| `GEMINI_HEALTH_PROBE` | `true` | `true` | default | 60 s cached reachability check |
+| `GEMINI_THINKING_LEVEL` | `low` | `low` | default | Lowest sensible Gemini 3.x level |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | `gemini-3.5-flash-lite` | default | Primary; change only after probing |
+| `GEMINI_FALLBACK_MODEL` | `gemini-3.1-flash-lite` | `gemini-3.1-flash-lite` | default | Fallback; configurable via env |
+| `GEMINI_ESCALATION_MODEL` | `""` | `""` | default | Optional second pass; empty = off |
+| `GEMINI_ESCALATE_BELOW` | `60` | `60` | default | Escalate when calibrated confidence is below this |
+| `GEMINI_ESCALATION_TIMEOUT` | `25` | `25` | default | Bounded timeout for the single second pass |
+
+**Choosing models (no guessing):** run `php artisan gemini:models` to list
+flash models that support `generateContent`, then
+`php artisan gemini:probe --models=gemini-3.5-flash-lite,gemini-3.1-flash-lite` to see
+HTTP status, seconds and any sanitized Google error/quota details for the real
+payload shape. Pick a model only if it returns HTTP 200 (no 400 from the
+thinking/schema config). Set the chosen ids as `GEMINI_MODEL` and
+`GEMINI_FALLBACK_MODEL`. The current defaults (`gemini-3.5-flash-lite` /
+`gemini-3.1-flash-lite`) are interim choices based on the reported hangs and
+overloads of 3.8/3.7/3.6 flash; they remain in place until real probe numbers
+are supplied. They are starting points, not a guarantee.
+
+`gemini:probe --repeat=N` reports min/median/max seconds per model, and
+`--thinking=<level>` experiments with a thinking override. `minimal` is never
+sent by default: to enable it for one model, first run a live probe that
+returns HTTP 200, then record here a line containing `200`, the exact model id
+and `minimal`, e.g.:
+
+```
+LIVE 200 gemini-3.5-flash-lite thinkingLevel=minimal (2026-11-20)
+```
+
+Only after that line exists will `gemini:probe --thinking=minimal --models=...`
+accept the override for that model.
+
+`SESSION_SECURE_COOKIE` is not set: `config/session.php` defaults it to true
+when `APP_ENV=production`. HSTS is emitted by middleware only over HTTPS.
+
+## 2. Migration and deploy order
+
+- New migration: `2026_11_20_000000_add_image_hash_to_geo_analyses.php` adds
+  `geo_analyses.image_hash` (nullable string, 64) plus a composite
+  `(user_id, image_hash)` index.
+- The migration is **additive and nullable**. The worker can start against the
+  previous schema; it does not read the new column.
+- The web container's `entrypoint.sh` runs `php artisan migrate --force` in a
+  retry loop **before** Apache starts. `healthCheckPath: /api/health` is set on
+  the web service, so Render only marks the deploy live after migrations and
+  HTTP are healthy.
+- Order: deploy web first (it migrates), then the worker. If they deploy in
+  parallel, the worker is still safe because nothing it reads changed shape.
+- CI proves the upgrade path in the `pgsql-upgrade` job: migrate `origin/main`
+  on `postgres:16`, then check out the PR commit, migrate again and run the full
+  suite against Postgres via `phpunit.pgsql.xml`.
+
+## 3. Behaviour changes to expect
+
+- **Pending-first uploads**: `POST /api/analyze/store` creates the row as
+  `pending` (10%) and dispatches the job; the old synchronous "completed on
+  upload" response is gone. The UI polls `/api/analyze/{id}/status`.
+- **Reap on read**: a `pending`/`processing` row older than
+  `ANALYSIS_REAP_MINUTES` (default 10) is failed when its status is read,
+  with the message “This analysis waited too long for a worker and was stopped.
+  Use Retry analysis to try again.” No Render scheduler is required. The
+  `analyses:reap-stuck` command remains for manual/bulk use.
+- **Cost guard**: 50 analyses per user per day (configurable) plus a 10/min
+  per-user burst throttle on the upload route. Identical repeat uploads by the
+  same user are cached by sha256, return instantly and do not consume quota.
+  `GEMINI_DAILY_LIMIT=0` leaves the global kill switch off; set a number to
+  enable it.
+- **Failure classification**: 429 quota, 503 overload, timeout, 400 request
+  and other failures map to five distinct generic user messages and stage
+  labels (no provider detail). 429 is never retried on the same model; its
+  `Retry-After` is carried into the result and can extend the breaker window.
+- **Circuit breaker**: after 3 quota/overload failures the shared breaker
+  opens for 60 s and subsequent analyses fail fast with the overload message.
+  A successful analysis resets the counter. Configure with
+  `GEMINI_CIRCUIT_FAILURES` / `GEMINI_CIRCUIT_OPEN_SECONDS`.
+- **Confidence**: the model's self-reported number is never used as the score.
+  Calibrated confidence from checkable signals is **capped at 95**, below 50 is
+  “low confidence”, and up to three alternatives are shown.
+- **Removed routes**: `/api/identify-gps`, `/api/extract-exif`, `/api/nearby`
+  had no controller methods and returned 500 for authenticated callers; they
+  now return 404.
+- **Docker**: `--ignore-platform-reqs` was removed from the build; the lock was
+  verified to install on `php:8.2` without it.
+- **Logs**: production emits JSON on stderr with a request id, no emoji and
+  secrets redacted. HSTS + Secure cookies in production.
+
+## 4. Live gate (run by the deploy owner)
+
+Do not run this from a developer machine against production data. Place the
+real key in the application's `.env` once (it is already there on the deploy
+host) — **do not type it into the shell**. Artisan reads `.env` itself. Then
+run:
+
+```powershell
+php artisan gemini:probe
+```
+
+Pass criteria:
+
+- Both configured models (`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`) print
+  `HTTP 200` and `OK`.
+- **No HTTP 400.** A 400 would mean `generationConfig.thinkingConfig.thinkingLevel`
+  (`low`) was rejected.
+- The key never appears in the output (the command prints only model, status,
+  seconds).
+
+Optional deeper checks: `composer eval:live -- --limit=10` and
+`scripts/measure-latency.ps1 -Live -Iterations 10`.
+
+## 5. Rebase plan after the hotfix merges
+
+1. `hotfix/auth-gates` contains the minimal Phase A security fix based on
+   `origin/main`. Let the owner merge it to `main` first.
+2. Rebase the cumulative branch onto the updated `main`:
+   `git fetch origin && git rebase origin/main fix/local-workflow`.
+3. Expect conflicts in `routes/api.php`, `routes/web.php`,
+   `app/Http/Controllers/AnalysisController.php`, `bootstrap/app.php`,
+   `.gitleaks.toml`, `phpunit.xml`, `.github/workflows/tests.yml` and
+   `scripts/probe-prod.ps1` — the hotfix has narrower variants of the same
+   changes.
+4. Resolution rule: keep the hotfix's security intent (auth on `/identify` and
+   `/search`, 401 JSON without `Accept`, no `/api/test-apis`, ownership checks,
+   SSRF guard, narrow gitleaks allowlists), and keep the cumulative branch's
+   later features (cache, confidence, cost guard, reaper, CI). Drop the three
+   method-less routes again if the hotfix reintroduces them.
+5. Re-run the full gate: `composer test:all`, `composer analyse`, `composer test:slow`,
+   `scripts/Lint.ps1`, `gitleaks detect`, `scripts/smoke.ps1`, `composer eval`.
+6. Never push directly to `main`.
+
+## 6. Rollback
+
+1. Render dashboard → the affected service → **Rollback to previous deploy**
+   (web and worker separately; roll back web first if both are unhealthy).
+2. Keep rotated secrets — do **not** restore a leaked key.
+3. The `image_hash` column is additive and nullable: rolling back code to the
+   previous deploy does not require dropping it. If a full schema rollback is
+   required later, drop the index and column manually.
+4. Verify with the read-only probe:
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/probe-prod.ps1`.
+   It sends GET requests only, never credentials or bodies.
+5. Re-check `GEMINI_DAILY_LIMIT` and `GEMINI_DAILY_PER_USER`; if a bad quota
+   caused the rollback, set `GEMINI_DAILY_LIMIT=0` before redeploying.
+6. Open an issue with the failed deploy URL, the probe output (redacted) and
+   the first relevant log line (request id, no secrets).

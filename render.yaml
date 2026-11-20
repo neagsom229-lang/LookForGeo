@@ -4,6 +4,7 @@ services:
     env: docker
     dockerfilePath: ./Dockerfile
     plan: free
+    healthCheckPath: /api/health
     envVars:
       - key: APP_ENV
         value: production
@@ -22,21 +23,65 @@ services:
       # This is CRITICAL: The queue worker inside Docker will read from the database!
       - key: QUEUE_CONNECTION
         value: database
-      # Secret keys – set actual values in Render Dashboard
+      # retry_after must exceed the queue worker's --timeout=180 so a job is
+      # never picked up twice while still running.
+      - key: DB_QUEUE_RETRY_AFTER
+        value: 240
+      # One retry layer in GeminiClient: 50s per request, 110s total budget.
+      - key: GEMINI_TIMEOUT
+        value: 50
+      - key: GEMINI_TOTAL_BUDGET
+        value: 110
+      - key: GEMINI_RETRIES
+        value: 1
+      # Circuit breaker for quota/overload failures (shared cache state)
+      - key: GEMINI_CIRCUIT_FAILURES
+        value: 3
+      - key: GEMINI_CIRCUIT_OPEN_SECONDS
+        value: 60
+      # Cost guard: per-user daily quota + global kill switch (0 = off)
+      - key: GEMINI_DAILY_PER_USER
+        value: 50
+      - key: GEMINI_DAILY_LIMIT
+        value: 0
+      # Reap-on-read window (no Render scheduler needed)
+      - key: ANALYSIS_REAP_MINUTES
+        value: 10
+      - key: GEMINI_CONFIDENCE_REVERSE_GEOCODE
+        value: true
+      - key: GEMINI_HEALTH_PROBE
+        value: true
+      - key: GEMINI_THINKING_LEVEL
+        value: low
+      - key: GEMINI_THINKING_OVERRIDES
+        value: ""
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_FALLBACK_MODEL
+        value: gemini-3.1-flash-lite
+      # Optional escalation: empty = off
+      - key: GEMINI_ESCALATION_MODEL
+        value: ""
+      - key: GEMINI_ESCALATE_BELOW
+        value: 60
+      - key: GEMINI_ESCALATION_TIMEOUT
+        value: 25
+      # Secret keys — set actual values in Render Dashboard
       - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_MAPS_EMBED_KEY
         sync: false
       - key: CLOUDINARY_URL
         sync: false
-      - key: GEMINI_MAX_TOTAL_TIME
-        value: 120
 
   - type: worker
     name: queue-worker
     env: php
     buildCommand: composer install --no-dev --optimize-autoloader && chmod -R 775 storage bootstrap/cache && php artisan config:cache
-    startCommand: php artisan queue:work --tries=1 --timeout=180
+    # Deploy order: the web service runs `php artisan migrate --force` (see entrypoint)
+    # before serving; the worker can start immediately because every new column
+    # (e.g. geo_analyses.image_hash) is additive and nullable. See docs/DEPLOY_NOTES.md.
+    startCommand: php artisan queue:work --tries=1 --timeout=180 --sleep=1
     envVars:
       - key: APP_ENV
         value: production
@@ -46,12 +91,59 @@ services:
         sync: false
       - key: DB_CONNECTION
         value: pgsql
-      - key: CACHE_DRIVER
-        value: file
+      - key: CACHE_STORE
+        # Must match the web service: the queue worker invalidates dashboard
+        # cache entries (GeoAnalysis model events) that the web process reads,
+        # so both sides have to use the same store.
+        # NOTE: the old key here was CACHE_DRIVER, which Laravel 11+ ignores
+        # (config/cache.php reads CACHE_STORE only) -- see .env.example.
+        value: database
       - key: SESSION_DRIVER
+        # A queue worker never starts a session; kept only for parity with the
+        # web service. Harmless but not load-bearing.
         value: file
       - key: QUEUE_CONNECTION
         value: database
+      - key: DB_QUEUE_RETRY_AFTER
+        value: 240
+      - key: GEMINI_TIMEOUT
+        value: 50
+      - key: GEMINI_TOTAL_BUDGET
+        value: 110
+      - key: GEMINI_RETRIES
+        value: 1
+      # Circuit breaker for quota/overload failures (shared cache state)
+      - key: GEMINI_CIRCUIT_FAILURES
+        value: 3
+      - key: GEMINI_CIRCUIT_OPEN_SECONDS
+        value: 60
+      # Cost guard: per-user daily quota + global kill switch (0 = off)
+      - key: GEMINI_DAILY_PER_USER
+        value: 50
+      - key: GEMINI_DAILY_LIMIT
+        value: 0
+      # Reap-on-read window (no Render scheduler needed)
+      - key: ANALYSIS_REAP_MINUTES
+        value: 10
+      - key: GEMINI_CONFIDENCE_REVERSE_GEOCODE
+        value: true
+      - key: GEMINI_HEALTH_PROBE
+        value: true
+      - key: GEMINI_THINKING_LEVEL
+        value: low
+      - key: GEMINI_THINKING_OVERRIDES
+        value: ""
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_FALLBACK_MODEL
+        value: gemini-3.1-flash-lite
+      # Optional escalation: empty = off
+      - key: GEMINI_ESCALATION_MODEL
+        value: ""
+      - key: GEMINI_ESCALATE_BELOW
+        value: 60
+      - key: GEMINI_ESCALATION_TIMEOUT
+        value: 25
       - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_MAPS_EMBED_KEY

@@ -2,40 +2,66 @@
 
 namespace App\Providers;
 
-use App\Services\ElevationService;
+use App\Logging\SecretLogProcessor;
 use App\Services\GeocodingService;
-use App\Services\IpGeolocationService;
 use App\Services\LandmarkRecognitionService;
-use App\Services\PlacesService;
-use App\Services\SunService;
-use App\Services\WeatherService;
+use App\Support\LocalDatabaseGuard;
+use App\Support\RequestContext;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Facades\URL; // <-- Add this import
 
 class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
         $this->app->singleton(GeocodingService::class);
-        $this->app->singleton(PlacesService::class);
         $this->app->singleton(LandmarkRecognitionService::class);
-        $this->app->singleton(WeatherService::class);
-        $this->app->singleton(ElevationService::class);
-        $this->app->singleton(SunService::class);
-        $this->app->singleton(IpGeolocationService::class);
+        $this->app->singleton(RequestContext::class);
     }
 
     public function boot(): void
     {
+        // Local-only safety net: a local .env pointing at the production
+        // database (pgsql / render.com host) must fail loudly at boot.
+        if ($this->app->environment('local')) {
+            $driver = (string) config('database.default', '');
+            LocalDatabaseGuard::assert(
+                $driver,
+                (array) config('database.connections.'.$driver, [])
+            );
+        }
+
         // Force HTTPS in production to fix mixed content warnings
         if ($this->app->environment('production')) {
             URL::forceScheme('https');
         }
 
         // Rate limiter (migrated from RouteServiceProvider for Laravel 11+)
-        \Illuminate\Support\Facades\RateLimiter::for('api', function (\Illuminate\Http\Request $request) {
-            return \Illuminate\Cache\RateLimiting\Limit::perMinute(60)
+        RateLimiter::for('api', function (Request $request) {
+            return Limit::perMinute(60)
                 ->by($request->user()?->id ?: $request->ip());
         });
+
+        // Every upload can trigger a paid Gemini call: tighter per-user burst
+        // limit on top of the daily quota in AnalysisCostGuard.
+        RateLimiter::for('upload', function (Request $request) {
+            return Limit::perMinute(10)
+                ->by($request->user()?->id ?: $request->ip());
+        });
+
+        // Central log sanitizer: redact key=..., AIza... and AQ... from
+        // every message + context array written to the default log channel.
+        try {
+            $logger = Log::driver();
+            if (method_exists($logger->getLogger(), 'pushProcessor')) {
+                $logger->pushProcessor(new SecretLogProcessor);
+            }
+        } catch (\Throwable $e) {
+            // Never let log wiring break boot; call-site redaction still applies.
+        }
     }
 }

@@ -1,9 +1,9 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "tracegeo/lookforgeo",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "description": "AI-powered OSINT image geolocation: identify where a photo was taken (Laravel 12 + Google Gemini).",
+    "keywords": ["geolocation", "osint", "gemini", "laravel", "php"],
     "license": "MIT",
     "require": {
         "php": "^8.2",
@@ -21,13 +21,14 @@
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
+        "larastan/larastan": "^3.15",
         "laravel/pail": "^1.2.2",
         "laravel/pint": "^1.24",
         "laravel/sail": "^1.41",
         "mockery/mockery": "^1.6",
+        "nesbot/carbon": "^3.0",
         "nunomaduro/collision": "^8.6",
-        "phpunit/phpunit": "^11.5.50",
-        "nesbot/carbon": "^3.0"
+        "phpunit/phpunit": "^11.5.50"
     },
     "autoload": {
         "psr-4": {
@@ -42,6 +43,22 @@
         }
     },
     "scripts": {
+    "test": "phpunit --exclude-group=slow",
+    "test:slow": "phpunit --group=slow",
+    "test:decoy": "php scripts/test-decoy.php",
+    "test:all": ["@test", "@test:slow"],
+    "dev": [
+        "Composer\\Config::disableProcessTimeout",
+        "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1"
+    ],
+    "setup-local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1",
+    "smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke.ps1",
+    "latency": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-latency.ps1",
+    "latency:live": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-latency.ps1 -Live",
+    "eval": "php artisan geo:eval",
+    "eval:live": "php artisan geo:eval --live",
+    "analyse": "phpstan analyse --no-progress",
+    "analyse:baseline": "phpstan analyse --generate-baseline=phpstan-baseline.neon --no-progress",
     "post-autoload-dump": [
         "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
         "@php artisan package:discover --ansi"

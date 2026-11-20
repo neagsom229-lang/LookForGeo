@@ -327,7 +327,7 @@
             <span style="color:var(--text-secondary); font-size:14px; margin-right:16px;">
                 <i class="fas fa-user"></i> {{ Auth::user()->name }}
             </span>
-            <form method="POST" action="/web-logout" style="display:inline;">
+            <form method="POST" action="/logout" style="display:inline;">
                 @csrf
                 <button type="submit"
                     style="background: transparent; border:none; color:var(--text-secondary); font-size:14px; cursor:pointer;">
@@ -433,8 +433,8 @@
                 <p>Returns a paginated list of all completed analyses for the authenticated user.</p>
                 <p><strong>Response:</strong></p>
                 <div class="code-block">
-                    { "success": true, "data": [ { "id": 1, "landmark": "Eiffel Tower", "confidence": 95, "coords": {
-                    "lat": 48.8584, "lng": 2.2945 } } ], "pagination": { "current_page": 1, "last_page": 1 } }
+                    { "success": true, "data": [ { "id": 1, "landmark": "Eiffel Tower", "confidence": 95, "coordinates": {
+                    "lat": 48.8584, "lng": 2.2945 }, "image": "https://...", "created_at": "..." } ], "pagination": { "current_page": 1, "last_page": 1 } }
                 </div>
             </div>
 
