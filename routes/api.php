@@ -44,7 +44,7 @@ Route::middleware(['auth.any', StartSession::class])->group(function () {
 // For mobile apps or external API clients.
 // ============================================================
 Route::middleware('auth:sanctum')->group(function () {
-    // 👤 User profile
+    // User profile
     Route::get('/user', [AuthController::class, 'user']);
     Route::put('/profile', [AuthController::class, 'updateProfile']);
     Route::post('/logout', [AuthController::class, 'apiLogout']);
@@ -57,7 +57,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // 🧹 Clear cache
     Route::post('/gemini-chat', [GeminiController::class, 'chat'])->middleware('throttle:10,1');
 
-    // 🚀 TraceGeo Analytics API
+    // TraceGeo Analytics API
     Route::get('/history', [AnalysisApiController::class, 'history']);
     Route::post('/analyze', [AnalysisApiController::class, 'analyze'])->middleware('throttle:60,1');
 });

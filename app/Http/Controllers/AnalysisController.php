@@ -489,7 +489,7 @@ class AnalysisController extends Controller
             }
 
             $content = $response->body();
-            $contentType = $response->header('Content-Type');
+            $contentType = (string) $response->header('Content-Type');
 
             if (! str_starts_with($contentType, 'image/')) {
                 return response()->json([
