@@ -4,10 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreAnalysisImageRequest;
 use App\Jobs\AnalyzeImageJob;
+use App\Jobs\DeleteCloudinaryImageJob;
 use App\Models\GeoAnalysis;
 use App\Services\AnalysisCostGuard;
 use App\Services\Gemini\SecretSanitizer;
 use Cloudinary\Cloudinary;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
+use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -336,6 +340,12 @@ class AnalysisController extends Controller
                 Storage::disk('public_uploads')->delete($analysis->image_path);
             }
 
+            // Retention: remove the Cloudinary asset too, without blocking
+            // the user's response on the remote API call.
+            if ($analysis->image_url && str_contains($analysis->image_url, 'cloudinary.com')) {
+                DeleteCloudinaryImageJob::dispatch($analysis->image_url);
+            }
+
             $analysis->delete();
 
             return response()->json([
@@ -437,19 +447,12 @@ class AnalysisController extends Controller
                 ], 400);
             }
 
-            // Wikimedia + most CDNs require a real User-Agent, or they return 403
-            $response = Http::timeout(30)
-                ->withHeaders([
-                    'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com; chheangsamnang.wu@gmail.com)',
-                    'Accept' => 'image/*,*/*;q=0.8',
-                    'Referer' => 'https://lookforgeo.onrender.com/',
-                ])
-                ->withOptions(['allow_redirects' => ['max' => 5]])
-                ->get($url);
-
-            // ⚠️ SSRF guard: re-check the effective URL after redirects (DNS rebinding protection)
-            $effectiveUri = (string) ($response->effectiveUri() ?? '');
-            if ($effectiveUri !== '' && $this->isPrivateHost($effectiveUri)) {
+            // Wikimedia + most CDNs require a real User-Agent, or they return 403.
+            // Redirects are followed manually so every hop is validated
+            // BEFORE a request is made (following a redirect to an internal
+            // address must never issue that request at all).
+            $response = $this->fetchImageSafely($url);
+            if ($response === null) {
                 return response()->json([
                     'success' => false,
                     'message' => 'That URL points to a private/internal address and cannot be fetched.',
@@ -521,15 +524,61 @@ class AnalysisController extends Controller
      */
     private function isPrivateHost(string $url): bool
     {
-        $host = parse_url($url, PHP_URL_HOST);
+        $parts = parse_url($url);
+        $host = (string) ($parts['host'] ?? '');
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
 
-        if (empty($host)) {
+        // Only HTTP(S) is ever fetched: no file://, gopher://, etc.
+        if ($host === '' || ! in_array($scheme, ['http', 'https'], true)) {
             return true;
         }
 
         $ip = gethostbyname($host);
+        if (filter_var($ip, FILTER_VALIDATE_IP) === false) {
+            return true; // unresolvable -> fail closed
+        }
+
+        // FILTER_FLAG_NO_* covers RFC1918/loopback/link-local/multicast but
+        // not CGNAT (100.64.0.0/10), which is used by cloud metadata proxies.
+        $octets = array_map('intval', explode('.', $ip));
+        if (count($octets) === 4 && $octets[0] === 100 && $octets[1] >= 64 && $octets[1] <= 127) {
+            return true;
+        }
 
         return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+    }
+
+    /**
+     * Follow redirects manually, validating each hop before requesting it.
+     *
+     * @return Response|null null when any hop is unsafe
+     */
+    private function fetchImageSafely(string $url, int $maxRedirects = 5)
+    {
+        for ($hop = 0; $hop <= $maxRedirects; $hop++) {
+            if ($this->isPrivateHost($url)) {
+                return null;
+            }
+
+            $response = Http::timeout(30)
+                ->withHeaders([
+                    'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com)',
+                    'Accept' => 'image/*,*/*;q=0.8',
+                    'Referer' => 'https://lookforgeo.onrender.com/',
+                ])
+                ->withOptions(['allow_redirects' => false])
+                ->get($url);
+
+            $location = $response->header('Location');
+            if (! $response->redirect() || ! is_string($location) || $location === '') {
+                return $response;
+            }
+
+            $current = new Uri($url);
+            $url = (string) UriResolver::resolve($current, new Uri($location));
+        }
+
+        return null; // too many redirects
     }
 
     /**

@@ -279,8 +279,11 @@ class GeoAnalysis extends Model
      */
     public function getImageUrlAttribute(): ?string
     {
-        if (! empty($this->image_url)) {
-            return $this->image_url;
+        // Read the raw column: accessing $this->image_url here would recurse
+        // back into this accessor and lose stored Cloudinary URLs.
+        $stored = $this->getRawOriginal('image_url');
+        if (! empty($stored)) {
+            return (string) $stored;
         }
 
         if (! empty($this->image_path)) {
