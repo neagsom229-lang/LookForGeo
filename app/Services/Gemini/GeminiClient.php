@@ -880,7 +880,13 @@ class GeminiClient
      *
      * @return array{model: string, status: int, seconds: float, ok: bool, category: string, error?: string, error_message?: string|null, quota_metric?: string|null, quota_id?: string|null, retry_after_seconds?: int}
      */
-    public function probeModel(string $model, ?string $thinkingOverride = null): array
+    /** Prepare real image bytes exactly as the app does before sending. */
+    public function prepareImageForModel(string $imageData): array
+    {
+        return $this->compressImageIfNeeded($imageData);
+    }
+
+    public function probeModel(string $model, ?string $thinkingOverride = null, ?string $imageData = null, ?string $imageMime = null): array
     {
         $started = microtime(true);
 
@@ -896,7 +902,8 @@ class GeminiClient
         }
 
         $url = "{$this->baseUrl}/models/{$model}:generateContent";
-        $png = $this->tinyProbePng();
+        $png = $imageData ?? $this->tinyProbePng();
+        $mime = $imageMime ?? 'image/png';
         $imageBytes = strlen($png);
 
         $generationConfig = $this->generationConfig($model, [
@@ -920,7 +927,7 @@ class GeminiClient
                     'contents' => [[
                         'parts' => [
                             ['text' => 'Reply with the JSON object {"ok":true}.'],
-                            ['inline_data' => ['mime_type' => 'image/png', 'data' => base64_encode($png)]],
+                            ['inline_data' => ['mime_type' => $mime, 'data' => base64_encode($png)]],
                         ],
                     ]],
                     // Same shape as a real analysis request: structured JSON,
@@ -962,6 +969,7 @@ class GeminiClient
                 'status' => $status,
                 'seconds' => round(microtime(true) - $started, 2),
                 'ok' => $response->successful(),
+                'thinking_level' => $thinkingOverride ?: $this->effectiveThinkingLevel($model),
                 'category' => $response->successful() ? 'ok' : match (true) {
                     $status === 429 => 'quota',
                     $status === 503 => 'overload',
@@ -987,6 +995,7 @@ class GeminiClient
                 'status' => 0,
                 'seconds' => round(microtime(true) - $started, 2),
                 'ok' => false,
+                'thinking_level' => $thinkingOverride ?: $this->effectiveThinkingLevel($model),
                 'category' => $e instanceof ConnectionException ? 'timeout' : 'other',
                 'error' => SecretSanitizer::redact($e->getMessage()),
                 'error_message' => SecretSanitizer::redact(substr($e->getMessage(), 0, 200)),

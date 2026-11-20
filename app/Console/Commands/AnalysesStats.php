@@ -78,6 +78,19 @@ class AnalysesStats extends Command
         $this->line("Window: last {$hours} hours, analyses=".$analyses->count());
         $this->table(['model', 'count', 'p50 processing', 'p95 processing'], $rows);
 
+        $timingRows = [];
+        foreach (['queue_ms' => 'queue', 'gemini_ms' => 'gemini', 'total_ms' => 'total (end-to-end)'] as $field => $label) {
+            $values = array_values(array_filter($analyses->pluck($field)->all(), fn ($v) => $v !== null));
+            sort($values);
+            $count = count($values);
+            $timingRows[] = [
+                $label,
+                $count ? $values[intdiv($count, 2)].' ms' : 'n/a',
+                $count ? $values[max(0, (int) ceil(0.95 * $count) - 1)].' ms' : 'n/a',
+            ];
+        }
+        $this->table(['phase', 'p50', 'p95'], $timingRows);
+
         $failed = $analyses->where('status', 'failed')->count();
         $failureRows = [];
         foreach ($categories as $category => $count) {

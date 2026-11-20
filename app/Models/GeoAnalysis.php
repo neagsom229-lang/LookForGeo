@@ -23,6 +23,9 @@ class GeoAnalysis extends Model
         'image_hash',
         'model_used',
         'processing_ms',
+        'queue_ms',
+        'gemini_ms',
+        'total_ms',
         'failure_category',
         'result',
         'error',
@@ -229,7 +232,7 @@ class GeoAnalysis extends Model
         }
         $end = $this->finished_at ?? now();
 
-        return round($this->started_at->diffInSeconds($end), 1);
+        return round(abs($this->started_at->diffInSeconds($end)), 1);
     }
 
     public function markAsCompleted(array $result): void

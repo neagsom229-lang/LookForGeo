@@ -49,6 +49,17 @@ the hedge window is **not** counted as a breaker failure. Only genuine 429 /
 disabled automatically when the global daily cap is more than 80 % used, to
 avoid doubling spend near the limit.
 
+**Per-model live results (fill from `gemini:probe --repeat=10 --models=...` and
+`geo:eval --live --image=<real photo>`; never invent these):**
+
+| model | HTTP | ms min/median/max | category | thinking level | live 200 recorded? |
+|---|---|---|---|---|---|
+| gemini-3.5-flash-lite | (pending) | (pending) | (pending) | low | no |
+| gemini-3.1-flash-lite | (pending) | (pending) | (pending) | low | no |
+
+Only replace `no` with `yes` after a real HTTP 200 is observed. `minimal`
+thinking stays disabled until that row says `yes`.
+
 Implementation note: this is a **staged "primary timeout + fallback"** hedge,
 not two simultaneously in-flight HTTP sockets. The primary request is bounded
 to the hedge window; when that window expires its elapsed time is recorded and

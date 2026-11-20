@@ -32,7 +32,7 @@ class AnalysesLast extends Command
         }
 
         $processing = ($analysis->finished_at && $analysis->started_at)
-            ? round($analysis->finished_at->diffInSeconds($analysis->started_at), 2)
+            ? round(abs($analysis->finished_at->diffInSeconds($analysis->started_at)), 2)
             : null;
 
         $rows = [
@@ -40,6 +40,9 @@ class AnalysesLast extends Command
             ['status', $analysis->status],
             ['model', (string) config('services.gemini.model')],
             ['processing_seconds', $processing ?? 'n/a'],
+            ['queue_ms', $analysis->queue_ms ?? 'n/a'],
+            ['gemini_ms', $analysis->gemini_ms ?? 'n/a'],
+            ['total_ms (end-to-end)', $analysis->total_ms ?? 'n/a'],
             ['landmark', $result['landmark_name'] ?? 'Unknown'],
             ['confidence', $result['confidence'] ?? 'n/a'],
             ['low_confidence', isset($result['low_confidence']) ? ($result['low_confidence'] ? 'true' : 'false') : 'n/a'],

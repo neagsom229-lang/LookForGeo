@@ -24,6 +24,9 @@ class AnalysesStatsTest extends TestCase
             'status' => 'completed',
             'model_used' => 'gemini-3.5-flash-lite',
             'processing_ms' => 1000,
+            'queue_ms' => 200,
+            'gemini_ms' => 800,
+            'total_ms' => 1000,
             'result' => ['landmark_name' => 'Eiffel Tower', 'hedged' => true, 'hedge_winner' => 'gemini-3.1-flash-lite', 'abandoned_primary' => 'gemini-3.5-flash-lite', 'primary_abandoned_ms' => 1000],
         ]);
         GeoAnalysis::create([
@@ -43,6 +46,9 @@ class AnalysesStatsTest extends TestCase
         $this->assertStringContainsString('gemini-3.5-flash-lite', $text);
         $this->assertStringContainsString('gemini-3.1-flash-lite', $text);
         $this->assertStringContainsString('p50 processing', $text);
+        $this->assertStringContainsString('total (end-to-end)', $text);
+        $this->assertStringContainsString('gemini', $text);
+        $this->assertStringContainsString('queue', $text);
         $this->assertStringContainsString('quota', $text);
         $this->assertStringContainsString('hedge wins: 1', $text);
         $this->assertStringContainsString('Abandoned primaries: 1', $text);

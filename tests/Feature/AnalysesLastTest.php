@@ -43,6 +43,14 @@ class AnalysesLastTest extends TestCase
         $this->assertStringContainsString('gemini-3.5-flash-lite', $text);
         $this->assertStringContainsString('Eiffel Tower', $text);
         $this->assertStringContainsString('quota', $text);
+        // Carbon 3 diffs are signed: finished_at after started_at must be +12.
+        $this->assertStringContainsString('processing_seconds', $text);
+        $this->assertStringContainsString('queue_ms', $text);
+        $this->assertStringContainsString('gemini_ms', $text);
+        $this->assertStringContainsString('total_ms (end-to-end)', $text);
+        $this->assertStringNotContainsString('|-12|', $text);
+        $this->assertStringNotContainsString('| -12 |', $text);
+        $this->assertMatchesRegularExpression('/processing_seconds\s*\|\s*12(\.0+)?\s*\|/', $text);
         $this->assertStringNotContainsString('AIza', $text);
     }
 }

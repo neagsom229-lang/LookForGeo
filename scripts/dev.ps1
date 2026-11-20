@@ -60,7 +60,9 @@ function Stop-ProcessTree($procId) {
     if (-not $procId) { return }
     # taskkill /T kills the whole tree (artisan serve spawns an inner
     # php -S listener; kill it by tree, not by a parent-pid lookup).
-    & taskkill /F /T /PID $procId | Out-Null
+    # An already-exited process makes taskkill noisy; swallow stdout/stderr
+    # and never let a batch prompt leak into the dev console.
+    & taskkill /F /T /PID $procId 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
     }
