@@ -525,6 +525,40 @@
         cursor: not-allowed;
     }
 
+    /* Phase E: calibrated confidence evidence */
+    .confidence-evidence {
+        margin: 10px 0 14px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--text-secondary);
+    }
+
+    .confidence-evidence .ce-title {
+        font-weight: 700;
+        color: var(--text);
+        margin-bottom: 6px;
+    }
+
+    .confidence-evidence .ce-factors {
+        margin: 0;
+        padding-left: 18px;
+    }
+
+    .confidence-evidence .ce-alternatives {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .confidence-evidence .ce-alternative-list {
+        margin: 0;
+        padding-left: 18px;
+    }
+
     /* Current city scanning label inside progress card */
     .pc-scanning {
         font-family: 'JetBrains Mono', monospace;

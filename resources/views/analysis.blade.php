@@ -107,6 +107,17 @@
                     <div class="verified-pill high" id="verifiedPill">
                         <i class="fas fa-check-circle"></i> Identified Location
                     </div>
+
+                    <!-- Phase E: calibrated confidence evidence + alternatives -->
+                    <div class="confidence-evidence" id="confidenceEvidence" style="display:none;">
+                        <div class="ce-title">Why this confidence</div>
+                        <ul class="ce-factors" id="confidenceFactors"></ul>
+                        <div class="ce-alternatives" id="confidenceAlternatives" style="display:none;">
+                            <div class="ce-title">Other possibilities</div>
+                            <ol class="ce-alternative-list" id="alternativeList"></ol>
+                        </div>
+                    </div>
+
                     <div class="place-title" id="placeTitle">Location</div>
                     <div class="place-country" id="placeCountry">Country</div>
                     <div class="place-region" id="placeRegion">Region</div>

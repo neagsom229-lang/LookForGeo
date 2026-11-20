@@ -314,6 +314,10 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         confPill: document.getElementById('confPill'),
         confPillText: document.getElementById('confPillText'),
         verifiedPill: document.getElementById('verifiedPill'),
+        confidenceEvidence: document.getElementById('confidenceEvidence'),
+        confidenceFactors: document.getElementById('confidenceFactors'),
+        confidenceAlternatives: document.getElementById('confidenceAlternatives'),
+        alternativeList: document.getElementById('alternativeList'),
         placeTitle: document.getElementById('placeTitle'),
         placeCountry: document.getElementById('placeCountry'),
         placeRegion: document.getElementById('placeRegion'),
@@ -1279,7 +1283,10 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         const lng = parseFloat(data.longitude ?? data.lng);
         const hasCoords = isValidCoord(lat, lng);
         const confidence = data.confidence ?? 0;
-        const tier = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+        // Phase E: the calibrated low_confidence flag always wins over the
+        // numeric tier, so a weak result can never look "identified".
+        const tier = data.low_confidence ? 'low' :
+            (confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low');
 
         if (DOM.verifiedPill) {
             DOM.verifiedPill.className = `verified-pill ${tier}`;
@@ -1287,7 +1294,38 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 '<i class="fas fa-check-circle"></i> Identified Location' :
                 tier === 'medium' ?
                 '<i class="fas fa-exclamation-circle"></i> Likely Location' :
-                '<i class="fas fa-question-circle"></i> Low Confidence';
+                '<i class="fas fa-question-circle"></i> Low Confidence - check evidence';
+        }
+
+        // Phase E: show WHY the score is what it is, and up to three
+        // alternatives when the result is low confidence. The model's own
+        // self-reported number is shown only as a non-authoritative note.
+        const factors = Array.isArray(data.confidence_factors) ? [...data.confidence_factors] : [];
+        if (data.model_reported_confidence !== undefined && data.model_reported_confidence !== null) {
+            factors.push(`Model self-reported ${data.model_reported_confidence}% (not used for this score).`);
+        }
+        const alternatives = Array.isArray(data.alternatives) ? data.alternatives : [];
+        if (DOM.confidenceEvidence) {
+            DOM.confidenceEvidence.style.display = factors.length ? 'block' : 'none';
+            if (DOM.confidenceFactors) {
+                DOM.confidenceFactors.innerHTML = '';
+                factors.forEach(f => {
+                    const li = document.createElement('li');
+                    li.textContent = f;
+                    DOM.confidenceFactors.appendChild(li);
+                });
+            }
+            if (DOM.confidenceAlternatives) {
+                DOM.confidenceAlternatives.style.display = alternatives.length ? 'block' : 'none';
+                if (DOM.alternativeList) {
+                    DOM.alternativeList.innerHTML = '';
+                    alternatives.forEach(a => {
+                        const li = document.createElement('li');
+                        li.textContent = `${a.location || a.city || 'Unknown'} (${a.probability ?? 0}%)`;
+                        DOM.alternativeList.appendChild(li);
+                    });
+                }
+            }
         }
 
         if (DOM.placeTitle) DOM.placeTitle.textContent = data.landmark_name || data.city || 'Unknown';
@@ -1298,7 +1336,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 `${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}° ${lng>=0?'E':'W'}` :
                 'Not available';
         }
-        if (DOM.confPillText) DOM.confPillText.textContent = `${confidence}% Confidence`;
+        if (DOM.confPillText) DOM.confPillText.textContent = `${confidence}% Confidence${data.confidence_level ? ' - ' + data.confidence_level : ''}`;
         const dot = DOM.confPill?.querySelector('.dot');
         if (dot) dot.style.background = tier === 'high' ? 'var(--success)' : tier === 'medium' ? 'var(--warning)' :
             'var(--danger)';
