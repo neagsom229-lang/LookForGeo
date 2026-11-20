@@ -29,14 +29,14 @@ class GeminiService
     /**
      * MAIN ENTRY POINT — coordinates prompt, analysis, validation and enrichment.
      */
-    public function analyzeGeolocation($imageData, $metadata = [])
+    public function analyzeGeolocation($imageData, $metadata = [], ?callable $onRetry = null)
     {
         if (empty($imageData)) {
             return $this->client->getFallbackResponse('No image data provided.');
         }
 
         $prompt = $this->prompt->buildUltimateGeoPrompt($metadata);
-        $result = $this->client->analyzeWithFallback($imageData, $prompt);
+        $result = $this->client->analyzeWithFallback($imageData, $prompt, $onRetry);
 
         if (! is_array($result) || isset($result['error'])) {
             return $this->client->getFallbackResponse('AI analysis failed: '.($result['message'] ?? 'unknown error'));

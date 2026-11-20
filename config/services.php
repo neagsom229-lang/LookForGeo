@@ -40,7 +40,19 @@ return [
     'gemini' => [
         'key' => env('GEMINI_API_KEY'),
         'model' => env('GEMINI_MODEL', 'gemini-3.6-flash'),
-        'max_total_time' => env('GEMINI_MAX_TOTAL_TIME', 120),
+        // A stable prior-generation model so a primary outage or deprecation
+        // cannot take down both attempts.
+        'fallback_model' => env('GEMINI_FALLBACK_MODEL', 'gemini-3.5-flash'),
+        // One retry on the primary model, then one fallback attempt. The
+        // whole sequence shares a 90 second budget so the user sees a
+        // failure in under two minutes instead of waiting on stacked
+        // timeouts.
+        'timeout' => (int) env('GEMINI_TIMEOUT', 30),
+        'retries' => (int) env('GEMINI_RETRIES', 1),
+        'max_total_time' => (int) env('GEMINI_MAX_TOTAL_TIME', 90),
+        'min_attempt_seconds' => (int) env('GEMINI_MIN_ATTEMPT_SECONDS', 15),
+        // Gemini 3.x: LOW is the cheapest sensible level for extraction.
+        'thinking_level' => env('GEMINI_THINKING_LEVEL', 'low'),
         // Override to point at a fake endpoint (smoke tests). Default is the real REST base path.
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
     ],

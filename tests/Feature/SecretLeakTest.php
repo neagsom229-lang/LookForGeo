@@ -34,6 +34,10 @@ class SecretLeakTest extends TestCase
             // Keep the failure path instant (no backoff sleeps) for the test.
             'services.gemini.retries' => 0,
             'services.gemini.max_total_time' => 10,
+            // Production refuses to start a request with <15s left; this test
+            // uses a 10s budget purely to avoid real waits, so lower the
+            // window for the test only.
+            'services.gemini.min_attempt_seconds' => 1,
         ]);
     }
 

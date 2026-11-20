@@ -20,6 +20,10 @@ class GeminiClient
 
     protected $maxTotalTimeSeconds;
 
+    protected $minAttemptSeconds;
+
+    protected $thinkingLevel;
+
     protected $baseUrl;
 
     public function __construct()
@@ -30,33 +34,22 @@ class GeminiClient
         // primary outage or deprecation doesn't take down both. As of
         // Aug 2026, gemini-3.5-flash is the prior-generation stable Flash.
         $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.5-flash');
-        $this->requestTimeout = config('services.gemini.timeout', 60);
-        $this->maxRetries = config('services.gemini.retries', 2);
+        $this->requestTimeout = max(1, (int) config('services.gemini.timeout', 30));
+        // Exactly one retry on the primary model. More retries only stack
+        // latency and push the user past the two-minute failure target.
+        $this->maxRetries = min(1, max(0, (int) config('services.gemini.retries', 1)));
+        $this->maxTotalTimeSeconds = max(1, (int) config('services.gemini.max_total_time', 90));
+        $this->minAttemptSeconds = max(1, (int) config('services.gemini.min_attempt_seconds', 15));
+        $this->thinkingLevel = strtoupper(trim((string) config('services.gemini.thinking_level', 'low')));
         // Base URL for the Gemini REST API. Local/testing may override it
         // (e.g. fake server in smoke tests); everywhere else only https.
         $this->baseUrl = self::resolveBaseUrl(
             config('services.gemini.base_url'),
             app()->environment()
         );
-        // Hard ceiling on total wall-clock time across primary + fallback +
-        // all retries combined. Without this, timeout(60) * retries(2+1)
-        // attempts * two models can add up to ~6 minutes — long past
-        // PHP's max_execution_time or a reverse-proxy's read timeout,
-        // meaning the client gets a 504 well before this method returns
-        // anything, including the graceful fallback response. If this
-        // analysis genuinely needs more than ~45s of retry budget in your
-        // environment, that's a sign it belongs in a queued job rather
-        // than a synchronous request.
-        $this->maxTotalTimeSeconds = config('services.gemini.max_total_time', 120);
-
-        Log::info('GeminiService initialized', [
-            'key_set' => ! empty($this->apiKey),
-            'primary' => $this->primaryModel,
-            'fallback' => $this->fallbackModel,
-            'timeout' => $this->requestTimeout,
-            'retries' => $this->maxRetries,
-            'max_total_time' => $this->maxTotalTimeSeconds,
-        ]);
+        // Deliberately no INFO log here: this object is resolved from a
+        // queue job, not from every status poll. Logging on construction
+        // made a per-poll log line that told us nothing about the job.
     }
 
     /**
@@ -86,13 +79,28 @@ class GeminiClient
     }
 
     /**
-     * MAIN ENTRY POINT — PRIMARY + FALLBACK MODEL (with retries, sharing one time budget)
+     * MAIN ENTRY POINT — PRIMARY + FALLBACK MODEL (one retry, shared budget)
+     *
+     * Order is fixed: primary, one retry on the primary, then one fallback
+     * model. No model is called with less than the configured minimum
+     * attempt window left, so a 30s request can never start at second 89
+     * of a 90s budget and overshoot the user-visible failure target.
      */
-    public function analyzeWithFallback($imageData, $prompt)
+    public function analyzeWithFallback($imageData, $prompt, ?callable $onRetry = null)
     {
         $deadline = microtime(true) + $this->maxTotalTimeSeconds;
+        $primaryAttempts = 1 + $this->maxRetries;
 
-        $result = $this->sendGeminiRequestWithRetry($this->primaryModel, $imageData, $prompt, $deadline);
+        $result = $this->sendGeminiRequestWithRetry(
+            $this->primaryModel,
+            $imageData,
+            $prompt,
+            $deadline,
+            $primaryAttempts,
+            $onRetry,
+            1
+        );
+
         if (! isset($result['error'])) {
             return $result;
         }
@@ -101,15 +109,24 @@ class GeminiClient
             return $result;
         }
 
-        if (microtime(true) >= $deadline) {
+        if (! $this->hasBudgetForAttempt($deadline)) {
             Log::warning('Time budget exhausted before fallback attempt', ['primary_error' => $result['message']]);
 
             return $result;
         }
 
+        $fallbackRetryNumber = $this->maxRetries + 1;
+        $this->notifyRetry($onRetry, $this->fallbackModel, $fallbackRetryNumber);
+
         Log::warning('Primary model failed, using fallback', ['error' => $result['message']]);
 
-        return $this->sendGeminiRequestWithRetry($this->fallbackModel, $imageData, $prompt, $deadline);
+        return $this->sendGeminiRequestWithRetry(
+            $this->fallbackModel,
+            $imageData,
+            $prompt,
+            $deadline,
+            1
+        );
     }
 
     /**
@@ -117,23 +134,26 @@ class GeminiClient
      *
      * Retries on connection-level failures (timeout, connection reset)
      * AND on 5xx server errors from Gemini, since those are typically
-     * transient too — the original version only retried the former,
-     * which misses the more common "Google's endpoint hiccuped" case.
-     * Never retries 429 (quota) — a rate limit won't clear in the ~1-4s
-     * this backoff window covers, so retrying just burns more of the
-     * shared time budget for no benefit.
+     * transient too. Never retries 429 (quota): a rate limit will not
+     * clear in the ~1s backoff window, so retrying only burns budget.
      */
-    private function sendGeminiRequestWithRetry($model, $imageData, $prompt, $deadline)
-    {
-        $retries = $this->maxRetries;
+    private function sendGeminiRequestWithRetry(
+        $model,
+        $imageData,
+        $prompt,
+        $deadline,
+        int $maxAttempts = 1,
+        ?callable $onRetry = null,
+        int $retryNumber = 1
+    ) {
         $backoff = 1000000; // microseconds
+        $attempts = max(1, $maxAttempts);
 
-        for ($attempt = 1; $attempt <= $retries + 1; $attempt++) {
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             $remaining = $deadline - microtime(true);
 
-            // No time left at all — don't even try, just report the budget
-            // as exhausted so the caller can decide (skip fallback, etc.)
-            if ($remaining <= 0) {
+            // Do not start a request that cannot meaningfully finish.
+            if ($remaining < $this->minAttemptSeconds) {
                 Log::warning("Gemini time budget exhausted before attempt $attempt for {$model}");
 
                 return ['error' => 'time_budget_exhausted', 'message' => 'Ran out of time budget before request could be made'];
@@ -142,7 +162,7 @@ class GeminiClient
             // Cap this request's own timeout to whatever time is actually
             // left, so a single slow attempt can never blow past the shared
             // deadline (and, transitively, can never approach the job's
-            // own 180s queue timeout).
+            // own queue timeout).
             $requestTimeout = (int) max(1, min($this->requestTimeout, floor($remaining)));
 
             try {
@@ -153,12 +173,12 @@ class GeminiClient
                 if (isset($result['error']) && in_array($result['error'], $retryableErrors)) {
                     $timeLeftAfterThisAttempt = $deadline - microtime(true);
 
-                    if ($attempt <= $retries && $timeLeftAfterThisAttempt > ($backoff / 1000000)) {
+                    if ($attempt < $attempts && $timeLeftAfterThisAttempt >= ($this->minAttemptSeconds + ($backoff / 1000000))) {
+                        $this->notifyRetry($onRetry, $model, $retryNumber);
                         Log::warning("Gemini request attempt $attempt failed, retrying in ".($backoff / 1000000).'s', [
                             'error' => $result['message'],
                         ]);
                         usleep($backoff);
-                        $backoff *= 2;
 
                         continue;
                     }
@@ -168,15 +188,15 @@ class GeminiClient
 
                 return $result;
 
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 $timeLeftAfterThisAttempt = $deadline - microtime(true);
 
-                if ($attempt <= $retries && $timeLeftAfterThisAttempt > ($backoff / 1000000)) {
+                if ($attempt < $attempts && $timeLeftAfterThisAttempt >= ($this->minAttemptSeconds + ($backoff / 1000000))) {
+                    $this->notifyRetry($onRetry, $model, $retryNumber);
                     Log::warning("Gemini request attempt $attempt threw exception, retrying in ".($backoff / 1000000).'s', [
                         'exception' => SecretSanitizer::redact($e->getMessage()),
                     ]);
                     usleep($backoff);
-                    $backoff *= 2;
 
                     continue;
                 }
@@ -187,6 +207,39 @@ class GeminiClient
         }
 
         return ['error' => 'unknown', 'message' => 'Request failed after all retries'];
+    }
+
+    private function hasBudgetForAttempt(float $deadline): bool
+    {
+        return ($deadline - microtime(true)) >= $this->minAttemptSeconds;
+    }
+
+    private function notifyRetry(?callable $onRetry, string $model, int $retryNumber): void
+    {
+        if (! $onRetry) {
+            return;
+        }
+
+        try {
+            $onRetry($model, $retryNumber);
+        } catch (\Throwable $e) {
+            Log::warning('Gemini retry callback failed: '.SecretSanitizer::redact($e->getMessage()));
+        }
+    }
+
+    /**
+     * Gemini 3.x rejects the deprecated temperature/topP/topK fields and
+     * instead uses thinkingConfig.thinkingLevel. Older (2.x) models still
+     * need those fields omitted rather than sent with unknown values, so we
+     * only add the thinking config for 3.x models.
+     */
+    private function generationConfig(string $model, array $config): array
+    {
+        if ($this->thinkingLevel !== '' && str_starts_with($model, 'gemini-3')) {
+            $config['thinkingConfig'] = ['thinkingLevel' => $this->thinkingLevel];
+        }
+
+        return $config;
     }
 
     /**
@@ -221,12 +274,8 @@ class GeminiClient
                     ],
                 ],
             ],
-            'generationConfig' => [
-                'temperature' => 0.2,       // ignored by gemini-3.x, kept for 2.x fallback
+            'generationConfig' => $this->generationConfig($model, [
                 'maxOutputTokens' => 10000,
-                'topP' => 0.95,             // ignored by gemini-3.x, kept for 2.x fallback
-                'topK' => 40,               // ignored by gemini-3.x, kept for 2.x fallback
-                // gemini-3.x: 'low' | 'high' — 'low' for speed, 'high' for accuracy
                 // Structured output: enforced JSON + schema so the response
                 // is schema-conformant. Strict validation happens after
                 // decoding (see GeminiResultValidator).
@@ -270,7 +319,7 @@ class GeminiClient
                     ],
                     'required' => ['landmark_name', 'city', 'country', 'confidence', 'reasoning', 'description'],
                 ],
-            ],
+            ]),
         ];
 
         try {
@@ -472,15 +521,14 @@ class GeminiClient
                     ],
                 ],
             ],
-            'generationConfig' => [
-                'temperature' => 0.7,
+            'generationConfig' => $this->generationConfig($this->primaryModel, [
                 'maxOutputTokens' => 1024,
-            ],
+            ]),
         ];
 
         try {
-            $response = Http::timeout(30)
-                ->connectTimeout(min(10, 30))
+            $response = Http::timeout($this->requestTimeout)
+                ->connectTimeout(min(10, $this->requestTimeout))
                 ->withHeaders(['x-goog-api-key' => (string) $this->apiKey])
                 ->post($url, $payload);
         } catch (\Throwable $e) {
@@ -506,6 +554,61 @@ class GeminiClient
         }
 
         return trim($text);
+    }
+
+    /**
+     * Send a minimal text-only request to one model and report only
+     * non-secret metadata: model name, HTTP status and elapsed seconds.
+     * Used by `php artisan gemini:probe` / `smoke.ps1 -Live` so we can
+     * measure each configured model without ever printing the API key.
+     *
+     * @return array{model: string, status: int, seconds: float, ok: bool, error?: string}
+     */
+    public function probeModel(string $model): array
+    {
+        $started = microtime(true);
+
+        if (empty($this->apiKey)) {
+            return [
+                'model' => $model,
+                'status' => 0,
+                'seconds' => round(microtime(true) - $started, 2),
+                'ok' => false,
+                'error' => 'Gemini API key not configured',
+            ];
+        }
+
+        $url = "{$this->baseUrl}/models/{$model}:generateContent";
+
+        try {
+            $response = Http::timeout($this->requestTimeout)
+                ->connectTimeout(min(10, $this->requestTimeout))
+                ->withHeaders(['x-goog-api-key' => (string) $this->apiKey])
+                ->post($url, [
+                    'contents' => [
+                        ['parts' => [['text' => 'Reply with the JSON object {"ok":true}.']]],
+                    ],
+                    'generationConfig' => $this->generationConfig($model, [
+                        'maxOutputTokens' => 32,
+                        'responseMimeType' => 'application/json',
+                    ]),
+                ]);
+
+            return [
+                'model' => $model,
+                'status' => $response->status(),
+                'seconds' => round(microtime(true) - $started, 2),
+                'ok' => $response->successful(),
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'model' => $model,
+                'status' => 0,
+                'seconds' => round(microtime(true) - $started, 2),
+                'ok' => false,
+                'error' => SecretSanitizer::redact($e->getMessage()),
+            ];
+        }
     }
 
     public function getFallbackResponse($msg)

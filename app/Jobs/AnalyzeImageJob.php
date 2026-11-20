@@ -20,12 +20,12 @@ class AnalyzeImageJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    // Transient AI/API failures (503 / quota) are retried with release(45),
-    // bounded by $tries. Hard (non-transient) errors terminate the job without
-    // a retry — see handle(); no-op retries only burned worker attempts.
-    public int $tries = 5;
-
-    public array $backoff = [10, 30, 60];
+    // ONE retry layer lives in GeminiClient (one retry on primary, then one
+    // fallback model, all within a 90s budget). The queue itself does not
+    // retry: release(45) and a high $tries only burned worker attempts on
+    // jobs whose handle() already marks the analysis failed. A stuck job is
+    // recovered by `analyses:reap-stuck` instead.
+    public int $tries = 1;
 
     public int $timeout = 180;
 
@@ -97,21 +97,32 @@ class AnalyzeImageJob implements ShouldQueue
 
             // STEP 4: AI Analysis
             $analysis->markStage(2, 40);
+            $analysis->update(['stage_label' => 'Waiting for AI service']);
             Log::info('🤖 Calling Gemini API...');
 
-            $aiResult = $geminiService->analyzeGeolocation($imageData, $metadata);
-
-            // ✅ Check for 503 or "Service Unavailable" - release for retry
-            if (isset($aiResult['error']) || isset($aiResult['is_error'])) {
-                $errMsg = $aiResult['error_message'] ?? $aiResult['message'] ?? '';
-
-                if (str_contains($errMsg, '503') || str_contains($errMsg, 'Service Unavailable') || str_contains($errMsg, 'Resource has been exhausted')) {
-                    Log::warning('⚠️ Gemini temporarily unavailable, releasing job in 45 seconds...');
-                    $this->release(45); // Try again in 45 seconds
-
-                    return;
+            // Surface each internal retry in the UI via a stage label. The
+            // callback runs on the primary retry (n=1) and before the
+            // fallback model (n=2), so a user watching the progress card
+            // sees "Waiting for AI service, retry 1/2".
+            $aiResult = $geminiService->analyzeGeolocation(
+                $imageData,
+                $metadata,
+                function (string $model, int $retryNumber) use ($analysis) {
+                    $analysis->update([
+                        'stage_label' => 'Waiting for AI service, retry '.$retryNumber,
+                    ]);
+                    Log::warning('Gemini retry scheduled', [
+                        'analysis_id' => $analysis->id,
+                        'model' => $model,
+                        'retry' => $retryNumber,
+                    ]);
                 }
-            }
+            );
+
+            // Transient errors are retried INSIDE GeminiClient (one retry on
+            // the primary, then one fallback). There is no release(45) here:
+            // a failed AI result is terminal, shown to the user with a Retry
+            // button. Queue-level retries were no-ops and delayed visibility.
 
             // Check for other AI errors (including is_error flag)
             if (isset($aiResult['is_error']) && $aiResult['is_error'] === true) {
