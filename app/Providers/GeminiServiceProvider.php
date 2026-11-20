@@ -8,6 +8,7 @@ use App\Services\Gemini\GeminiPrompt;
 use App\Services\Gemini\GeminiResultEnhancer;
 use App\Services\Gemini\GeminiResultValidator;
 use App\Services\GeminiService;
+use App\Services\OpenStreetMapService;
 use Illuminate\Support\ServiceProvider;
 
 class GeminiServiceProvider extends ServiceProvider
@@ -23,7 +24,7 @@ class GeminiServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(ConfidenceCalculator::class, function ($app) {
-            return new ConfidenceCalculator($app->make(\App\Services\OpenStreetMapService::class));
+            return new ConfidenceCalculator($app->make(OpenStreetMapService::class));
         });
 
         $this->app->singleton(GeminiResultEnhancer::class, function ($app) {
