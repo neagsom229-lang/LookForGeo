@@ -280,63 +280,6 @@ class AnalysisController extends Controller
     }
 
     /**
-     * 📊 API: Get all analyses for the authenticated user
-     */
-    public function getHistory(Request $request)
-    {
-        if (! auth()->check()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Please login to view history.',
-            ], 401);
-        }
-
-        try {
-            $analyses = GeoAnalysis::where('user_id', auth()->id())
-                ->orderBy('created_at', 'desc')
-                ->paginate(20);
-
-            return response()->json([
-                'success' => true,
-                'data' => $analyses->map(function ($analysis) {
-                    $data = [
-                        'id' => $analysis->id,
-                        'status' => $analysis->status,
-                        'progress' => $analysis->progress,
-                        'image_url' => $analysis->image_url,
-                        'created_at' => $analysis->created_at->toDateTimeString(),
-                        'finished_at' => $analysis->finished_at?->toDateTimeString(),
-                    ];
-
-                    if ($analysis->status === 'completed' && $analysis->result) {
-                        $result = is_string($analysis->result) ? json_decode($analysis->result, true) : $analysis->result;
-                        $data['landmark_name'] = $result['landmark_name'] ?? 'Unknown';
-                        $data['city'] = $result['city'] ?? null;
-                        $data['country'] = $result['country'] ?? null;
-                        $data['confidence'] = $result['confidence'] ?? 0;
-                    }
-
-                    return $data;
-                }),
-                'pagination' => [
-                    'current_page' => $analyses->currentPage(),
-                    'last_page' => $analyses->lastPage(),
-                    'per_page' => $analyses->perPage(),
-                    'total' => $analyses->total(),
-                ],
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('❌ History fetch error: '.$e->getMessage());
-
-            return response()->json([
-                'success' => false,
-                'message' => SecretSanitizer::redact('Error fetching history: '.$e->getMessage()),
-            ], 500);
-        }
-    }
-
-    /**
      * 🗑️ Delete an analysis (ownership check)
      */
     public function destroy($id)

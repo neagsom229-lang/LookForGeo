@@ -55,7 +55,11 @@ Route::middleware(['web', 'auth:web'])->group(function () {
         Route::get('/fetch-image', [AnalysisController::class, 'fetchImage'])->name('api.fetch-image');
         Route::get('/street-view', [AnalysisController::class, 'streetView'])->name('api.street-view');
         Route::post('/clear-cache', [AnalysisController::class, 'clearCache'])->name('web.clear-cache');
-        Route::get('/history', [AnalysisController::class, 'getHistory'])->name('api.history');
+        // NOTE: GET /api/history intentionally lives ONLY in routes/api.php
+        // (Sanctum bearer clients). Defining it here as well silently
+        // OVERWROTE the API route (RouteCollection assigns, it does not
+        // append), which broke the documented token endpoint. See
+        // tests/Feature/ApiContractTest.php.
     });
 
 });
