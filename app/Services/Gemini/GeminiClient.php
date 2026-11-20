@@ -36,11 +36,11 @@ class GeminiClient
         // primary outage or deprecation doesn't take down both. As of
         // Aug 2026, gemini-3.5-flash is the prior-generation stable Flash.
         $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.5-flash');
-        $this->requestTimeout = max(1, (int) config('services.gemini.timeout', 30));
+        $this->requestTimeout = max(1, (int) config('services.gemini.timeout', 50));
         // Exactly one retry on the primary model. More retries only stack
         // latency and push the user past the two-minute failure target.
         $this->maxRetries = min(1, max(0, (int) config('services.gemini.retries', 1)));
-        $this->maxTotalTimeSeconds = max(1, (int) config('services.gemini.max_total_time', 90));
+        $this->maxTotalTimeSeconds = max(1, (int) config('services.gemini.max_total_time', 110));
         $this->minAttemptSeconds = max(1, (int) config('services.gemini.min_attempt_seconds', 15));
         $this->retryBackoffMs = max(0, (int) config('services.gemini.retry_backoff_ms', 1000));
         $this->thinkingLevel = strtoupper(trim((string) config('services.gemini.thinking_level', 'low')));
@@ -246,6 +246,41 @@ class GeminiClient
     }
 
     /**
+     * One redacted log line per Gemini attempt. Production ships these to
+     * stderr as JSON; the latency/smoke scripts print the last lines on a
+     * failed run. No key or image bytes are ever logged.
+     */
+    private function finishAttempt(
+        array $result,
+        string $model,
+        float $started,
+        int $imageBytes,
+        ?int $status = null,
+        ?\Throwable $exception = null
+    ): array {
+        $context = [
+            'model' => $model,
+            'elapsed_ms' => (int) round((microtime(true) - $started) * 1000),
+            'thinking_level' => str_starts_with($model, 'gemini-3') ? $this->thinkingLevel : 'n/a',
+            'image_bytes' => $imageBytes,
+        ];
+        if ($exception !== null) {
+            $context['exception_class'] = get_class($exception);
+        } else {
+            $context['http_status'] = $status;
+        }
+
+        Log::info('Gemini attempt', $context);
+
+        return $result;
+    }
+
+    private function effectiveThinkingLevel(string $model): string
+    {
+        return str_starts_with($model, 'gemini-3') ? $this->thinkingLevel : 'n/a';
+    }
+
+    /**
      * SEND A SINGLE REQUEST TO GEMINI (no retry logic — that lives in the caller)
      */
     private function sendSingleGeminiRequest($model, $imageData, $prompt, ?int $timeoutSeconds = null)
@@ -264,6 +299,8 @@ class GeminiClient
         $compressed = $this->compressImageIfNeeded($imageData);
         $compressedImage = $compressed['data'];
         $imageMime = $compressed['mime'];
+        $imageBytes = strlen($compressedImage);
+        $attemptStarted = microtime(true);
 
         $payload = [
             'contents' => [
@@ -335,44 +372,69 @@ class GeminiClient
                 ->connectTimeout(min(10, $timeoutSeconds))
                 ->withHeaders(['x-goog-api-key' => (string) $this->apiKey])
                 ->post($url, $payload);
+            $status = $response->status();
 
-            if ($response->status() === 429) {
-                return ['error' => 'quota_exceeded', 'message' => 'API quota exceeded. Try again later.'];
+            if ($status === 429) {
+                return $this->finishAttempt(
+                    ['error' => 'quota_exceeded', 'message' => 'API quota exceeded. Try again later.'],
+                    $model, $attemptStarted, $imageBytes, $status
+                );
             }
 
-            if ($response->status() === 503) {
-                return ['error' => 'service_unavailable', 'message' => 'Gemini service temporarily unavailable (503)'];
+            if ($status === 503) {
+                return $this->finishAttempt(
+                    ['error' => 'service_unavailable', 'message' => 'Gemini service temporarily unavailable (503)'],
+                    $model, $attemptStarted, $imageBytes, $status
+                );
             }
 
-            if ($response->status() >= 500) {
-                return ['error' => 'server_error', 'message' => 'Gemini server error: '.$response->status()];
+            if ($status >= 500) {
+                return $this->finishAttempt(
+                    ['error' => 'server_error', 'message' => 'Gemini server error: '.$status],
+                    $model, $attemptStarted, $imageBytes, $status
+                );
             }
 
             if (! $response->successful()) {
-                Log::error("Gemini API error (status {$response->status()}): ".SecretSanitizer::redact($response->body()));
+                Log::error("Gemini API error (status {$status}): ".SecretSanitizer::redact($response->body()));
 
-                return ['error' => 'api_error', 'message' => "HTTP {$response->status()}"];
+                return $this->finishAttempt(
+                    ['error' => 'api_error', 'message' => "HTTP {$status}"],
+                    $model, $attemptStarted, $imageBytes, $status
+                );
             }
 
             $data = $response->json();
             $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 
             if (empty($text)) {
-                return ['error' => 'empty_response', 'message' => 'Model returned no text content'];
+                return $this->finishAttempt(
+                    ['error' => 'empty_response', 'message' => 'Model returned no text content'],
+                    $model, $attemptStarted, $imageBytes, $status
+                );
             }
 
             $text = $this->cleanText($text);
             $parsed = $this->parseAIResponse($text);
             if (! $parsed) {
-                return ['error' => 'parse_error', 'message' => 'Could not parse AI response.'];
+                return $this->finishAttempt(
+                    ['error' => 'parse_error', 'message' => 'Could not parse AI response.'],
+                    $model, $attemptStarted, $imageBytes, $status
+                );
             }
 
-            return $this->cleanArray($parsed);
+            return $this->finishAttempt($this->cleanArray($parsed), $model, $attemptStarted, $imageBytes, $status);
 
         } catch (ConnectionException $e) {
-            return ['error' => 'timeout', 'message' => SecretSanitizer::redact($e->getMessage())];
+            return $this->finishAttempt(
+                ['error' => 'timeout', 'message' => SecretSanitizer::redact($e->getMessage())],
+                $model, $attemptStarted, $imageBytes, null, $e
+            );
         } catch (\Exception $e) {
-            return ['error' => 'connection_error', 'message' => SecretSanitizer::redact($e->getMessage())];
+            return $this->finishAttempt(
+                ['error' => 'connection_error', 'message' => SecretSanitizer::redact($e->getMessage())],
+                $model, $attemptStarted, $imageBytes, null, $e
+            );
         }
     }
 
@@ -596,28 +658,59 @@ class GeminiClient
         }
 
         $url = "{$this->baseUrl}/models/{$model}:generateContent";
+        $png = $this->tinyProbePng();
+        $imageBytes = strlen($png);
 
         try {
             $response = Http::timeout($this->requestTimeout)
                 ->connectTimeout(min(10, $this->requestTimeout))
                 ->withHeaders(['x-goog-api-key' => (string) $this->apiKey])
                 ->post($url, [
-                    'contents' => [
-                        ['parts' => [['text' => 'Reply with the JSON object {"ok":true}.']]],
-                    ],
+                    'contents' => [[
+                        'parts' => [
+                            ['text' => 'Reply with the JSON object {"ok":true}.'],
+                            ['inline_data' => ['mime_type' => 'image/png', 'data' => base64_encode($png)]],
+                        ],
+                    ]],
+                    // Same shape as a real analysis request: structured JSON,
+                    // a response schema and (for Gemini 3.x) thinking config.
                     'generationConfig' => $this->generationConfig($model, [
                         'maxOutputTokens' => 32,
                         'responseMimeType' => 'application/json',
+                        'responseSchema' => [
+                            'type' => 'OBJECT',
+                            'properties' => ['ok' => ['type' => 'BOOLEAN']],
+                            'required' => ['ok'],
+                        ],
                     ]),
                 ]);
 
+            $status = $response->status();
+            Log::info('Gemini attempt', [
+                'model' => $model,
+                'http_status' => $status,
+                'elapsed_ms' => (int) round((microtime(true) - $started) * 1000),
+                'thinking_level' => $this->effectiveThinkingLevel($model),
+                'image_bytes' => $imageBytes,
+                'probe' => true,
+            ]);
+
             return [
                 'model' => $model,
-                'status' => $response->status(),
+                'status' => $status,
                 'seconds' => round(microtime(true) - $started, 2),
                 'ok' => $response->successful(),
             ];
         } catch (\Throwable $e) {
+            Log::info('Gemini attempt', [
+                'model' => $model,
+                'exception_class' => get_class($e),
+                'elapsed_ms' => (int) round((microtime(true) - $started) * 1000),
+                'thinking_level' => $this->effectiveThinkingLevel($model),
+                'image_bytes' => $imageBytes,
+                'probe' => true,
+            ]);
+
             return [
                 'model' => $model,
                 'status' => 0,
@@ -626,6 +719,21 @@ class GeminiClient
                 'error' => SecretSanitizer::redact($e->getMessage()),
             ];
         }
+    }
+
+    private function tinyProbePng(): string
+    {
+        if (function_exists('imagecreatetruecolor')) {
+            $image = imagecreatetruecolor(2, 2);
+            imagefilledrectangle($image, 0, 0, 1, 1, imagecolorallocate($image, 255, 255, 255));
+            ob_start();
+            imagepng($image);
+            $bytes = (string) ob_get_clean();
+
+            return $bytes;
+        }
+
+        return base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==');
     }
 
     public function getFallbackResponse($msg)

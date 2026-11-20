@@ -35,6 +35,28 @@ class GeminiProbeTest extends TestCase
         $this->assertStringNotContainsString('key=', $text);
     }
 
+    public function test_probe_sends_the_real_analysis_payload_shape(): void
+    {
+        config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
+        Http::fake([
+            '*' => Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => '{"ok":true}']]]]],
+            ], 200),
+        ]);
+
+        Artisan::call('gemini:probe', [], new BufferedOutput);
+
+        Http::assertSent(function ($request) {
+            $data = $request->data();
+            $inline = $data['contents'][0]['parts'][1]['inline_data'] ?? [];
+
+            return isset($inline['data'])
+                && ($inline['mime_type'] ?? null) === 'image/png'
+                && isset($data['generationConfig']['responseSchema'])
+                && ($data['generationConfig']['thinkingConfig']['thinkingLevel'] ?? null) === 'LOW';
+        });
+    }
+
     public function test_probe_reports_failure_without_key(): void
     {
         $key = 'AIzaSyFakeProbeKey1234567890';

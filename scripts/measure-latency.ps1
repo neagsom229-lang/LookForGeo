@@ -16,27 +16,49 @@ param(
 
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
+# Composer appends `--iterations=N` after the script command; PowerShell does
+# not bind that form to the -Iterations parameter, so parse it from $args.
+for ($argIndex = 0; $argIndex -lt $args.Count; $argIndex++) {
+    $arg = [string]$args[$argIndex]
+    if ($arg -match '^--?iterations[= ](\d+)$') {
+        $Iterations = [int]$Matches[1]
+    } elseif ($arg -match '^--?iterations$' -and ($argIndex + 1) -lt $args.Count) {
+        $Iterations = [int]$args[$argIndex + 1]
+        $argIndex++
+    }
+}
+
 $root = (Get-Item $PSScriptRoot).Parent.FullName
 Set-Location $root
+
+# Remember where this run starts in the file logs so diagnostics only show
+# lines produced by this run.
+$logStarts = @{}
+foreach ($logPath in @((Join-Path $root 'storage\logs\laravel.log'), (Join-Path $root 'storage\logs\laravel-test.log'))) {
+    if (Test-Path $logPath) {
+        $logStarts[$logPath] = @(Get-Content $logPath -ErrorAction SilentlyContinue).Count
+    } else {
+        $logStarts[$logPath] = 0
+    }
+}
 
 & (Join-Path $PSScriptRoot 'Lint.ps1')
 if ($LASTEXITCODE -ne 0) { Write-Host "Script lint FAILED."; exit 1 }
 
 if ($Iterations -lt 1) { $Iterations = 1 }
 
-if ($Live -and [string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
-    Write-Host "-Live needs `$env:GEMINI_API_KEY in the environment."
-    exit 2
-}
-
 Write-Host "=== TraceGeo latency measurement ==="
 Write-Host ("mode={0} iterations={1} repeat={2}" -f $(if ($Live) { 'LIVE' } else { 'FAKE' }), $Iterations, $Repeat)
-if (-not $Live) { Write-Host "No key is read or printed. Local fake Gemini only." }
+# The artisan server reads the key from .env; this script never reads or
+# prints it. In fake mode a harmless placeholder is used for Http fakes.
 
 $failures = 0
 $tmpDb = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_lat_" + [guid]::NewGuid().ToString("N") + ".sqlite")
 $jar = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_lat_" + [guid]::NewGuid().ToString("N") + ".txt")
 $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_lat_" + [guid]::NewGuid().ToString("N") + ".png")
+$serverLog = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_lat_" + [guid]::NewGuid().ToString("N") + ".server.log")
+$serverErr = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_lat_" + [guid]::NewGuid().ToString("N") + ".server.err")
+$workerLog = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_lat_" + [guid]::NewGuid().ToString("N") + ".worker.log")
 $envBackup = @{}
 $fake = $null
 $server = $null
@@ -75,6 +97,47 @@ function Get-Percentile([double[]]$values, [double]$p) {
     return $sorted[$idx]
 }
 
+function Redact-Text([string]$text) {
+    $value = [string]$text
+    $value = $value -replace '\bkey=[^&\s"''<>]+', 'key=[REDACTED]'
+    $value = $value -replace 'AIza[0-9A-Za-z_\-]{10,}', '[REDACTED]'
+    $value = $value -replace 'AQ[0-9A-Za-z_\-\.]{6,}', '[REDACTED]'
+    $value = $value -replace 'sk-[A-Za-z0-9]{16,}', '[REDACTED]'
+    $value = $value -replace '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----', '[REDACTED PRIVATE KEY]'
+    return $value
+}
+
+function Show-FailureDiagnostics($status, [int]$analysisId) {
+    Write-Host "--- failure diagnostics (before cleanup) ---" -ForegroundColor Yellow
+    $stage = if ($status.stage) { $status.stage } else { '?' }
+    $label = if ($status.stage_label) { $status.stage_label } else { '(none)' }
+    $error = if ($status.error) { $status.error } else { '(none)' }
+    Write-Host ("analysis_id={0} stage={1} stage_label={2}" -f $analysisId, $stage, $label)
+    Write-Host ("user_facing_error=" + (Redact-Text $error))
+
+    $fileLogs = @(
+        (Join-Path $root 'storage\logs\laravel.log'),
+        (Join-Path $root 'storage\logs\laravel-test.log')
+    )
+    $lines = @()
+    foreach ($log in @($serverLog, $serverErr, $workerLog) + $fileLogs) {
+        if (Test-Path $log) {
+            $skip = 0
+            if ($logStarts.ContainsKey($log)) { $skip = [int]$logStarts[$log] }
+            $lines += @(Get-Content $log -ErrorAction SilentlyContinue |
+                Select-Object -Skip $skip |
+                Where-Object { $_ -match 'Gemini' } | Select-Object -Last 20)
+        }
+    }
+    if ($lines.Count -eq 0) {
+        Write-Host "last 20 Gemini log lines: (none captured)"
+    } else {
+        Write-Host "last 20 redacted Gemini log lines:"
+        foreach ($line in ($lines | Select-Object -Last 20)) { Write-Host ("  " + (Redact-Text $line)) }
+    }
+    Write-Host "--- end failure diagnostics ---" -ForegroundColor Yellow
+}
+
 Save-Env @('DB_DATABASE', 'QUEUE_CONNECTION', 'GEMINI_API_KEY', 'GEMINI_BASE_URL',
            'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'CLOUDINARY_URL')
 
@@ -102,7 +165,8 @@ try {
     $listener2 = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
     $listener2.Start(); $port = $listener2.LocalEndpoint.Port; $listener2.Stop()
     $server = Start-Process -PassThru -NoNewWindow -FilePath 'php' `
-        -ArgumentList 'artisan', 'serve', "--host=127.0.0.1", "--port=$port"
+        -ArgumentList 'artisan', 'serve', "--host=127.0.0.1", "--port=$port" `
+        -RedirectStandardOutput $serverLog -RedirectStandardError $serverErr
     $base = "http://127.0.0.1:$port"
     $email = "latency+" + [guid]::NewGuid().ToString("N").Substring(0, 8) + "@example.com"
 
@@ -158,7 +222,7 @@ try {
             # QUEUE_CONNECTION=database: process this one job exactly as a
             # real worker would. A cache hit has no job to process.
             if (-not $uj.cached) {
-                & php artisan queue:work --once --tries=1 --timeout=180 2>&1 | Out-Null
+                & php artisan queue:work --once --tries=1 --timeout=180 2>&1 | Tee-Object -FilePath $workerLog -Append | Out-Null
             }
 
             $done = $false
@@ -174,6 +238,7 @@ try {
 
             if (-not $done) {
                 Write-Host "FAIL: iteration $i did not complete (status=$($poll.status))"
+                Show-FailureDiagnostics $poll $id
                 $failures++
                 break
             }
@@ -207,6 +272,9 @@ finally {
     Remove-Item $tmpDb -Force -ErrorAction SilentlyContinue
     Remove-Item $jar -Force -ErrorAction SilentlyContinue
     Remove-Item $fixture -Force -ErrorAction SilentlyContinue
+    Remove-Item $serverLog -Force -ErrorAction SilentlyContinue
+    Remove-Item $serverErr -Force -ErrorAction SilentlyContinue
+    Remove-Item $workerLog -Force -ErrorAction SilentlyContinue
     Restore-Env
 }
 

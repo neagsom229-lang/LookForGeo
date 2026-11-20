@@ -55,12 +55,13 @@ return [
         // cannot take down both attempts.
         'fallback_model' => env('GEMINI_FALLBACK_MODEL', 'gemini-3.5-flash'),
         // One retry on the primary model, then one fallback attempt. The
-        // whole sequence shares a 90 second budget so the user sees a
-        // failure in under two minutes instead of waiting on stacked
-        // timeouts.
-        'timeout' => (int) env('GEMINI_TIMEOUT', 30),
+        // whole sequence shares GEMINI_TOTAL_BUDGET seconds. A request that
+        // cannot get a meaningful answer in GEMINI_TIMEOUT seconds is cut
+        // off; the fallback is skipped when fewer than the minimum attempt
+        // window remains.
+        'timeout' => (int) env('GEMINI_TIMEOUT', 50),
         'retries' => (int) env('GEMINI_RETRIES', 1),
-        'max_total_time' => (int) env('GEMINI_MAX_TOTAL_TIME', 90),
+        'max_total_time' => (int) env('GEMINI_TOTAL_BUDGET', 110),
         'min_attempt_seconds' => (int) env('GEMINI_MIN_ATTEMPT_SECONDS', 15),
         // Sleep between the primary attempt and its one retry. Tests set 0.
         'retry_backoff_ms' => (int) env('GEMINI_RETRY_BACKOFF_MS', 1000),

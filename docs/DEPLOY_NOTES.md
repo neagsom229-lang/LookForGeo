@@ -18,8 +18,8 @@ Values below are the non-secret defaults committed in `render.yaml`.
 | `SESSION_DRIVER` | `database` | `file` | default | Worker has no sessions |
 | `QUEUE_CONNECTION` | `database` | `database` | default | Shared job queue |
 | `DB_QUEUE_RETRY_AFTER` | `240` | `240` | default | Must exceed 180 s job timeout |
-| `GEMINI_TIMEOUT` | `30` | `30` | default | Per-request timeout |
-| `GEMINI_MAX_TOTAL_TIME` | `90` | `90` | default | Shared retry/fallback budget |
+| `GEMINI_TIMEOUT` | `50` | `50` | default | Per-request timeout |
+| `GEMINI_TOTAL_BUDGET` | `110` | `110` | default | Shared retry/fallback budget (fallback skipped when <15 s remain) |
 | `GEMINI_RETRIES` | `1` | `1` | default | One primary retry, then fallback |
 | `GEMINI_DAILY_PER_USER` | `50` | `50` | default | Per-user daily quota |
 | `GEMINI_DAILY_LIMIT` | `0` | `0` | default | Global kill switch, 0 = off |
@@ -78,11 +78,12 @@ when `APP_ENV=production`. HSTS is emitted by middleware only over HTTPS.
 
 ## 4. Live gate (run by the deploy owner)
 
-Do not run this from a developer machine against production data. With the
-real `GEMINI_API_KEY` in the environment, run:
+Do not run this from a developer machine against production data. Place the
+real key in the application's `.env` once (it is already there on the deploy
+host) — **do not type it into the shell**. Artisan reads `.env` itself. Then
+run:
 
 ```powershell
-$env:GEMINI_API_KEY = '<your key>'
 php artisan gemini:probe
 ```
 

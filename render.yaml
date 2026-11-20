@@ -27,11 +27,11 @@ services:
       # never picked up twice while still running.
       - key: DB_QUEUE_RETRY_AFTER
         value: 240
-      # One retry layer in GeminiClient: 30s per request, 90s total budget.
+      # One retry layer in GeminiClient: 50s per request, 110s total budget.
       - key: GEMINI_TIMEOUT
-        value: 30
-      - key: GEMINI_MAX_TOTAL_TIME
-        value: 90
+        value: 50
+      - key: GEMINI_TOTAL_BUDGET
+        value: 110
       - key: GEMINI_RETRIES
         value: 1
       # Cost guard: per-user daily quota + global kill switch (0 = off)
@@ -93,9 +93,9 @@ services:
       - key: DB_QUEUE_RETRY_AFTER
         value: 240
       - key: GEMINI_TIMEOUT
-        value: 30
-      - key: GEMINI_MAX_TOTAL_TIME
-        value: 90
+        value: 50
+      - key: GEMINI_TOTAL_BUDGET
+        value: 110
       - key: GEMINI_RETRIES
         value: 1
       # Cost guard: per-user daily quota + global kill switch (0 = off)

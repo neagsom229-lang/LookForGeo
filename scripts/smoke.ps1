@@ -18,6 +18,17 @@ param([switch]$Live)
 $root = (Get-Item $PSScriptRoot).Parent.FullName
 Set-Location $root
 
+# Remember where this run starts in the file logs so failure diagnostics only
+# show lines produced by this run.
+$logStarts = @{}
+foreach ($logPath in @((Join-Path $root 'storage\logs\laravel.log'), (Join-Path $root 'storage\logs\laravel-test.log'))) {
+    if (Test-Path $logPath) {
+        $logStarts[$logPath] = @(Get-Content $logPath -ErrorAction SilentlyContinue).Count
+    } else {
+        $logStarts[$logPath] = 0
+    }
+}
+
 Write-Host "=== TraceGeo smoke test ==="
 
 # 0. Parse check (Windows PowerShell 5.1 compatibility gate)
@@ -67,6 +78,9 @@ Write-Host "=== Stage B: real HTTP smoke (artisan serve + curl.exe) ==="
 $failures = 0
 $tmpDb = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_smoke_" + [guid]::NewGuid().ToString("N") + ".sqlite")
 $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_smoke_" + [guid]::NewGuid().ToString("N") + ".png")
+$serverLog = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_smoke_" + [guid]::NewGuid().ToString("N") + ".server.log")
+$serverErr = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_smoke_" + [guid]::NewGuid().ToString("N") + ".server.err")
+$workerLog = Join-Path ([System.IO.Path]::GetTempPath()) ("tg_smoke_" + [guid]::NewGuid().ToString("N") + ".worker.log")
 $envBackup = @{}
 
 function Save-Env([string[]]$keys) {
@@ -112,13 +126,54 @@ function Get-StatusCode([string]$raw) {
     return 0
 }
 
+function Redact-Text([string]$text) {
+    $value = [string]$text
+    $value = $value -replace '\bkey=[^&\s"''<>]+', 'key=[REDACTED]'
+    $value = $value -replace 'AIza[0-9A-Za-z_\-]{10,}', '[REDACTED]'
+    $value = $value -replace 'AQ[0-9A-Za-z_\-\.]{6,}', '[REDACTED]'
+    $value = $value -replace 'sk-[A-Za-z0-9]{16,}', '[REDACTED]'
+    $value = $value -replace '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----', '[REDACTED PRIVATE KEY]'
+    return $value
+}
+
+function Show-FailureDiagnostics($status, [int]$analysisId) {
+    Write-Host "--- failure diagnostics (before cleanup) ---" -ForegroundColor Yellow
+    $stage = if ($status.stage) { $status.stage } else { '?' }
+    $label = if ($status.stage_label) { $status.stage_label } else { '(none)' }
+    $error = if ($status.error) { $status.error } else { '(none)' }
+    Write-Host ("analysis_id={0} stage={1} stage_label={2}" -f $analysisId, $stage, $label)
+    Write-Host ("user_facing_error=" + (Redact-Text $error))
+    $lines = @()
+    $fileLogs = @(
+        (Join-Path $root 'storage\logs\laravel.log'),
+        (Join-Path $root 'storage\logs\laravel-test.log')
+    )
+    foreach ($log in @($serverLog, $serverErr, $workerLog) + $fileLogs) {
+        if (Test-Path $log) {
+            $skip = 0
+            if ($logStarts.ContainsKey($log)) { $skip = [int]$logStarts[$log] }
+            $lines += @(Get-Content $log -ErrorAction SilentlyContinue |
+                Select-Object -Skip $skip |
+                Where-Object { $_ -match 'Gemini' } | Select-Object -Last 20)
+        }
+    }
+    if ($lines.Count -eq 0) {
+        Write-Host "last 20 Gemini log lines: (none captured)"
+    } else {
+        Write-Host "last 20 redacted Gemini log lines:"
+        foreach ($line in ($lines | Select-Object -Last 20)) { Write-Host ("  " + (Redact-Text $line)) }
+    }
+    Write-Host "--- end failure diagnostics ---" -ForegroundColor Yellow
+}
+
 function Start-FreePortServer([string]$file, [string[]]$extraArgs) {
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
     $listener.Start()
     $port = $listener.LocalEndpoint.Port
     $listener.Stop()
     $args = @("artisan", "serve", "--host=127.0.0.1", "--port=$port") + $extraArgs
-    $proc = Start-Process -PassThru -NoNewWindow -FilePath "php" -ArgumentList $args
+    $proc = Start-Process -PassThru -NoNewWindow -FilePath "php" -ArgumentList $args `
+        -RedirectStandardOutput $serverLog -RedirectStandardError $serverErr
     return @($proc, $port)
 }
 
@@ -305,7 +360,7 @@ try {
                     }
 
                     # Run one job from the queue as a separate process
-                    $workerOut = & php artisan queue:work --once --tries=1 --timeout=180 2>&1 | Out-String
+                    $workerOut = & php artisan queue:work --once --tries=1 --timeout=180 2>&1 | Tee-Object -FilePath $workerLog -Append | Out-String
                     if ($workerOut -match 'DONE|Processed|Completed|Success' -or $LASTEXITCODE -eq 0) {
                         Write-Host "PASS: queue worker processed the analysis job"
                     } else {
@@ -327,7 +382,8 @@ try {
                             break
                         }
                         if ($pollJson.status -eq 'failed') {
-                            Write-Host ("FAIL: analysis job reported status=failed: " + ($pollJson.error))
+                            Write-Host ("FAIL: analysis job reported status=failed: " + (Redact-Text $pollJson.error))
+                            Show-FailureDiagnostics $pollJson $analysisId
                             $failures++
                             break
                         }
@@ -346,6 +402,7 @@ try {
                         }
                     } elseif ($failures -eq 0) {
                         Write-Host "FAIL: analysis did not reach status=completed within 30s"
+                        Show-FailureDiagnostics $pollJson $analysisId
                         $failures++
                     }
 
@@ -409,6 +466,9 @@ finally {
     Remove-Item $fixture -Force -ErrorAction SilentlyContinue
     Remove-Item $jar -Force -ErrorAction SilentlyContinue
     Remove-Item $jar2 -Force -ErrorAction SilentlyContinue
+    Remove-Item $serverLog -Force -ErrorAction SilentlyContinue
+    Remove-Item $serverErr -Force -ErrorAction SilentlyContinue
+    Remove-Item $workerLog -Force -ErrorAction SilentlyContinue
     Restore-Env
 }
 

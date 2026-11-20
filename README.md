@@ -125,7 +125,8 @@ QUEUE_CONNECTION=database
 GEMINI_API_KEY=your_google_ai_studio_key_here
 GEMINI_MODEL=gemini-3.6-flash
 GEMINI_FALLBACK_MODEL=gemini-3.5-flash
-GEMINI_MAX_TOTAL_TIME=120
+GEMINI_TIMEOUT=50
+GEMINI_TOTAL_BUDGET=110
 
 # Cloudinary (Optional - local fallback supported)
 CLOUDINARY_CLOUD_NAME=
@@ -225,7 +226,8 @@ php artisan queue:work --tries=1 --timeout=180
 **"cURL error 28: Connection timed out"**
 High-resolution multimodal analysis can take 20–40 seconds depending on upstream load. Increase the Gemini timeout in `.env`:
 ```env
-GEMINI_MAX_TOTAL_TIME=120
+GEMINI_TIMEOUT=50
+GEMINI_TOTAL_BUDGET=110
 ```
 Then refresh the configuration cache:
 ```bash

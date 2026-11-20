@@ -77,6 +77,38 @@ class GeminiBudgetTest extends TestCase
         });
     }
 
+    public function test_environment_defaults_are_50s_request_and_110s_budget(): void
+    {
+        $config = require config_path('services.php');
+
+        $this->assertSame(50, $config['gemini']['timeout']);
+        $this->assertSame(110, $config['gemini']['max_total_time']);
+        $this->assertSame(15, $config['gemini']['min_attempt_seconds']);
+    }
+
+    public function test_fallback_is_attempted_when_minimum_window_still_remains(): void
+    {
+        config(['services.gemini.max_total_time' => 16, 'services.gemini.retries' => 0]);
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'gemini-3.6-flash')) {
+                return Http::response(['error' => 'unavailable'], 503);
+            }
+
+            return Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [[
+                        'text' => json_encode(['landmark_name' => 'Fallback']),
+                    ]]],
+                ]],
+            ], 200);
+        });
+
+        $result = app(GeminiClient::class)->analyzeWithFallback('img', 'prompt');
+
+        $this->assertSame('Fallback', $result['landmark_name']);
+        Http::assertSentCount(2);
+    }
+
     public function test_no_request_started_when_budget_below_minimum_window(): void
     {
         config(['services.gemini.max_total_time' => 5]); // below the 15s floor
