@@ -53,6 +53,8 @@
     "smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke.ps1",
     "latency": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-latency.ps1",
     "latency:live": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-latency.ps1 -Live",
+    "eval": "php artisan geo:eval",
+    "eval:live": "php artisan geo:eval --live",
     "post-autoload-dump": [
         "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
         "@php artisan package:discover --ansi"
