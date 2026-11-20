@@ -261,7 +261,9 @@ class GeminiClient
         // exception messages that embed the request URL.
         $url = "{$this->baseUrl}/models/{$model}:generateContent";
 
-        $compressedImage = $this->compressImageIfNeeded($imageData);
+        $compressed = $this->compressImageIfNeeded($imageData);
+        $compressedImage = $compressed['data'];
+        $imageMime = $compressed['mime'];
 
         $payload = [
             'contents' => [
@@ -270,7 +272,7 @@ class GeminiClient
                         ['text' => $prompt],
                         [
                             'inline_data' => [
-                                'mime_type' => 'image/jpeg',
+                                'mime_type' => $imageMime,
                                 'data' => base64_encode($compressedImage),
                             ],
                         ],
@@ -382,28 +384,29 @@ class GeminiClient
      * architecture, vegetation). Skips silently if GD isn't installed
      * or the image is already small enough — never blocks the request.
      */
-    private function compressImageIfNeeded(string $imageData): string
+    /**
+     * @return array{data: string, mime: string}
+     */
+    private function compressImageIfNeeded(string $imageData): array
     {
-        if (! config('services.gemini.compress_images', true)) {
-            return $imageData;
+        $original = ['data' => $imageData, 'mime' => 'image/jpeg'];
+
+        if (! config('services.gemini.compress_images', true) || ! extension_loaded('gd')) {
+            return $original;
         }
 
-        if (! extension_loaded('gd')) {
-            return $imageData;
-        }
-
-        $maxDimension = (int) config('services.gemini.max_image_dimension', 1536);
-        $sizeThresholdBytes = (int) config('services.gemini.compress_threshold_bytes', 1_500_000);
+        $maxDimension = (int) config('services.gemini.max_image_dimension', 1024);
+        $sizeThresholdBytes = (int) config('services.gemini.compress_threshold_bytes', 1_000_000);
 
         $originalSize = strlen($imageData);
         if ($originalSize <= $sizeThresholdBytes) {
-            return $imageData;
+            return $original;
         }
 
         try {
             $image = @imagecreatefromstring($imageData);
             if ($image === false) {
-                return $imageData;
+                return $original;
             }
 
             $width = imagesx($image);
@@ -412,7 +415,7 @@ class GeminiClient
             if ($width <= $maxDimension && $height <= $maxDimension) {
                 imagedestroy($image);
 
-                return $imageData;
+                return $original;
             }
 
             $scale = $maxDimension / max($width, $height);
@@ -422,9 +425,19 @@ class GeminiClient
             $resized = imagecreatetruecolor($newWidth, $newHeight);
             imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
 
+            // Some GD builds have no JPEG encoder. Fall back to PNG and send
+            // the matching mime type so Gemini can still decode the image.
             ob_start();
             try {
-                imagejpeg($resized, null, 82);
+                if (function_exists('imagejpeg')) {
+                    imagejpeg($resized, null, 82);
+                    $mime = 'image/jpeg';
+                } elseif (function_exists('imagepng')) {
+                    imagepng($resized, null, 6);
+                    $mime = 'image/png';
+                } else {
+                    throw new \RuntimeException('GD has no JPEG or PNG encoder');
+                }
                 $compressed = ob_get_clean();
             } catch (\Throwable $e) {
                 ob_end_clean();
@@ -435,22 +448,23 @@ class GeminiClient
             imagedestroy($resized);
 
             if (! $compressed) {
-                return $imageData;
+                return $original;
             }
 
-            $compressedSize = strlen($compressed);
             Log::info('Gemini image compressed', [
                 'original_kb' => round($originalSize / 1024),
-                'compressed_kb' => round($compressedSize / 1024),
-                'reduction_pct' => $originalSize > 0 ? round((1 - $compressedSize / $originalSize) * 100) : 0,
+                'compressed_kb' => round(strlen($compressed) / 1024),
+                'reduction_pct' => $originalSize > 0 ? round((1 - strlen($compressed) / $originalSize) * 100) : 0,
                 'dimensions' => "{$width}x{$height} -> {$newWidth}x{$newHeight}",
+                'mime' => $mime,
             ]);
 
-            return $compressed;
-        } catch (\Exception $e) {
-            Log::warning('Image compression failed, sending original: '.$e->getMessage());
+            return ['data' => $compressed, 'mime' => $mime];
+        } catch (\Throwable $e) {
+            // Never let image preparation fail the analysis.
+            Log::warning('Image compression failed, sending original: '.SecretSanitizer::redact($e->getMessage()));
 
-            return $imageData;
+            return $original;
         }
     }
 

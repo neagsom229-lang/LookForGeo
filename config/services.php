@@ -55,6 +55,12 @@ return [
         'retry_backoff_ms' => (int) env('GEMINI_RETRY_BACKOFF_MS', 1000),
         // Gemini 3.x: LOW is the cheapest sensible level for extraction.
         'thinking_level' => env('GEMINI_THINKING_LEVEL', 'low'),
+        // Downscale before sending to Gemini. EXIF GPS is parsed from the
+        // stored ORIGINAL by AnalyzeImageJob, so resizing the copy sent to
+        // the model loses no metadata. 1024px keeps vision tokens low.
+        'compress_images' => env('GEMINI_COMPRESS_IMAGES', true),
+        'max_image_dimension' => (int) env('GEMINI_MAX_IMAGE_DIMENSION', 1024),
+        'compress_threshold_bytes' => (int) env('GEMINI_COMPRESS_THRESHOLD_BYTES', 1_000_000),
         // Override to point at a fake endpoint (smoke tests). Default is the real REST base path.
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
     ],
