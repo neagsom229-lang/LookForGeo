@@ -6,7 +6,6 @@ use App\Http\Requests\StoreAnalysisImageRequest;
 use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
 use App\Services\Gemini\SecretSanitizer;
-use App\Services\GeminiService;
 use Cloudinary\Cloudinary;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -20,13 +19,6 @@ class AnalysisController extends Controller
      * Details stay in storage/logs (sanitized).
      */
     public const FAILED_USER_MESSAGE = 'The AI service did not respond. Please retry.';
-
-    protected $geminiService;
-
-    public function __construct(GeminiService $geminiService)
-    {
-        $this->geminiService = $geminiService;
-    }
 
     /**
      * Show the analysis page
@@ -159,7 +151,7 @@ class AnalysisController extends Controller
 
                 return response()->json([
                     'success' => false,
-                    'message' => SecretSanitizer::redact('Analysis could not be started: '.$jobException->getMessage()),
+                    'message' => self::FAILED_USER_MESSAGE,
                 ], 500);
             }
 
@@ -181,7 +173,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => SecretSanitizer::redact('Error starting analysis: '.$e->getMessage()),
+                'message' => self::FAILED_USER_MESSAGE,
             ], 500);
         }
     }
@@ -274,7 +266,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => SecretSanitizer::redact('Error fetching status: '.$e->getMessage()),
+                'message' => 'Could not load analysis status. Please retry.',
             ], 500);
         }
     }
@@ -320,7 +312,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => SecretSanitizer::redact('Error deleting analysis: '.$e->getMessage()),
+                'message' => 'Could not delete analysis. Please retry.',
             ], 500);
         }
     }
@@ -380,7 +372,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => SecretSanitizer::redact('Error retrying analysis: '.$e->getMessage()),
+                'message' => 'Could not retry analysis. Please retry.',
             ], 500);
         }
     }
@@ -486,7 +478,7 @@ class AnalysisController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => SecretSanitizer::redact('Error fetching image: '.$e->getMessage()),
+                'message' => 'Could not fetch that image. Please retry.',
             ], 500);
         }
     }
