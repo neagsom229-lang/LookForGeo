@@ -500,6 +500,31 @@
         display: none;
     }
 
+    .pc-retry {
+        margin-top: 10px;
+        padding: 8px 14px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .pc-retry:hover {
+        background: rgba(255, 255, 255, 0.14);
+        border-color: rgba(255, 255, 255, 0.38);
+    }
+
+    .pc-retry:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
     /* Current city scanning label inside progress card */
     .pc-scanning {
         font-family: 'JetBrains Mono', monospace;

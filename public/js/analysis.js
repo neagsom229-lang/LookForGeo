@@ -304,6 +304,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         pcFill: document.getElementById('pcFill'),
         pcSteps: document.getElementById('pcSteps'),
         pcError: document.getElementById('pcError'),
+        pcRetry: document.getElementById('pcRetry'),
         pcScanning: document.getElementById('pcScanning'),
         resultsSplit: document.getElementById('resultsSplit'),
         satPane: document.getElementById('satPane'),
@@ -360,7 +361,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         if (DOM.navStatus) DOM.navStatus.textContent = msg;
     }
 
-    function showError(message) {
+    function showError(message, failedAnalysisId) {
         if (DOM.pcError) {
             DOM.pcError.textContent = `⚠️ ${message}`;
             DOM.pcError.style.display = 'block';
@@ -370,7 +371,65 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             DOM.statusDot.style.boxShadow = '0 0 20px var(--danger)';
         }
         showToast('❌ ' + message);
-        if (DOM.progressCard) DOM.progressCard.style.display = 'none';
+
+        if (failedAnalysisId) {
+            // Keep the card visible so the Retry action is reachable.
+            if (DOM.progressCard) DOM.progressCard.style.display = 'block';
+            if (DOM.pcHeadline) DOM.pcHeadline.textContent = 'Analysis failed';
+            showRetryButton(failedAnalysisId);
+        } else if (DOM.progressCard) {
+            DOM.progressCard.style.display = 'none';
+        }
+    }
+
+    function showRetryButton(analysisId) {
+        if (!DOM.pcRetry) return;
+        DOM.pcRetry.style.display = 'inline-flex';
+        DOM.pcRetry.disabled = false;
+        DOM.pcRetry.textContent = 'Retry analysis';
+        DOM.pcRetry.dataset.analysisId = String(analysisId);
+    }
+
+    function hideRetryButton() {
+        if (!DOM.pcRetry) return;
+        DOM.pcRetry.style.display = 'none';
+        DOM.pcRetry.disabled = false;
+        delete DOM.pcRetry.dataset.analysisId;
+    }
+
+    async function retryFailedAnalysis() {
+        const id = DOM.pcRetry && DOM.pcRetry.dataset.analysisId;
+        if (!id) return;
+        if (DOM.pcRetry) {
+            DOM.pcRetry.disabled = true;
+            DOM.pcRetry.textContent = 'Retrying...';
+        }
+        try {
+            const res = await fetch(`/api/analyze/${id}/retry`, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
+                credentials: 'same-origin'
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+                throw new Error(data.message || `HTTP ${res.status}`);
+            }
+            hideRetryButton();
+            if (DOM.pcError) DOM.pcError.style.display = 'none';
+            startAnalysis(parseInt(id, 10), sessionStorage.getItem('uploadedImage') || uploadedImageURL);
+        } catch (err) {
+            if (DOM.pcError) {
+                DOM.pcError.textContent = `⚠️ ${err.message || 'Retry failed'}`;
+                DOM.pcError.style.display = 'block';
+            }
+            if (DOM.pcRetry) {
+                DOM.pcRetry.disabled = false;
+                DOM.pcRetry.textContent = 'Retry analysis';
+            }
+        }
     }
 
     /**
@@ -1049,7 +1108,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         if (!currentAnalysisId) return;
         pollAttempts++;
         if (pollAttempts > MAX_POLL_ATTEMPTS) {
-            showError('Analysis timed out');
+            showError('Analysis timed out', currentAnalysisId);
             clearSession();
             return;
         }
@@ -1134,7 +1193,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
 
                 if (data.status === 'failed') {
                     hideQueueHint();
-                    showError(data.error || 'Analysis failed');
+                    showError(data.error || 'Analysis failed', currentAnalysisId);
                     clearSession();
                     return;
                 }
@@ -1157,7 +1216,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 if (consecutiveErrors < 8 && pollAttempts <= MAX_POLL_ATTEMPTS) {
                     pollTimer = setTimeout(pollStatus, delay);
                 } else {
-                    showError('Error: ' + err.message);
+                    showError('Error: ' + err.message, currentAnalysisId);
                     clearSession();
                 }
             });
@@ -1696,6 +1755,7 @@ TraceGeo OSINT Intelligence`;
 
         if (DOM.progressCard) DOM.progressCard.style.display = 'block';
         if (DOM.pcError) DOM.pcError.style.display = 'none';
+        hideRetryButton();
         if (DOM.resultsSplit) DOM.resultsSplit.classList.remove('show');
         if (DOM.statusDot) {
             DOM.statusDot.style.background = 'var(--warning)';
@@ -1722,6 +1782,8 @@ TraceGeo OSINT Intelligence`;
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        if (DOM.pcRetry) DOM.pcRetry.addEventListener('click', retryFailedAnalysis);
+
         const analysisId = sessionStorage.getItem('analysisId');
         const uploadedImage = sessionStorage.getItem('uploadedImage');
 
@@ -1775,6 +1837,7 @@ TraceGeo OSINT Intelligence`;
             elapsedInterval = null;
         }
         clearSession();
+        hideRetryButton();
         stopStarfield();
         if (DOM.progressCard) DOM.progressCard.style.display = 'none';
         if (DOM.statusDot) {

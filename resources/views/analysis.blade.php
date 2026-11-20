@@ -79,6 +79,7 @@
                 </div>
                 <div class="pc-scanning" id="pcScanning"></div>
                 <div class="pc-error" id="pcError"></div>
+                <button type="button" class="pc-retry" id="pcRetry" style="display:none;">Retry analysis</button>
             </div>
 
             <!-- Results Split (Frame 7 & 8) -->
