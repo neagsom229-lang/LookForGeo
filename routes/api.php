@@ -49,13 +49,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/profile', [AuthController::class, 'updateProfile']);
     Route::post('/logout', [AuthController::class, 'apiLogout']);
 
-    // 📍 Landmark operations
-    Route::get('/landmarks/{id}', [LandmarkController::class, 'show']);
-    Route::get('/my-landmarks', [LandmarkController::class, 'myLandmarks']);
-    Route::get('/favorites', [LandmarkController::class, 'favorites']);
-    Route::post('/favorites/{id}', [LandmarkController::class, 'toggleFavorite']);
-    Route::post('/share/{id}', [LandmarkController::class, 'share']);
-    Route::get('/export/{id}', [LandmarkController::class, 'export']);
+    // Removed in Phase C: /landmarks, /my-landmarks, /favorites, /share and
+    // /export pointed at LandmarkController methods that do not exist (all
+    // returned 500) and no UI, test or doc referenced them. Keep only the
+    // auth-gated, documented endpoints above.
 
     // 🧹 Clear cache
     Route::post('/gemini-chat', [GeminiController::class, 'chat'])->middleware('throttle:10,1');

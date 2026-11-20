@@ -44,7 +44,10 @@ Route::middleware(['web', 'auth:web'])->group(function () {
     // ---- Dashboard API (JSON) ----
     Route::get('/api/dashboard-data', [HomeController::class, 'dashboardData'])->name('api.dashboard-data');
 
-    Route::view('/how-it-works', 'how-it-works');
+    // Removed: Route::view('/how-it-works', 'how-it-works') referenced a view
+    // that does not exist (only partials.how-it-works, included by the home
+    // page, exists). The section remains reachable at '/'.
+
     // ---- API Endpoints (Session Auth) ----
     Route::prefix('api')->group(function () {
         Route::post('/analyze/store', [AnalysisController::class, 'store'])->name('api.analyze.store');
@@ -53,8 +56,8 @@ Route::middleware(['web', 'auth:web'])->group(function () {
         Route::delete('/analyze/{id}', [AnalysisController::class, 'destroy'])->name('api.analyze.destroy');
         Route::post('/analyze/{id}/retry', [AnalysisController::class, 'retry'])->name('api.analyze.retry');
         Route::get('/fetch-image', [AnalysisController::class, 'fetchImage'])->name('api.fetch-image');
-        Route::get('/street-view', [AnalysisController::class, 'streetView'])->name('api.street-view');
-        Route::post('/clear-cache', [AnalysisController::class, 'clearCache'])->name('web.clear-cache');
+        // Removed in Phase C: /street-view and /clear-cache had no UI, test or
+        // doc caller; their controller methods are deleted too.
         // NOTE: GET /api/history intentionally lives ONLY in routes/api.php
         // (Sanctum bearer clients). Defining it here as well silently
         // OVERWROTE the API route (RouteCollection assigns, it does not

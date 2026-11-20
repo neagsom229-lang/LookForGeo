@@ -540,29 +540,4 @@ class LandmarkController extends Controller
         ]);
     }
 
-    /**
-     * Submit a location correction
-     */
-    public function submitCorrection(Request $request, $landmarkId)
-    {
-        $request->validate([
-            'latitude' => 'required|numeric|between:-90,90',
-            'longitude' => 'required|numeric|between:-180,180',
-        ]);
-
-        // Store the correction
-        // This should be saved to a landmark_corrections table
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Correction submitted successfully! Thank you for helping improve the accuracy.',
-            'data' => [
-                'landmark_id' => $landmarkId,
-                'latitude' => $request->input('latitude'),
-                'longitude' => $request->input('longitude'),
-                'verified' => false,
-                'pending_review' => true,
-            ],
-        ]);
-    }
 }

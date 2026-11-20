@@ -378,25 +378,6 @@ class AnalysisController extends Controller
     }
 
     /**
-     * 🌍 Get street view URL
-     */
-    public function streetView(Request $request)
-    {
-        $request->validate([
-            'lat' => 'required|numeric',
-            'lng' => 'required|numeric',
-        ]);
-
-        $lat = $request->input('lat');
-        $lng = $request->input('lng');
-
-        return response()->json([
-            'success' => true,
-            'url' => "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint={$lat},{$lng}",
-        ]);
-    }
-
-    /**
      * 🖼️ Fetch image from URL
      */
     public function fetchImage(Request $request)
@@ -569,15 +550,5 @@ class AnalysisController extends Controller
 
         return $result ? response()->json(['success' => true, 'data' => $result])
                        : response()->json(['success' => false, 'message' => 'No data found'], 404);
-    }
-
-    /**
-     * Clear analysis cache
-     */
-    public function clearCache(Request $request)
-    {
-        $request->session()->forget('analysis_result');
-
-        return response()->json(['success' => true, 'message' => 'Cache cleared']);
     }
 }
