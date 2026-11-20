@@ -17,6 +17,8 @@
 
 <body>
 
+    <a href="#stageFrame" class="skip-link">Skip to analysis</a>
+
     <!-- ===== NAVBAR ===== -->
     <nav class="navbar">
         <a href="/" class="logo">
@@ -78,7 +80,7 @@
                     <span class="pcs" data-step="4"><b>05</b>Locate</span>
                 </div>
                 <div class="pc-scanning" id="pcScanning"></div>
-                <div class="pc-error" id="pcError"></div>
+                <div class="pc-error" id="pcError" role="alert" aria-live="assertive"></div>
                 <button type="button" class="pc-retry" id="pcRetry" style="display:none;">Retry analysis</button>
             </div>
 
@@ -123,7 +125,7 @@
                     <div class="place-region" id="placeRegion">Region</div>
                     <div class="coord-row">
                         <span id="coordText">0.0000° N, 0.0000° W</span>
-                        <button id="copyCoordsBtn" title="Copy coordinates"><i class="fas fa-copy"></i></button>
+                        <button id="copyCoordsBtn" title="Copy coordinates" aria-label="Copy coordinates"><i class="fas fa-copy"></i></button>
                     </div>
 
                     <div class="action-row">
@@ -131,8 +133,8 @@
                             Home</button>
                         <button id="reuploadBtn" title="Analyze another photo"><i
                                 class="fas fa-arrow-up-from-bracket"></i> Reupload</button>
-                        <button id="saveReportBtn" title="Save report"><i class="fas fa-folder"></i></button>
-                        <button id="shareBtn" title="Share"><i class="fas fa-share-nodes"></i></button>
+                        <button id="saveReportBtn" title="Save report" aria-label="Save report"><i class="fas fa-folder"></i></button>
+                        <button id="shareBtn" title="Share" aria-label="Share result"><i class="fas fa-share-nodes"></i></button>
                     </div>
 
                     <div class="pane-toggle-row" id="baseLayerToggleRow">
@@ -153,12 +155,12 @@
                         <div class="no-photo"><i class="fas fa-image"></i></div>
                     </div>
                     <div class="photo-icon-row">
-                        <button id="viewFullSizeBtn" title="View full size"><i
+                        <button id="viewFullSizeBtn" title="View full size" aria-label="View full size"><i
                                 class="fas fa-magnifying-glass"></i></button>
-                        <button id="fullscreenPhotoBtn" title="Fullscreen"><i class="fas fa-expand"></i></button>
-                        <button id="reverseSearchBtn" title="Reverse image search"><i
+                        <button id="fullscreenPhotoBtn" title="Fullscreen" aria-label="View photo fullscreen"><i class="fas fa-expand"></i></button>
+                        <button id="reverseSearchBtn" title="Reverse image search" aria-label="Reverse image search"><i
                                 class="fas fa-magnifying-glass-location"></i></button>
-                        <button id="openOriginalBtn" title="Open original"><i
+                        <button id="openOriginalBtn" title="Open original" aria-label="Open original image"><i
                                 class="fas fa-arrow-up-right-from-square"></i></button>
                     </div>
                     <div class="tag-pills" id="tagPills"></div>

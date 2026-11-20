@@ -1572,7 +1572,7 @@
     <div class="bg-glow"></div>
 
     <!-- TOAST -->
-    <div class="toast" id="toast">
+    <div class="toast" id="toast" role="status" aria-live="polite">
         <span class="icon" id="toastIcon"><i class="fas fa-circle-check"></i></span>
         <span class="message" id="toastMessage">Success!</span>
         <button class="close-toast" id="toastClose" aria-label="Dismiss notification">✕</button>
@@ -2333,7 +2333,8 @@
                         }).join('');
                     } else {
                         recentGrid.innerHTML =
-                            '<div class="empty-state"><i class="fas fa-inbox"></i><p>No recent analyses yet.</p></div>';
+                            '<div class="empty-state"><i class="fas fa-inbox"></i><p>No recent analyses yet.</p>' +
+                            '<a href="/" class="btn btn-primary">Upload your first photo</a></div>';
                     }
                 }
 
@@ -2353,7 +2354,8 @@
                         `).join('');
                     } else {
                         popularGrid.innerHTML =
-                            '<div class="empty-state"><i class="fas fa-globe"></i><p>No popular landmarks yet.</p></div>';
+                            '<div class="empty-state"><i class="fas fa-globe"></i><p>No popular landmarks yet.</p>' +
+                            '<a href="/" class="btn btn-primary">Analyze a photo</a></div>';
                     }
                 }
             }

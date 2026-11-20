@@ -1112,7 +1112,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         if (!currentAnalysisId) return;
         pollAttempts++;
         if (pollAttempts > MAX_POLL_ATTEMPTS) {
-            showError('Analysis timed out', currentAnalysisId);
+            showError('This analysis is taking too long. Check your connection, then use Retry analysis below.', currentAnalysisId);
             clearSession();
             return;
         }
@@ -1197,7 +1197,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
 
                 if (data.status === 'failed') {
                     hideQueueHint();
-                    showError(data.error || 'Analysis failed', currentAnalysisId);
+                    showError(data.error || 'Your photo is saved. Use Retry analysis below, or upload a different photo.', currentAnalysisId);
                     clearSession();
                     return;
                 }
@@ -1220,7 +1220,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 if (consecutiveErrors < 8 && pollAttempts <= MAX_POLL_ATTEMPTS) {
                     pollTimer = setTimeout(pollStatus, delay);
                 } else {
-                    showError('Error: ' + err.message, currentAnalysisId);
+                    showError('Could not reach the analysis service. Use Retry analysis below.', currentAnalysisId);
                     clearSession();
                 }
             });
