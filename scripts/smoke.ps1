@@ -35,6 +35,18 @@ if ($Live) {
         exit 2
     }
     Write-Host "Mode: LIVE (real Gemini API)"
+
+    # Probe each configured model. gemini:probe prints only model, HTTP
+    # status and seconds -- never the API key. GEMINI_BASE_URL is honored so
+    # a local mock or a corporate proxy can be measured too.
+    Write-Host "--- Live Gemini model probe (status + seconds, key hidden) ---"
+    $probe = & php artisan gemini:probe 2>&1 | Out-String
+    $probeExit = $LASTEXITCODE
+    Write-Host $probe
+    if ($probeExit -ne 0) {
+        Write-Host "LIVE Gemini probe FAILED."
+        exit 1
+    }
 } else {
     Write-Host "Mode: FAKE (Http::fake, offline)"
 }
@@ -110,13 +122,20 @@ function Start-FreePortServer([string]$file, [string[]]$extraArgs) {
     return @($proc, $port)
 }
 
-Save-Env @('DB_DATABASE', 'QUEUE_CONNECTION', 'GEMINI_API_KEY', 'GEMINI_BASE_URL')
+Save-Env @('DB_DATABASE', 'QUEUE_CONNECTION', 'GEMINI_API_KEY', 'GEMINI_BASE_URL', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'CLOUDINARY_URL')
 try {
     # Fresh, isolated database for the run -- never the real one.
     New-Item -ItemType File $tmpDb | Out-Null
     $env:DB_DATABASE = $tmpDb
     $env:QUEUE_CONNECTION = "database"
     $env:GEMINI_API_KEY = "smoke-fake-key"
+    # Force the local-disk upload path: no Cloudinary credentials means no
+    # cloud call, no cost and a deterministic offline smoke run.
+    $env:CLOUDINARY_CLOUD_NAME = ""
+    $env:CLOUDINARY_API_KEY = ""
+    $env:CLOUDINARY_API_SECRET = ""
+    $env:CLOUDINARY_URL = ""
+    Write-Host "Cloudinary disabled for smoke (no cloud calls expected)."
 
     & php artisan migrate --force 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
@@ -259,6 +278,15 @@ try {
 
                 $uploadJson = $uploadBody | ConvertFrom-Json
                 $analysisId = $uploadJson.id
+
+                $uploadImageUrl = "$($uploadJson.data.image_url)"
+                if ($uploadImageUrl -and $uploadImageUrl -notmatch 'cloudinary\.com') {
+                    Write-Host "PASS: no Cloudinary call (image_url=$uploadImageUrl)"
+                } else {
+                    Write-Host "FAIL: upload used Cloudinary or returned no local URL: $uploadImageUrl"
+                    $failures++
+                }
+
                 if ($analysisId) {
                     Write-Host "Analysis id: $analysisId"
 
