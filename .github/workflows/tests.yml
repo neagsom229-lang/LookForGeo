@@ -127,3 +127,23 @@ jobs:
           fi
           echo "Checking: $CHANGED"
           vendor/bin/pint --test $CHANGED
+
+  larastan:
+    name: Larastan (level 5, baseline ratchet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --optimize-autoloader --no-interaction
+
+      # Existing debt is captured in phpstan-baseline.neon; any NEW level-5
+      # error fails the job. Regenerate the baseline only with intent.
+      - name: Static analysis
+        run: composer analyse
