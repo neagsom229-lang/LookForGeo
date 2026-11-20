@@ -39,5 +39,8 @@ php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 
-echo "🚀 Starting Supervisor (Web + Queue Worker)..."
+echo "🚀 Starting Supervisor (Apache web server)..."
+# NOTE: this container only serves HTTP. The database queue worker is a
+# SEPARATE Render service (see render.yaml -> queue-worker), so the comment
+# historically claiming "Web + Queue Worker" here was misleading.
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf

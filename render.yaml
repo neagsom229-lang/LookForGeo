@@ -46,9 +46,16 @@ services:
         sync: false
       - key: DB_CONNECTION
         value: pgsql
-      - key: CACHE_DRIVER
-        value: file
+      - key: CACHE_STORE
+        # Must match the web service: the queue worker invalidates dashboard
+        # cache entries (GeoAnalysis model events) that the web process reads,
+        # so both sides have to use the same store.
+        # NOTE: the old key here was CACHE_DRIVER, which Laravel 11+ ignores
+        # (config/cache.php reads CACHE_STORE only) -- see .env.example.
+        value: database
       - key: SESSION_DRIVER
+        # A queue worker never starts a session; kept only for parity with the
+        # web service. Harmless but not load-bearing.
         value: file
       - key: QUEUE_CONNECTION
         value: database
