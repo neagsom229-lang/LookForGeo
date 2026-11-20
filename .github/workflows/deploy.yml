@@ -22,7 +22,7 @@ jobs:
       RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
       PUSHED_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # No secret configured (e.g. fork or first setup): do not fail the run
       # and do not open an issue. The read-only probe below still runs.
