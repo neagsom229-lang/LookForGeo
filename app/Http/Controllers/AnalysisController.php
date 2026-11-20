@@ -7,6 +7,8 @@ use App\Jobs\AnalyzeImageJob;
 use App\Jobs\DeleteCloudinaryImageJob;
 use App\Models\GeoAnalysis;
 use App\Services\AnalysisCostGuard;
+use App\Services\Gemini\GeminiCircuitBreaker;
+use App\Services\Gemini\GeminiFailureClassifier;
 use App\Services\Gemini\SecretSanitizer;
 use Cloudinary\Cloudinary;
 use GuzzleHttp\Psr7\Uri;
@@ -291,9 +293,17 @@ class AnalysisController extends Controller
             }
 
             if ($analysis->status === 'failed') {
-                // User-facing failure text is always generic; the sanitized
-                // details live in the log (and in the DB error column).
-                $response['error'] = self::FAILED_USER_MESSAGE;
+                // Only the fixed, classified generic messages are ever
+                // returned. Unknown/legacy error text falls back to the
+                // catch-all message; raw provider details stay in logs.
+                $response['error'] = GeminiFailureClassifier::isSafeUserMessage($analysis->error)
+                    ? $analysis->error
+                    : self::FAILED_USER_MESSAGE;
+                $response['failure_category'] = GeminiFailureClassifier::categoryFromStageLabel($analysis->stage_label);
+
+                if (in_array($response['failure_category'], ['quota', 'overload', 'circuit_open'], true)) {
+                    $response['retry_after_seconds'] = app(GeminiCircuitBreaker::class)->remainingSeconds();
+                }
             }
 
             if ($reaped) {

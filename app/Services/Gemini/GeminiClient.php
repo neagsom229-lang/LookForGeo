@@ -28,7 +28,7 @@ class GeminiClient
 
     protected $baseUrl;
 
-    public function __construct()
+    public function __construct(private GeminiCircuitBreaker $circuit)
     {
         $this->apiKey = config('services.gemini.key');
         $this->primaryModel = config('services.gemini.model', 'gemini-3.6-flash');
@@ -91,6 +91,11 @@ class GeminiClient
      */
     public function analyzeWithFallback($imageData, $prompt, ?callable $onRetry = null)
     {
+        // Fail fast while the shared breaker is open: no model call at all.
+        if ($this->circuit->isOpen()) {
+            return $this->circuitOpenResult();
+        }
+
         $deadline = microtime(true) + $this->maxTotalTimeSeconds;
         $primaryAttempts = 1 + $this->maxRetries;
 
@@ -105,13 +110,20 @@ class GeminiClient
         );
 
         if (! isset($result['error'])) {
+            $this->circuit->recordSuccess();
+
             return $result;
         }
 
+        $result = $this->withClassification($result);
         if ($result['error'] === 'api_key_missing') {
             return $result;
         }
 
+        $this->noteCircuitFailure($result);
+
+        // A 429 is never retried on the same model (see retryableErrors).
+        // The fallback is a different model, so it is still allowed.
         if (! $this->hasBudgetForAttempt($deadline)) {
             Log::warning('Time budget exhausted before fallback attempt', ['primary_error' => $result['message']]);
 
@@ -123,13 +135,47 @@ class GeminiClient
 
         Log::warning('Primary model failed, using fallback', ['error' => $result['message']]);
 
-        return $this->sendGeminiRequestWithRetry(
+        $fallback = $this->sendGeminiRequestWithRetry(
             $this->fallbackModel,
             $imageData,
             $prompt,
             $deadline,
             1
         );
+
+        if (! isset($fallback['error'])) {
+            $this->circuit->recordSuccess();
+
+            return $fallback;
+        }
+
+        $fallback = $this->withClassification($fallback);
+        $this->noteCircuitFailure($fallback);
+
+        return $fallback;
+    }
+
+    private function withClassification(array $result): array
+    {
+        return array_merge($result, GeminiFailureClassifier::classify($result));
+    }
+
+    private function noteCircuitFailure(array $result): void
+    {
+        if (in_array($result['category'] ?? null, ['quota', 'overload'], true)) {
+            $this->circuit->recordFailure($result['retry_after'] ?? null);
+        }
+    }
+
+    private function circuitOpenResult(): array
+    {
+        $classified = GeminiFailureClassifier::classify(['error' => 'circuit_open']);
+
+        return array_merge([
+            'error' => 'circuit_open',
+            'message' => $classified['user_message'],
+            'retry_after_seconds' => $this->circuit->remainingSeconds(),
+        ], $classified);
     }
 
     /**
@@ -263,6 +309,9 @@ class GeminiClient
             'elapsed_ms' => (int) round((microtime(true) - $started) * 1000),
             'thinking_level' => str_starts_with($model, 'gemini-3') ? $this->thinkingLevel : 'n/a',
             'image_bytes' => $imageBytes,
+            'category' => isset($result['error'])
+                ? GeminiFailureClassifier::classify($result)['category']
+                : 'success',
         ];
         if ($exception !== null) {
             $context['exception_class'] = get_class($exception);
@@ -375,22 +424,37 @@ class GeminiClient
             $status = $response->status();
 
             if ($status === 429) {
+                $retryAfter = (int) $response->header('Retry-After');
+
                 return $this->finishAttempt(
-                    ['error' => 'quota_exceeded', 'message' => 'API quota exceeded. Try again later.'],
+                    [
+                        'error' => 'quota_exceeded',
+                        'message' => 'API quota exceeded. Try again later.',
+                        'http_status' => $status,
+                        'retry_after' => $retryAfter,
+                    ],
                     $model, $attemptStarted, $imageBytes, $status
                 );
             }
 
             if ($status === 503) {
                 return $this->finishAttempt(
-                    ['error' => 'service_unavailable', 'message' => 'Gemini service temporarily unavailable (503)'],
+                    [
+                        'error' => 'service_unavailable',
+                        'message' => 'Gemini service temporarily unavailable (503)',
+                        'http_status' => $status,
+                    ],
                     $model, $attemptStarted, $imageBytes, $status
                 );
             }
 
             if ($status >= 500) {
                 return $this->finishAttempt(
-                    ['error' => 'server_error', 'message' => 'Gemini server error: '.$status],
+                    [
+                        'error' => 'server_error',
+                        'message' => 'Gemini server error: '.$status,
+                        'http_status' => $status,
+                    ],
                     $model, $attemptStarted, $imageBytes, $status
                 );
             }
@@ -399,7 +463,7 @@ class GeminiClient
                 Log::error("Gemini API error (status {$status}): ".SecretSanitizer::redact($response->body()));
 
                 return $this->finishAttempt(
-                    ['error' => 'api_error', 'message' => "HTTP {$status}"],
+                    ['error' => 'api_error', 'message' => "HTTP {$status}", 'http_status' => $status],
                     $model, $attemptStarted, $imageBytes, $status
                 );
             }

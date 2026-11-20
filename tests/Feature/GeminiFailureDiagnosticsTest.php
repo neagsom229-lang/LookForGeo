@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\AnalysisController;
+use App\Models\GeoAnalysis;
 use App\Models\User;
+use App\Services\Gemini\GeminiFailureClassifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\UploadedFile;
@@ -78,13 +80,29 @@ class GeminiFailureDiagnosticsTest extends TestCase
         $result = $this->runPipeline();
 
         $result['status']->assertJsonPath('status', 'failed')
-            ->assertJsonPath('error', AnalysisController::FAILED_USER_MESSAGE);
+            ->assertJsonPath('error', GeminiFailureClassifier::MESSAGES['overload'])
+            ->assertJsonPath('failure_category', 'overload');
         $this->assertAttemptLog(function (array $context) {
             return ($context['http_status'] ?? null) === 503
                 && $context['model'] === 'gemini-3.6-flash'
                 && $context['thinking_level'] === 'LOW'
                 && $context['image_bytes'] > 0;
         });
+    }
+
+    public function test_429_reaches_status_with_quota_message_and_stage_label(): void
+    {
+        Http::fake(['*' => Http::response(['error' => 'quota'], 429, ['Retry-After' => '5'])]);
+
+        $result = $this->runPipeline();
+
+        $result['status']->assertJsonPath('status', 'failed')
+            ->assertJsonPath('error', GeminiFailureClassifier::MESSAGES['quota'])
+            ->assertJsonPath('failure_category', 'quota');
+        $this->assertSame(
+            GeminiFailureClassifier::STAGE_LABELS['quota'],
+            GeoAnalysis::find($result['id'])->stage_label
+        );
     }
 
     public function test_400_schema_or_thinking_rejection_is_logged_with_status(): void
@@ -96,7 +114,8 @@ class GeminiFailureDiagnosticsTest extends TestCase
         $result = $this->runPipeline();
 
         $result['status']->assertJsonPath('status', 'failed')
-            ->assertJsonPath('error', AnalysisController::FAILED_USER_MESSAGE);
+            ->assertJsonPath('error', GeminiFailureClassifier::MESSAGES['bad_request'])
+            ->assertJsonPath('failure_category', 'bad_request');
         $this->assertAttemptLog(function (array $context) {
             return ($context['http_status'] ?? null) === 400
                 && $context['thinking_level'] === 'LOW'

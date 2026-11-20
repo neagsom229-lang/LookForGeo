@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\GeoAnalysis;
+use App\Services\Gemini\GeminiFailureClassifier;
 use App\Services\Gemini\SecretSanitizer;
 use App\Services\GeminiService;
 use Cloudinary\Api\Upload\UploadApi;
@@ -133,8 +134,14 @@ class AnalyzeImageJob implements ShouldQueue
             // Check for other AI errors (including is_error flag)
             if (isset($aiResult['is_error']) && $aiResult['is_error'] === true) {
                 $errorMsg = $aiResult['error_message'] ?? 'AI analysis failed without specific message';
-                Log::error('❌ Gemini API returned error: '.$errorMsg);
-                throw new \Exception($errorMsg);
+                Log::error('❌ Gemini API returned error: '.SecretSanitizer::redact($errorMsg));
+
+                // Store only the classified generic message and stage label;
+                // raw provider details stay in the (sanitized) log.
+                $analysis->update([
+                    'stage_label' => $aiResult['stage_label'] ?? GeminiFailureClassifier::STAGE_LABELS['other'],
+                ]);
+                throw new \Exception($aiResult['user_message'] ?? GeminiFailureClassifier::DEFAULT_USER_MESSAGE);
             }
 
             // Also check if the result is an array with an 'error' key (non-503)

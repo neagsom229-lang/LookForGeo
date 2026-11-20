@@ -65,6 +65,9 @@ return [
         'min_attempt_seconds' => (int) env('GEMINI_MIN_ATTEMPT_SECONDS', 15),
         // Sleep between the primary attempt and its one retry. Tests set 0.
         'retry_backoff_ms' => (int) env('GEMINI_RETRY_BACKOFF_MS', 1000),
+        // Circuit breaker for quota/overload failures (shared cache state).
+        'circuit_failures' => (int) env('GEMINI_CIRCUIT_FAILURES', 3),
+        'circuit_open_seconds' => (int) env('GEMINI_CIRCUIT_OPEN_SECONDS', 60),
         // Gemini 3.x: LOW is the cheapest sensible level for extraction.
         'thinking_level' => env('GEMINI_THINKING_LEVEL', 'low'),
         // Downscale before sending to Gemini. EXIF GPS is parsed from the

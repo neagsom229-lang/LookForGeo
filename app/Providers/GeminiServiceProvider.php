@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Services\Gemini\ConfidenceCalculator;
+use App\Services\Gemini\GeminiCircuitBreaker;
 use App\Services\Gemini\GeminiClient;
 use App\Services\Gemini\GeminiPrompt;
 use App\Services\Gemini\GeminiResultEnhancer;
@@ -16,7 +17,7 @@ class GeminiServiceProvider extends ServiceProvider
     public function register()
     {
         $this->app->singleton(GeminiClient::class, function ($app) {
-            return new GeminiClient;
+            return new GeminiClient($app->make(GeminiCircuitBreaker::class));
         });
 
         $this->app->singleton(GeminiPrompt::class, function ($app) {

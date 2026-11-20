@@ -34,6 +34,11 @@ services:
         value: 110
       - key: GEMINI_RETRIES
         value: 1
+      # Circuit breaker for quota/overload failures (shared cache state)
+      - key: GEMINI_CIRCUIT_FAILURES
+        value: 3
+      - key: GEMINI_CIRCUIT_OPEN_SECONDS
+        value: 60
       # Cost guard: per-user daily quota + global kill switch (0 = off)
       - key: GEMINI_DAILY_PER_USER
         value: 50
@@ -98,6 +103,11 @@ services:
         value: 110
       - key: GEMINI_RETRIES
         value: 1
+      # Circuit breaker for quota/overload failures (shared cache state)
+      - key: GEMINI_CIRCUIT_FAILURES
+        value: 3
+      - key: GEMINI_CIRCUIT_OPEN_SECONDS
+        value: 60
       # Cost guard: per-user daily quota + global kill switch (0 = off)
       - key: GEMINI_DAILY_PER_USER
         value: 50

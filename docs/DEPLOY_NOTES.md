@@ -21,6 +21,8 @@ Values below are the non-secret defaults committed in `render.yaml`.
 | `GEMINI_TIMEOUT` | `50` | `50` | default | Per-request timeout |
 | `GEMINI_TOTAL_BUDGET` | `110` | `110` | default | Shared retry/fallback budget (fallback skipped when <15 s remain) |
 | `GEMINI_RETRIES` | `1` | `1` | default | One primary retry, then fallback |
+| `GEMINI_CIRCUIT_FAILURES` | `3` | `3` | default | Failures before the breaker opens |
+| `GEMINI_CIRCUIT_OPEN_SECONDS` | `60` | `60` | default | Breaker open window; 429 `Retry-After` can extend it |
 | `GEMINI_DAILY_PER_USER` | `50` | `50` | default | Per-user daily quota |
 | `GEMINI_DAILY_LIMIT` | `0` | `0` | default | Global kill switch, 0 = off |
 | `ANALYSIS_REAP_MINUTES` | `10` | `10` | default | Reap-on-read window |
@@ -65,6 +67,14 @@ when `APP_ENV=production`. HSTS is emitted by middleware only over HTTPS.
   same user are cached by sha256, return instantly and do not consume quota.
   `GEMINI_DAILY_LIMIT=0` leaves the global kill switch off; set a number to
   enable it.
+- **Failure classification**: 429 quota, 503 overload, timeout, 400 request
+  and other failures map to five distinct generic user messages and stage
+  labels (no provider detail). 429 is never retried on the same model; its
+  `Retry-After` is carried into the result and can extend the breaker window.
+- **Circuit breaker**: after 3 quota/overload failures the shared breaker
+  opens for 60 s and subsequent analyses fail fast with the overload message.
+  A successful analysis resets the counter. Configure with
+  `GEMINI_CIRCUIT_FAILURES` / `GEMINI_CIRCUIT_OPEN_SECONDS`.
 - **Confidence**: the model's self-reported number is never used as the score.
   Calibrated confidence from checkable signals is **capped at 95**, below 50 is
   “low confidence”, and up to three alternatives are shown.

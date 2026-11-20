@@ -38,8 +38,21 @@ class GeminiService
         $prompt = $this->prompt->buildUltimateGeoPrompt($metadata);
         $result = $this->client->analyzeWithFallback($imageData, $prompt, $onRetry);
 
-        if (! is_array($result) || isset($result['error'])) {
-            return $this->client->getFallbackResponse('AI analysis failed: '.($result['message'] ?? 'unknown error'));
+        if (! is_array($result)) {
+            return $this->client->getFallbackResponse('AI analysis failed: unknown error');
+        }
+
+        if (isset($result['error'])) {
+            $fallback = $this->client->getFallbackResponse('AI analysis failed: '.($result['message'] ?? 'unknown error'));
+            // Carry the classified, user-safe fields through so the job can
+            // set the right stage label and status returns the right message.
+            foreach (['category', 'user_message', 'stage_label', 'retry_after', 'retry_after_seconds'] as $key) {
+                if (array_key_exists($key, $result)) {
+                    $fallback[$key] = $result[$key];
+                }
+            }
+
+            return $fallback;
         }
 
         $errors = $this->validator->validate($result);

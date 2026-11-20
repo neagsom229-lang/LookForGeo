@@ -6,6 +6,7 @@ use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
 use App\Models\User;
 use App\Services\Gemini\GeminiClient;
+use App\Services\Gemini\GeminiFailureClassifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\File;
@@ -90,7 +91,8 @@ class SecretLeakTest extends TestCase
         $this->assertNotNull($analysis->error);
         $this->assertStringNotContainsString(self::KEY, $analysis->error);
         $this->assertStringNotContainsString('AIza', $analysis->error);
-        $this->assertStringContainsString('[REDACTED]', $analysis->error);
+        // AI failures now store only the classified generic message.
+        $this->assertTrue(GeminiFailureClassifier::isSafeUserMessage($analysis->error));
 
         // --- API JSON: generic user-facing text, no key anywhere ---
         $response = $this->actingAs($user, 'web')->getJson("/api/analyze/{$analysis->id}/status");
