@@ -1,0 +1,31 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'hotfix/**'
+  pull_request:
+
+jobs:
+  phpunit:
+    name: PHPUnit (PHP 8.2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
+          coverage: none
+
+      # Git cannot track empty dirs; Laravel needs these before artisan boots.
+      - name: Ensure runtime directories
+        run: mkdir -p bootstrap/cache storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs
+
+      - name: Install dependencies (with dev)
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Run tests
+        run: php vendor/bin/phpunit
