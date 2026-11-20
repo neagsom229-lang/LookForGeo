@@ -168,12 +168,15 @@ try {
 }
 
     /**
-     * ✅ POLLING ENDPOINT – No ownership check (can be public once ID is known)
+     * Polling endpoint. Scoped to the authenticated owner so an ID alone
+     * cannot reveal another user's analysis.
      */
     public function status($id)
     {
         try {
-            $analysis = GeoAnalysis::find($id);
+            $analysis = GeoAnalysis::where('id', $id)
+                ->where('user_id', auth()->id())
+                ->first();
 
             if (!$analysis) {
                 return response()->json([
@@ -635,27 +638,50 @@ try {
 
         $request->validate(['url' => 'required|url']);
 
-        try {
-            // ⚠️ SSRF guard: block private IPs and localhost
-$url = $request->input('url');
-$host = parse_url($url, PHP_URL_HOST);
-$ip = gethostbyname($host);
-if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-    return response()->json([
-        'success' => false,
-        'message' => 'That URL points to a private/internal address and cannot be fetched.'
-    ], 400);
-}
+        $blockedRedirect = false;
 
-// Wikimedia + most CDNs require a real User-Agent, or they return 403
-$response = Http::timeout(30)
-    ->withHeaders([
-        'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com; chheangsamnang.wu@gmail.com)',
-        'Accept'     => 'image/*,*/*;q=0.8',
-        'Referer'    => 'https://lookforgeo.onrender.com/',
-    ])
-    ->withOptions(['allow_redirects' => ['max' => 5]])
-    ->get($url);
+        try {
+            // SSRF guard: block private/internal hosts before any request.
+            $url = $request->input('url');
+
+            if ($this->isPrivateHost($url)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'That URL points to a private/internal address and cannot be fetched.',
+                ], 400);
+            }
+
+            // Wikimedia + most CDNs require a real User-Agent, or they return 403
+            $response = Http::timeout(30)
+                ->withHeaders([
+                    'User-Agent' => 'TraceGeo/1.0 (https://lookforgeo.onrender.com; chheangsamnang.wu@gmail.com)',
+                    'Accept' => 'image/*,*/*;q=0.8',
+                    'Referer' => 'https://lookforgeo.onrender.com/',
+                ])
+                ->withOptions([
+                    'allow_redirects' => [
+                        'max' => 5,
+                        // Check each redirect target BEFORE it is requested, so a
+                        // public URL cannot bounce the server into the private network.
+                        'on_redirect' => function ($request, $response, $uri) use (&$blockedRedirect) {
+                            if ($this->isPrivateHost((string) $uri)) {
+                                $blockedRedirect = true;
+
+                                throw new \RuntimeException('Blocked redirect to a private address.');
+                            }
+                        },
+                    ],
+                ])
+                ->get($url);
+
+            // Defense in depth: re-check the effective URL after redirects.
+            $effectiveUri = (string) ($response->effectiveUri() ?? '');
+            if ($effectiveUri !== '' && $this->isPrivateHost($effectiveUri)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'That URL points to a private/internal address and cannot be fetched.',
+                ], 400);
+            }
 
             if (!$response->successful()) {
                 return response()->json([
@@ -665,7 +691,7 @@ $response = Http::timeout(30)
             }
 
             $content = $response->body();
-            $contentType = $response->header('Content-Type');
+            $contentType = (string) $response->header('Content-Type');
 
             if (!str_starts_with($contentType, 'image/')) {
                 return response()->json([
@@ -691,22 +717,85 @@ $response = Http::timeout(30)
                 'filename' => $filename,
             ]);
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            if ($blockedRedirect) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'That URL points to a private/internal address and cannot be fetched.',
+                ], 400);
+            }
+
             Log::error('URL fetch error: ' . $e->getMessage());
+
+            // Do not echo exception details back to the client (they can contain
+            // internal hostnames, paths, or credentials from the request URL).
             return response()->json([
                 'success' => false,
-                'message' => 'Error fetching image: ' . $e->getMessage()
+                'message' => 'Could not fetch the image. Please try another URL.',
             ], 500);
         }
     }
 
     /**
-     * Get analysis results by ID (no ownership check – can be public)
+     * Reject URLs whose host resolves to a private, loopback, link-local,
+     * reserved or CGNAT address. Fails closed when DNS cannot resolve.
+     */
+    private function isPrivateHost(string $url): bool
+    {
+        $parts = parse_url($url);
+
+        if (! is_array($parts) || ! in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)) {
+            return true;
+        }
+
+        $host = trim((string) ($parts['host'] ?? ''), '[]');
+
+        if ($host === '') {
+            return true;
+        }
+
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            $ips = [$host];
+        } else {
+            $ips = gethostbynamel($host);
+        }
+
+        if ($ips === false || $ips === []) {
+            return true;
+        }
+
+        foreach ($ips as $ip) {
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+                return true;
+            }
+
+            // CGNAT (100.64.0.0/10) is not covered by PHP's private/reserved flags.
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+                && ip2long($ip) >= ip2long('100.64.0.0')
+                && ip2long($ip) <= ip2long('100.127.255.255')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Get analysis results by ID (scoped to the authenticated user - IDOR-safe).
      */
     public function getResults($id)
     {
         try {
-            $analysis = GeoAnalysis::findOrFail($id);
+            $analysis = GeoAnalysis::where('id', $id)
+                ->where('user_id', auth()->id())
+                ->first();
+
+            if (! $analysis) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Analysis not found',
+                ], 404);
+            }
 
             $result = is_string($analysis->result) ? json_decode($analysis->result, true) : $analysis->result;
 
