@@ -22,15 +22,28 @@ services:
       # This is CRITICAL: The queue worker inside Docker will read from the database!
       - key: QUEUE_CONNECTION
         value: database
-      # Secret keys – set actual values in Render Dashboard
+      # retry_after must exceed the queue worker's --timeout=180 so a job is
+      # never picked up twice while still running.
+      - key: DB_QUEUE_RETRY_AFTER
+        value: 240
+      # One retry layer in GeminiClient: 30s per request, 90s total budget.
+      - key: GEMINI_TIMEOUT
+        value: 30
+      - key: GEMINI_MAX_TOTAL_TIME
+        value: 90
+      - key: GEMINI_RETRIES
+        value: 1
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash
+      - key: GEMINI_FALLBACK_MODEL
+        value: gemini-3.5-flash
+      # Secret keys — set actual values in Render Dashboard
       - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_MAPS_EMBED_KEY
         sync: false
       - key: CLOUDINARY_URL
         sync: false
-      - key: GEMINI_MAX_TOTAL_TIME
-        value: 120
 
   - type: worker
     name: queue-worker
@@ -59,6 +72,18 @@ services:
         value: file
       - key: QUEUE_CONNECTION
         value: database
+      - key: DB_QUEUE_RETRY_AFTER
+        value: 240
+      - key: GEMINI_TIMEOUT
+        value: 30
+      - key: GEMINI_MAX_TOTAL_TIME
+        value: 90
+      - key: GEMINI_RETRIES
+        value: 1
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash
+      - key: GEMINI_FALLBACK_MODEL
+        value: gemini-3.5-flash
       - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_MAPS_EMBED_KEY
