@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\Gemini\GeminiCircuitBreaker;
 use App\Services\Gemini\GeminiClient;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -153,6 +154,21 @@ class GeminiBudgetTest extends TestCase
     {
         config(['services.gemini.model' => 'gemini-2.5-flash', 'services.gemini.thinking_level' => 'low']);
         $this->assertThinkingLevel(null);
+    }
+
+    public function test_per_model_timeout_defaults_and_overrides(): void
+    {
+        config(['services.gemini.timeout' => 50]);
+        $client = new GeminiClient(app(GeminiCircuitBreaker::class));
+
+        $this->assertSame(20, $client->timeoutForModel('gemini-3.5-flash-lite'));
+        $this->assertSame(20, $client->timeoutForModel('gemini-3.1-flash-lite'));
+        $this->assertSame(50, $client->timeoutForModel('gemini-3.8-flash'));
+
+        config(['services.gemini.timeout_overrides' => 'gemini-3.8-flash=12,gemini-3.5-flash-lite=33']);
+        $client = new GeminiClient(app(GeminiCircuitBreaker::class));
+        $this->assertSame(12, $client->timeoutForModel('gemini-3.8-flash'));
+        $this->assertSame(33, $client->timeoutForModel('gemini-3.5-flash-lite'));
     }
 
     public function test_environment_defaults_are_50s_request_and_110s_budget(): void

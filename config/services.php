@@ -65,6 +65,12 @@ return [
         // off; the fallback is skipped when fewer than the minimum attempt
         // window remains.
         'timeout' => (int) env('GEMINI_TIMEOUT', 50),
+        // Exact per-model timeouts, e.g. "gemini-3.5-flash-lite=20,gemini-3.8-flash=50".
+        // Defaults: *-lite = 20s, other flash = 50s.
+        'timeout_overrides' => env('GEMINI_TIMEOUT_OVERRIDES', ''),
+        // Start the fallback in parallel if the primary has not answered by
+        // this many seconds. 0 disables hedging.
+        'hedge_after' => (float) env('GEMINI_HEDGE_AFTER', 6),
         'retries' => (int) env('GEMINI_RETRIES', 1),
         'max_total_time' => (int) env('GEMINI_TOTAL_BUDGET', 110),
         'min_attempt_seconds' => (int) env('GEMINI_MIN_ATTEMPT_SECONDS', 15),

@@ -2,6 +2,7 @@
 
 namespace App\Services\Gemini;
 
+use App\Models\GeoAnalysis;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -29,6 +30,9 @@ class GeminiClient
     /** @var array<string,string> */
     protected array $thinkingOverrides = [];
 
+    /** @var array<string,int> */
+    protected array $timeoutOverrides = [];
+
     protected $baseUrl;
 
     public function __construct(private GeminiCircuitBreaker $circuit)
@@ -49,6 +53,13 @@ class GeminiClient
         // Keep the configured casing (default lowercase "low"). An empty
         // value omits thinkingConfig entirely.
         $this->thinkingLevel = trim((string) config('services.gemini.thinking_level', 'low'));
+
+        foreach (explode(',', (string) config('services.gemini.timeout_overrides', '')) as $pair) {
+            if (str_contains($pair, '=')) {
+                [$modelName, $seconds] = explode('=', trim($pair), 2);
+                $this->timeoutOverrides[trim($modelName)] = max(1, (int) trim($seconds));
+            }
+        }
 
         foreach (explode(',', (string) config('services.gemini.thinking_overrides', '')) as $pair) {
             if (str_contains($pair, '=')) {
@@ -101,8 +112,107 @@ class GeminiClient
      * attempt window left, so a 30s request can never start at second 89
      * of a 90s budget and overshoot the user-visible failure target.
      */
+    private function hedgeEnabled(): bool
+    {
+        $after = (float) config('services.gemini.hedge_after', 6);
+
+        return $after > 0
+            && $this->primaryModel !== $this->fallbackModel
+            && ! $this->dailyCapNearLimit();
+    }
+
+    private function dailyCapNearLimit(): bool
+    {
+        $limit = (int) config('services.gemini.daily_limit_global', 0);
+        if ($limit <= 0) {
+            return false;
+        }
+        $used = (int) GeoAnalysis::whereDate('created_at', today())->count();
+
+        return ($used / $limit) > 0.8;
+    }
+
+    /**
+     * Hedge: give the primary only the hedge window, then immediately start
+     * the fallback. The first valid response wins; a primary that merely ran
+     * out of the hedge window is not recorded as a breaker failure.
+     *
+     * @return array{result: array, winner: string, failures: array<int,string>}|null
+     */
+    private function sendHedged(string $imageData, string $prompt): ?array
+    {
+        if (! $this->hedgeEnabled()) {
+            return null;
+        }
+
+        $after = (float) config('services.gemini.hedge_after', 6);
+        $started = microtime(true);
+        $primaryResult = $this->sendSingleGeminiRequest(
+            $this->primaryModel, $imageData, $prompt, max(1, (int) ceil($after))
+        );
+
+        if (! isset($primaryResult['error'])) {
+            return ['result' => $primaryResult, 'winner' => $this->primaryModel, 'failures' => []];
+        }
+
+        // Primary did not answer in the hedge window: start fallback now.
+        $fallbackResult = $this->sendSingleGeminiRequest(
+            $this->fallbackModel, $imageData, $prompt, $this->timeoutForModel($this->fallbackModel)
+        );
+
+        $primaryClass = $this->withClassification($primaryResult);
+        $fallbackClass = isset($fallbackResult['error']) ? $this->withClassification($fallbackResult) : $fallbackResult;
+
+        $winner = isset($fallbackResult['error']) ? 'none' : $this->fallbackModel;
+        $result = isset($fallbackResult['error']) ? $fallbackClass : $fallbackResult;
+        $failures = [];
+
+        if (isset($fallbackResult['error'])) {
+            // Both models genuinely failed.
+            $failures = [$this->primaryModel, $this->fallbackModel];
+            $result = array_merge($primaryClass, [
+                'error' => $fallbackClass['error'],
+                'message' => $fallbackClass['message'],
+                'category' => $fallbackClass['category'],
+                'user_message' => $fallbackClass['user_message'],
+                'stage_label' => $fallbackClass['stage_label'],
+            ]);
+        }
+
+        Log::info('Gemini hedged', [
+            'hedged' => true,
+            'winner' => $winner,
+            'ms' => (int) round((microtime(true) - $started) * 1000),
+        ]);
+
+        $result['hedged'] = true;
+        $result['hedge_winner'] = $winner;
+
+        return ['result' => $result, 'winner' => $winner, 'failures' => $failures];
+    }
+
     public function analyzeWithFallback($imageData, $prompt, ?callable $onRetry = null)
     {
+        // Hedged first pass: start the fallback only if the primary is slow.
+        $hedged = $this->sendHedged($imageData, $prompt);
+        if ($hedged !== null) {
+            $result = $hedged['result'];
+            $classified = isset($result['error']) ? $this->withClassification($result) : $result;
+
+            if (! isset($result['error'])) {
+                $this->circuit->recordSuccess($hedged['winner']);
+
+                return $result;
+            }
+
+            // Only real failures of a model count toward its breaker.
+            foreach ($hedged['failures'] as $failedModel) {
+                $this->noteCircuitFailure($failedModel, $classified);
+            }
+
+            return $classified;
+        }
+
         $deadline = microtime(true) + $this->maxTotalTimeSeconds;
         $models = array_values(array_unique([$this->primaryModel, $this->fallbackModel]));
         $last = ['error' => 'unknown', 'message' => 'No model attempted'];
@@ -216,7 +326,7 @@ class GeminiClient
             // left, so a single slow attempt can never blow past the shared
             // deadline (and, transitively, can never approach the job's
             // own queue timeout).
-            $requestTimeout = (int) max(1, min($this->requestTimeout, floor($remaining)));
+            $requestTimeout = (int) max(1, min($this->timeoutForModel($model), floor($remaining)));
 
             try {
                 $result = $this->sendSingleGeminiRequest($model, $imageData, $prompt, $requestTimeout);
@@ -286,6 +396,23 @@ class GeminiClient
      * need those fields omitted rather than sent with unknown values, so we
      * only add the thinking config for 3.x models.
      */
+    public function timeoutForModel(string $model): int
+    {
+        if (isset($this->timeoutOverrides[$model])) {
+            return $this->timeoutOverrides[$model];
+        }
+
+        if (str_contains($model, 'flash-lite')) {
+            return 20;
+        }
+
+        if (str_contains($model, 'flash')) {
+            return max(20, $this->requestTimeout);
+        }
+
+        return $this->requestTimeout;
+    }
+
     private function generationConfig(string $model, array $config): array
     {
         $level = $this->thinkingLevelFor($model);

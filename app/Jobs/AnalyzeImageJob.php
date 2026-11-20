@@ -86,6 +86,7 @@ class AnalyzeImageJob implements ShouldQueue
                 $error = 'No image found. Path: '.($analysis->image_path ?? 'null');
                 Log::error('❌ '.$error);
                 $analysis->markAsFailed(SecretSanitizer::redact($error));
+                $analysis->update(['failure_category' => 'other']);
                 $this->fail(new \Exception($error));
 
                 return;
@@ -167,6 +168,12 @@ class AnalyzeImageJob implements ShouldQueue
             ]);
 
             $analysis->markAsCompleted($finalResult);
+            $analysis->update([
+                'model_used' => $aiResult['hedge_winner'] ?? (string) config('services.gemini.model'),
+                'processing_ms' => $analysis->started_at
+                    ? (int) $analysis->started_at->diffInMilliseconds($analysis->finished_at ?? now())
+                    : null,
+            ]);
             Log::info('🎉 Analysis COMPLETED for ID: '.$this->analysisId);
 
         } catch (\Throwable $e) {
@@ -183,6 +190,10 @@ class AnalyzeImageJob implements ShouldQueue
                 $analysis = GeoAnalysis::find($this->analysisId);
                 if ($analysis && ! in_array($analysis->status, ['completed', 'failed'])) {
                     $analysis->markAsFailed(SecretSanitizer::redact($e->getMessage()));
+                    $analysis->update([
+                        'model_used' => (string) config('services.gemini.model'),
+                        'failure_category' => GeminiFailureClassifier::categoryFromStageLabel($analysis->stage_label) ?? 'other',
+                    ]);
                     Log::info('✅ Error status saved to database');
                 }
             } catch (\Throwable $updateError) {
