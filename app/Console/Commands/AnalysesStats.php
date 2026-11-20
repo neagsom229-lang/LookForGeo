@@ -29,6 +29,8 @@ class AnalysesStats extends Command
         $categories = [];
         $hedged = 0;
         $hedgeWins = 0;
+        $abandoned = 0;
+        $abandonedMs = [];
 
         foreach ($analyses as $analysis) {
             $model = $analysis->model_used ?: 'unknown';
@@ -40,7 +42,18 @@ class AnalysesStats extends Command
             }
 
             $result = is_string($analysis->result) ? json_decode($analysis->result, true) : $analysis->result;
-            if (is_array($result) && isset($result['hedged'])) {
+            if (! is_array($result)) {
+                continue;
+            }
+
+            if (isset($result['abandoned_primary'])) {
+                $abandoned++;
+                if (isset($result['primary_abandoned_ms'])) {
+                    $abandonedMs[] = (int) $result['primary_abandoned_ms'];
+                }
+            }
+
+            if (isset($result['hedged'])) {
                 $hedged++;
                 if (($result['hedge_winner'] ?? null) === (string) config('services.gemini.fallback_model')) {
                     $hedgeWins++;
@@ -72,6 +85,13 @@ class AnalysesStats extends Command
         }
         $this->line("Failed: {$failed} (".round(100 * $failed / max(1, $analyses->count()), 1).'%)');
         $this->table(['failure_category', 'count', 'share of all'], $failureRows);
+
+        sort($abandonedMs);
+        $abCount = count($abandonedMs);
+        $abandonedSummary = $abCount
+            ? 'avg '.round(array_sum($abandonedMs) / $abCount).' ms, p50 '.$abandonedMs[intdiv($abCount, 2)].' ms, p95 '.$abandonedMs[max(0, (int) ceil(0.95 * $abCount) - 1)].' ms'
+            : 'n/a';
+        $this->line("Abandoned primaries: {$abandoned}, elapsed at abandonment: {$abandonedSummary}");
 
         $this->line('Hedged: '.$hedged.', hedge wins: '.$hedgeWins.', win rate: '
             .($hedged ? round(100 * $hedgeWins / $hedged, 1).'%' : 'n/a'));

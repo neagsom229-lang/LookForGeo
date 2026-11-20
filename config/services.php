@@ -70,7 +70,7 @@ return [
         'timeout_overrides' => env('GEMINI_TIMEOUT_OVERRIDES', ''),
         // Start the fallback in parallel if the primary has not answered by
         // this many seconds. 0 disables hedging.
-        'hedge_after' => (float) env('GEMINI_HEDGE_AFTER', 6),
+        'hedge_after' => (float) env('GEMINI_HEDGE_AFTER', 10),
         'retries' => (int) env('GEMINI_RETRIES', 1),
         'max_total_time' => (int) env('GEMINI_TOTAL_BUDGET', 110),
         'min_attempt_seconds' => (int) env('GEMINI_MIN_ATTEMPT_SECONDS', 15),

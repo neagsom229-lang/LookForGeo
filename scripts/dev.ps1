@@ -13,6 +13,17 @@ try { $OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
 $root = (Get-Item $PSScriptRoot).Parent.FullName
 Set-Location $root
 
+# Local development only: setup.ps1 already migrates, but dev.ps1 is also
+# usable standalone. Never do this against production.
+if ($env:APP_ENV -ne 'production') {
+    Write-Host "Running local migrations (php artisan migrate --force) ..."
+    & php artisan migrate --force
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: local migrations failed." -ForegroundColor Red
+        exit 1
+    }
+}
+
 function Find-ExistingDevProcesses {
     $all = @(Get-CimInstance Win32_Process -Filter "Name = 'php.exe'" -ErrorAction SilentlyContinue)
     $found = @()

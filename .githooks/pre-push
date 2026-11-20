@@ -3,11 +3,13 @@
 # Install: git config core.hooksPath .githooks
 echo "pre-push: running composer test ..."
 
-if command -v composer >/dev/null 2>&1; then
-  composer test
-elif command -v cmd.exe >/dev/null 2>&1; then
-  # Git Bash on Windows may not expose composer.bat directly.
-  cmd.exe /c composer test
+# Never invoke cmd.exe here: it consumes Git's stdin refs as commands and
+# prints its banner. Call composer.bat directly on Windows and always detach
+# stdin from git's ref list.
+if command -v composer.bat >/dev/null 2>&1; then
+  composer.bat test < /dev/null
+elif command -v composer >/dev/null 2>&1; then
+  composer test < /dev/null
 else
   echo "pre-push: composer not found; blocking push." >&2
   exit 1

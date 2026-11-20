@@ -41,13 +41,22 @@ and take anywhere from **1.5 s to 32 s** to answer. The older `3.8/3.7/3.6
 flash` models were hanging or overloaded. This variability is why hedging
 exists: one model being slow must not hold up the other.
 
-**Why hedging exists:** `GEMINI_HEDGE_AFTER=6` gives the primary a six-second
+**Why hedging exists:** `GEMINI_HEDGE_AFTER=10` gives the primary a ten-second
 window. If it has not answered, the fallback starts immediately and the first
 valid response wins; the loser is ignored. A primary that merely timed out in
 the hedge window is **not** counted as a breaker failure. Only genuine 429 /
 503 / timeout failures of a model count toward its breaker. Hedges are
 disabled automatically when the global daily cap is more than 80 % used, to
 avoid doubling spend near the limit.
+
+Implementation note: this is a **staged "primary timeout + fallback"** hedge,
+not two simultaneously in-flight HTTP sockets. The primary request is bounded
+to the hedge window; when that window expires its elapsed time is recorded and
+the fallback request starts. This is deliberate: a true concurrent Guzzle
+promise race could not be made deterministic with Laravel's HTTP fakes, so the
+code and `Gemini primary timeout + fallback` log line name the behaviour
+honestly. `analyses:stats` reports the abandoned-primary count and elapsed
+time so the 10 s default can be tuned from evidence.
 
 Tuning: lower `GEMINI_HEDGE_AFTER` (e.g. 2) if p95 is dominated by slow
 primaries; raise it (or set `0`) if duplicate requests are too costly. Use

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\GeminiService;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Mockery;
@@ -61,7 +62,7 @@ class GeminiHedgeTest extends TestCase
             if (str_contains($request->url(), 'gemini-3.5-flash-lite')) {
                 usleep(1200000); // slower than the 1s hedge window
 
-                throw new \Illuminate\Http\Client\ConnectionException('hedge timeout');
+                throw new ConnectionException('hedge timeout');
             }
 
             return Http::response($this->valid('Fallback'), 200);
@@ -72,8 +73,10 @@ class GeminiHedgeTest extends TestCase
         $this->assertTrue($result['hedged']);
         $this->assertSame('gemini-3.1-flash-lite', $result['hedge_winner']);
         $this->assertSame('Fallback', $result['landmark_name']);
+        $this->assertSame('gemini-3.5-flash-lite', $result['abandoned_primary']);
+        $this->assertArrayHasKey('primary_abandoned_ms', $result);
         $this->assertSame(2, $attempts);
-        Log::shouldHaveReceived('info')->with('Gemini hedged', Mockery::on(function ($context) {
+        Log::shouldHaveReceived('info')->with('Gemini primary timeout + fallback', Mockery::on(function ($context) {
             return ($context['hedged'] ?? false) === true
                 && ($context['winner'] ?? null) === 'gemini-3.1-flash-lite'
                 && isset($context['ms']);

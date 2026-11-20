@@ -139,7 +139,7 @@ class GeminiClient
      *
      * @return array{result: array, winner: string, failures: array<int,string>}|null
      */
-    private function sendHedged(string $imageData, string $prompt): ?array
+    private function sendPrimaryTimeoutThenFallback(string $imageData, string $prompt): ?array
     {
         if (! $this->hedgeEnabled()) {
             return null;
@@ -155,7 +155,9 @@ class GeminiClient
             return ['result' => $primaryResult, 'winner' => $this->primaryModel, 'failures' => []];
         }
 
-        // Primary did not answer in the hedge window: start fallback now.
+        $abandonedMs = (int) round((microtime(true) - $started) * 1000);
+
+        // Primary did not answer in the hedge window: its elapsed time is recorded and the fallback starts now.
         $fallbackResult = $this->sendSingleGeminiRequest(
             $this->fallbackModel, $imageData, $prompt, $this->timeoutForModel($this->fallbackModel)
         );
@@ -179,7 +181,7 @@ class GeminiClient
             ]);
         }
 
-        Log::info('Gemini hedged', [
+        Log::info('Gemini primary timeout + fallback', [
             'hedged' => true,
             'winner' => $winner,
             'ms' => (int) round((microtime(true) - $started) * 1000),
@@ -187,6 +189,8 @@ class GeminiClient
 
         $result['hedged'] = true;
         $result['hedge_winner'] = $winner;
+        $result['abandoned_primary'] = $this->primaryModel;
+        $result['primary_abandoned_ms'] = $abandonedMs;
 
         return ['result' => $result, 'winner' => $winner, 'failures' => $failures];
     }
@@ -194,7 +198,7 @@ class GeminiClient
     public function analyzeWithFallback($imageData, $prompt, ?callable $onRetry = null)
     {
         // Hedged first pass: start the fallback only if the primary is slow.
-        $hedged = $this->sendHedged($imageData, $prompt);
+        $hedged = $this->sendPrimaryTimeoutThenFallback($imageData, $prompt);
         if ($hedged !== null) {
             $result = $hedged['result'];
             $classified = isset($result['error']) ? $this->withClassification($result) : $result;

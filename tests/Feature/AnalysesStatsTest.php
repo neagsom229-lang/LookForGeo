@@ -24,7 +24,7 @@ class AnalysesStatsTest extends TestCase
             'status' => 'completed',
             'model_used' => 'gemini-3.5-flash-lite',
             'processing_ms' => 1000,
-            'result' => ['landmark_name' => 'Eiffel Tower', 'hedged' => true, 'hedge_winner' => 'gemini-3.1-flash-lite'],
+            'result' => ['landmark_name' => 'Eiffel Tower', 'hedged' => true, 'hedge_winner' => 'gemini-3.1-flash-lite', 'abandoned_primary' => 'gemini-3.5-flash-lite', 'primary_abandoned_ms' => 1000],
         ]);
         GeoAnalysis::create([
             'user_id' => $user->id,
@@ -45,6 +45,8 @@ class AnalysesStatsTest extends TestCase
         $this->assertStringContainsString('p50 processing', $text);
         $this->assertStringContainsString('quota', $text);
         $this->assertStringContainsString('hedge wins: 1', $text);
+        $this->assertStringContainsString('Abandoned primaries: 1', $text);
+        $this->assertStringContainsString('elapsed at abandonment', $text);
         $this->assertStringNotContainsString('AIza', $text);
     }
 }

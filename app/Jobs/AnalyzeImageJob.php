@@ -13,8 +13,10 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 class AnalyzeImageJob implements ShouldQueue
@@ -47,6 +49,31 @@ class AnalyzeImageJob implements ShouldQueue
             'local_path' => $localPath,
             'filename' => $filename,
         ]);
+    }
+
+    /**
+     * Telemetry is best-effort: never fail an analysis because a column is
+     * missing (e.g. deploy order or a cached schema before migration).
+     */
+    private function writeTelemetry(GeoAnalysis $analysis, array $values): void
+    {
+        try {
+            $columns = Cache::remember('analysis_telemetry_columns', 3600, function () {
+                $available = [];
+                foreach (['model_used', 'processing_ms', 'failure_category'] as $column) {
+                    $available[$column] = Schema::hasColumn('geo_analyses', $column);
+                }
+
+                return $available;
+            });
+
+            $safe = array_intersect_key($values, array_filter($columns));
+            if ($safe !== []) {
+                $analysis->update($safe);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Telemetry write skipped: '.SecretSanitizer::redact($e->getMessage()));
+        }
     }
 
     public function handle(GeminiService $geminiService)
@@ -86,7 +113,7 @@ class AnalyzeImageJob implements ShouldQueue
                 $error = 'No image found. Path: '.($analysis->image_path ?? 'null');
                 Log::error('❌ '.$error);
                 $analysis->markAsFailed(SecretSanitizer::redact($error));
-                $analysis->update(['failure_category' => 'other']);
+                $this->writeTelemetry($analysis, ['failure_category' => 'other']);
                 $this->fail(new \Exception($error));
 
                 return;
@@ -168,7 +195,7 @@ class AnalyzeImageJob implements ShouldQueue
             ]);
 
             $analysis->markAsCompleted($finalResult);
-            $analysis->update([
+            $this->writeTelemetry($analysis, [
                 'model_used' => $aiResult['hedge_winner'] ?? (string) config('services.gemini.model'),
                 'processing_ms' => $analysis->started_at
                     ? (int) $analysis->started_at->diffInMilliseconds($analysis->finished_at ?? now())
@@ -190,7 +217,7 @@ class AnalyzeImageJob implements ShouldQueue
                 $analysis = GeoAnalysis::find($this->analysisId);
                 if ($analysis && ! in_array($analysis->status, ['completed', 'failed'])) {
                     $analysis->markAsFailed(SecretSanitizer::redact($e->getMessage()));
-                    $analysis->update([
+                    $this->writeTelemetry($analysis, [
                         'model_used' => (string) config('services.gemini.model'),
                         'failure_category' => GeminiFailureClassifier::categoryFromStageLabel($analysis->stage_label) ?? 'other',
                     ]);
