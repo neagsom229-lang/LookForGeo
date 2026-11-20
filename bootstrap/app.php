@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\AuthenticateAny;
 use App\Http\Middleware\ForceCsp;
+use App\Http\Middleware\RequestId;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -16,6 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->prepend(ForceCsp::class);
+        // Correlation id for every request; exposed as X-Request-ID and
+        // attached to every production log line by RequestIdProcessor.
+        $middleware->prepend(RequestId::class);
 
         // Accepts web session OR sanctum bearer token (Phase 0 — auth hardening)
         $middleware->alias([

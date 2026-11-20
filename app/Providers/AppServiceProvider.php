@@ -6,6 +6,7 @@ use App\Logging\SecretLogProcessor;
 use App\Services\GeocodingService;
 use App\Services\LandmarkRecognitionService;
 use App\Support\LocalDatabaseGuard;
+use App\Support\RequestContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -19,6 +20,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(GeocodingService::class);
         $this->app->singleton(LandmarkRecognitionService::class);
+        $this->app->singleton(RequestContext::class);
     }
 
     public function boot(): void
@@ -41,6 +43,13 @@ class AppServiceProvider extends ServiceProvider
         // Rate limiter (migrated from RouteServiceProvider for Laravel 11+)
         RateLimiter::for('api', function (Request $request) {
             return Limit::perMinute(60)
+                ->by($request->user()?->id ?: $request->ip());
+        });
+
+        // Every upload can trigger a paid Gemini call: tighter per-user burst
+        // limit on top of the daily quota in AnalysisCostGuard.
+        RateLimiter::for('upload', function (Request $request) {
+            return Limit::perMinute(10)
                 ->by($request->user()?->id ?: $request->ip());
         });
 

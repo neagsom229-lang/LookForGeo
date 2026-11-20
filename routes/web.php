@@ -50,7 +50,9 @@ Route::middleware(['web', 'auth:web'])->group(function () {
 
     // ---- API Endpoints (Session Auth) ----
     Route::prefix('api')->group(function () {
-        Route::post('/analyze/store', [AnalysisController::class, 'store'])->name('api.analyze.store');
+        Route::post('/analyze/store', [AnalysisController::class, 'store'])
+            ->middleware('throttle:upload')
+            ->name('api.analyze.store');
         Route::get('/analyze/{id}/status', [AnalysisController::class, 'status'])->name('api.analyze.status');
         Route::get('/results/{id}', [AnalysisController::class, 'getResults'])->name('api.results');
         Route::delete('/analyze/{id}', [AnalysisController::class, 'destroy'])->name('api.analyze.destroy');

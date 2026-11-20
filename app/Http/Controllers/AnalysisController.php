@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreAnalysisImageRequest;
 use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
+use App\Services\AnalysisCostGuard;
 use App\Services\Gemini\SecretSanitizer;
 use Cloudinary\Cloudinary;
 use Illuminate\Http\Request;
@@ -86,6 +87,15 @@ class AnalysisController extends Controller
                 ]);
             }
 
+            // Cached uploads are free; only real analyses consume cost.
+            $costGuard = app(AnalysisCostGuard::class);
+            if ($blocked = $costGuard->blocked((int) auth()->id())) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $blocked['message'],
+                ], 429)->header('Retry-After', (string) $blocked['retry_after']);
+            }
+
             Log::info('🚀 Starting async upload', [
                 'user_id' => auth()->id(),
                 'filename' => $filename,
@@ -163,6 +173,7 @@ class AnalysisController extends Controller
             try {
                 AnalyzeImageJob::dispatch($analysis->id, $fullPath, $filename);
                 Log::info('✅ Job dispatched successfully for analysis ID: '.$analysis->id);
+                $costGuard->record((int) auth()->id());
             } catch (\Exception $jobException) {
                 Log::error('❌ Job dispatch FAILED: '.$jobException->getMessage());
                 Log::error('Stack trace: '.$jobException->getTraceAsString());

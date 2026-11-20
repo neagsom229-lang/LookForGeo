@@ -31,6 +31,7 @@
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DATABASE_URL" value="sqlite:///:memory:"/>
         <env name="GEMINI_CONFIDENCE_REVERSE_GEOCODE" value="false"/>
+        <env name="GEMINI_HEALTH_PROBE" value="false"/>
         <env name="CLOUDINARY_CLOUD_NAME" value=""/>
         <env name="CLOUDINARY_API_KEY" value=""/>
         <env name="CLOUDINARY_API_SECRET" value=""/>

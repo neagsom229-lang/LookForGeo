@@ -6,18 +6,23 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreAnalysisImageRequest;
 use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
+use App\Services\AnalysisCostGuard;
+use App\Services\SystemHealthService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class AnalysisApiController extends Controller
 {
-    public function health()
+    public function health(SystemHealthService $health)
     {
+        $report = $health->checks();
+
         return response()->json([
             'success' => true,
-            'status' => 'operational',
+            'status' => $report['status'],
             'version' => '1.0.0',
             'timestamp' => now()->toISOString(),
+            'checks' => $report['checks'],
         ]);
     }
 
@@ -81,6 +86,14 @@ class AnalysisApiController extends Controller
             ], 200);
         }
 
+        $costGuard = app(AnalysisCostGuard::class);
+        if ($blocked = $costGuard->blocked((int) $request->user()->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => $blocked['message'],
+            ], 429)->header('Retry-After', (string) $blocked['retry_after']);
+        }
+
         // ✅ Wrap storage operation in try-catch to handle errors gracefully
         try {
             $path = $file->store('uploads/analyses', 'public');
@@ -118,6 +131,7 @@ class AnalysisApiController extends Controller
         ]);
 
         AnalyzeImageJob::dispatch($analysis->id, $fullPath, $file->getClientOriginalName());
+        $costGuard->record((int) $request->user()->id);
 
         // ✅ Return the same key expected by front-end: 'id'
         return response()->json([

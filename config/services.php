@@ -64,6 +64,13 @@ return [
         // Optional reverse-geocode check for calibrated confidence. Off in
         // phpunit so tests never make an un-faked network call.
         'confidence_reverse_geocode' => env('GEMINI_CONFIDENCE_REVERSE_GEOCODE', true),
+        // Cost guard: per-user daily quota and a global kill switch.
+        // 0 means "no global limit"; quotas are counted for non-cached uploads.
+        'daily_limit_per_user' => (int) env('GEMINI_DAILY_PER_USER', 50),
+        'daily_limit_global' => (int) env('GEMINI_DAILY_LIMIT', 0),
+        // Health check probes the Gemini endpoint (no key, cached 60s).
+        // Off in phpunit so tests never make an un-faked network call.
+        'health_probe' => env('GEMINI_HEALTH_PROBE', true),
         // Override to point at a fake endpoint (smoke tests). Default is the real REST base path.
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
     ],

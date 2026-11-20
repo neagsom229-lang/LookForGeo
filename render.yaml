@@ -33,6 +33,11 @@ services:
         value: 90
       - key: GEMINI_RETRIES
         value: 1
+      # Cost guard: per-user daily quota + global kill switch (0 = off)
+      - key: GEMINI_DAILY_PER_USER
+        value: 50
+      - key: GEMINI_DAILY_LIMIT
+        value: 0
       - key: GEMINI_MODEL
         value: gemini-3.6-flash
       - key: GEMINI_FALLBACK_MODEL
@@ -80,6 +85,11 @@ services:
         value: 90
       - key: GEMINI_RETRIES
         value: 1
+      # Cost guard: per-user daily quota + global kill switch (0 = off)
+      - key: GEMINI_DAILY_PER_USER
+        value: 50
+      - key: GEMINI_DAILY_LIMIT
+        value: 0
       - key: GEMINI_MODEL
         value: gemini-3.6-flash
       - key: GEMINI_FALLBACK_MODEL
