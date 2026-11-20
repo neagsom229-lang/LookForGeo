@@ -60,12 +60,14 @@ Ensure the following tools are installed on your host system:
 
 ### Installation (fast path)
 
-One command bootstraps a fresh clone: copies `.env.example` → `.env`, generates the
-app key, creates `database/database.sqlite`, links storage, runs migrations and seeds a
-demo user (`demo@example.com` / `password`):
+Two commands bootstrap a fresh clone. `composer install` fetches PHP dependencies;
+`composer setup-local` then copies `.env.example` → `.env`, generates the app key,
+creates `database/database.sqlite`, links storage, runs migrations and seeds a demo
+user (`demo@example.com` / `password`):
 
 ```bash
-composer setup-local
+composer install        # PHP dependencies (required before any artisan command)
+composer setup-local    # .env, APP_KEY, sqlite, migrate, demo user
 # add your GEMINI_API_KEY to .env when you have one
 composer dev
 # open http://127.0.0.1:8000 — register or use the demo account
@@ -172,7 +174,7 @@ Access the dashboard in your browser at **http://localhost:8000**.
 
 - **CSP Middleware (`ForceCsp`)** — Content Security Policy headers enforced on all application responses.
 - **SSRF Protection** — Outbound image fetchers validate target destinations; private IP blocks (`10.0.0.0/8`, `192.168.0.0/16`, `127.0.0.0/8`) and localhost endpoints are strictly blocked, with a re-check after redirects.
-- **Protected Gemini Endpoints** — Diagnostic and interactive endpoints (`/api/test-gemini`, `/api/gemini-chat`, `/api/identify`, `/api/identify-gps`, `/api/extract-exif`, `/api/nearby`, `/api/search`) require active authentication.
+- **Protected Gemini Endpoints** — Interactive endpoints (`/api/gemini-chat`, `/api/identify`, `/api/identify-gps`, `/api/extract-exif`, `/api/nearby`, `/api/search`) require active authentication (web session or Sanctum token).
 - **Ownership scoping** — Read/poll/delete/retry of an analysis are scoped to their owner.
 - **Strict Rate Limiting** — Configured at `throttle:10,1` on `/api/gemini-chat` and `throttle:60,1` on `/api/analyze`.
 - **Secret hygiene** — `gitleaks` scans every commit locally (`core.hooksPath .githooks`) and runs in CI on every push; see `docs/SECURITY_INCIDENT.md`.

@@ -433,8 +433,8 @@
                 <p>Returns a paginated list of all completed analyses for the authenticated user.</p>
                 <p><strong>Response:</strong></p>
                 <div class="code-block">
-                    { "success": true, "data": [ { "id": 1, "landmark": "Eiffel Tower", "confidence": 95, "coords": {
-                    "lat": 48.8584, "lng": 2.2945 } } ], "pagination": { "current_page": 1, "last_page": 1 } }
+                    { "success": true, "data": [ { "id": 1, "landmark": "Eiffel Tower", "confidence": 95, "coordinates": {
+                    "lat": 48.8584, "lng": 2.2945 }, "image": "https://...", "created_at": "..." } ], "pagination": { "current_page": 1, "last_page": 1 } }
                 </div>
             </div>
 

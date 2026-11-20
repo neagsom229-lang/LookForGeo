@@ -122,7 +122,7 @@ Pending: live Gemini verification (needs your dev key; smoke.ps1 -Live prints la
 
 ## Definition of Done checklist (Steps 0-5)
 
-- [x] `scripts/setup.ps1` works from a clean clone (static-verified; user should run it for the real browser flow) — **to be re-run by the user**
+- [x] `scripts/setup.ps1` works from a clean clone — **verified 2026-11-20 in a throwaway clone with no `vendor/` and no `.env`** (see §9.8 and the fresh-clone section of `FIX_LOG.md`)
 - [x] `php artisan db:show` says sqlite; boot guard + `LocalDatabaseGuardTest` proves local can't touch prod
 - [x] `composer test` green — **21 tests, 2.5 s**, including the smoke feature test
 - [x] `docs/FIX_LOG.md` lists FAILs, root causes, commits, evidence (this file)
@@ -141,3 +141,23 @@ Pending: live Gemini verification (needs your dev key; smoke.ps1 -Live prints la
 | 5. smoke | no-worker check (backdates row via tinker): `status=pending queued_seconds=180 hint='queue worker not running? run composer dev'`; then worker completes flow. | full run: 12 PASS, `LASTEXITCODE=0`, php before=0 after=0 |
 
 Suite: **40 tests, 125 assertions OK**. Branch `fix/local-workflow`: 21 commits, not pushed.
+
+## Fresh-clone / CI bootstrap (2026-11-20)
+
+Found by cloning the branch to a temp dir (`vendor/` and `.env` absent) and running the documented flow.
+
+| Failure | Root cause | Fix | Evidence |
+|---|---|---|---|
+| Fresh clone aborted with `BOOT CHECK FAILED` | `composer setup-local` was documented as the only command, but `php artisan` cannot boot without `vendor/`; a nested `composer install` inside a Composer script hits the 300 s process timeout | preflight fails fast with an actionable message; README documents `composer install` then `composer setup-local` | preflight exit 1 with instructions; install + setup exit 0 |
+| 27 test errors | `bootstrap/cache` + `storage/framework/{views,sessions,cache/data}` absent: git cannot track empty dirs and `.gitignore` excluded them | tracked `.gitignore` placeholders; `setup.ps1` also creates any missing dirs | dirs present in a fresh clone before `composer install` |
+| 10 `MissingAppKeyException` after dirs were added | `php artisan key:generate` **prints** the writable-dir exception and exits **0**, so setup printed `Generated APP_KEY` while `.env` stayed empty | setup re-reads `.env` and fails unless `APP_KEY=\S+` | reproduction: missing dir → exit 0 + key length 0; fixed → key length 51 |
+| CI had no `APP_KEY` (no `.env`) | tests depended on a local `.env` | fixed test-only `APP_KEY` in `phpunit.xml` | bare clone: **OK (53 tests, 169 assertions)** |
+
+Fresh-clone gates (temp clone, no `vendor/`, no `.env`):
+
+- `composer install` → exit 0; `packages.php` / `services.php` written
+- `php vendor/bin/phpunit` → **OK (53 tests, 169 assertions)**, exit 0
+- `composer setup-local` → exit 0; `APP_KEY` written; migrations + demo user
+- `composer test` → **OK (53 tests, 169 assertions)**, exit 0
+- `composer smoke` → **REAL HTTP SMOKE PASSED**, exit 0
+- Negative tests: removing the five runtime dirs → setup recreated them (exit 0); read-only `.env` with a blank key → setup exit **1** (`key:generate FAILED`)
