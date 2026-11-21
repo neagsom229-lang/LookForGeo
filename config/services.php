@@ -41,6 +41,9 @@ return [
         // A pending/processing row older than this is failed on read, so no
         // scheduler is required on Render.
         'reap_stuck_minutes' => (int) env('ANALYSIS_REAP_MINUTES', 10),
+        // One automatic requeue (8s) when both models fail with overload or
+        // timeout. Never used for bad_request; total user wait is capped.
+        'auto_requeue' => (bool) env('ANALYSIS_AUTO_REQUEUE', true),
     ],
 
     /*
@@ -65,6 +68,12 @@ return [
         // off; the fallback is skipped when fewer than the minimum attempt
         // window remains.
         'timeout' => (int) env('GEMINI_TIMEOUT', 50),
+        // Exact per-model timeouts, e.g. "gemini-3.5-flash-lite=20,gemini-3.8-flash=50".
+        // Defaults: *-lite = 20s, other flash = 50s.
+        'timeout_overrides' => env('GEMINI_TIMEOUT_OVERRIDES', ''),
+        // Start the fallback in parallel if the primary has not answered by
+        // this many seconds. 0 disables hedging.
+        'hedge_after' => (float) env('GEMINI_HEDGE_AFTER', 18),
         'retries' => (int) env('GEMINI_RETRIES', 1),
         'max_total_time' => (int) env('GEMINI_TOTAL_BUDGET', 110),
         'min_attempt_seconds' => (int) env('GEMINI_MIN_ATTEMPT_SECONDS', 15),

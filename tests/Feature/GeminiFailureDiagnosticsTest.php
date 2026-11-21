@@ -34,6 +34,9 @@ class GeminiFailureDiagnosticsTest extends TestCase
             'services.gemini.min_attempt_seconds' => 15,
             'services.gemini.retries' => 0,
             'services.gemini.retry_backoff_ms' => 0,
+            // Isolate the terminal-failure sanitization path; the one
+            // automatic requeue is covered in AutoRequeueTest.
+            'services.analysis.auto_requeue' => false,
         ]);
         Log::spy();
     }

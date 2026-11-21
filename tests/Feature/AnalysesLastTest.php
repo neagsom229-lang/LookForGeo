@@ -29,20 +29,28 @@ class AnalysesLastTest extends TestCase
                 'low_confidence' => true,
             ],
         ]);
-        config(['services.gemini.model' => 'gemini-3.5-flash-lite']);
+        $analysis->update(['model_used' => 'gemini-3.5-flash-lite']);
 
         $output = new BufferedOutput;
         $exit = Artisan::call('analyses:last', [], $output);
         $text = $output->fetch();
 
         $this->assertSame(0, $exit);
-        foreach (['id', 'status', 'model', 'processing_seconds', 'landmark', 'confidence', 'low_confidence', 'failure_category'] as $field) {
+        foreach (['id', 'status', 'model (winner)', 'processing_seconds', 'landmark', 'confidence', 'low_confidence', 'failure_category'] as $field) {
             $this->assertStringContainsString($field, $text);
         }
         $this->assertStringContainsString((string) $analysis->id, $text);
         $this->assertStringContainsString('gemini-3.5-flash-lite', $text);
         $this->assertStringContainsString('Eiffel Tower', $text);
         $this->assertStringContainsString('quota', $text);
+        // Carbon 3 diffs are signed: finished_at after started_at must be +12.
+        $this->assertStringContainsString('processing_seconds', $text);
+        $this->assertStringContainsString('queue_ms', $text);
+        $this->assertStringContainsString('gemini_ms', $text);
+        $this->assertStringContainsString('total_ms (end-to-end)', $text);
+        $this->assertStringNotContainsString('|-12|', $text);
+        $this->assertStringNotContainsString('| -12 |', $text);
+        $this->assertMatchesRegularExpression('/processing_seconds\s*\|\s*12(\.0+)?\s*\|/', $text);
         $this->assertStringNotContainsString('AIza', $text);
     }
 }

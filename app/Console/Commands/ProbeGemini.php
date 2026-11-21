@@ -6,18 +6,19 @@ use App\Services\Gemini\GeminiClient;
 use Illuminate\Console\Command;
 
 /**
- * Probe Gemini models with the real analysis payload shape (tiny PNG,
- * responseSchema, thinking config). Prints only non-secret diagnostics.
+ * Probe Gemini models with the real analysis payload shape. Prints one table
+ * with min/median/max latency, category and thinking level per model.
  */
 class ProbeGemini extends Command
 {
     protected $signature = 'gemini:probe
                             {--model=* : Probe only these models (repeatable)}
                             {--models= : Comma-separated model ids (a,b,c)}
-                            {--repeat=1 : Repeat each model N times and report min/median/max}
+                            {--image= : Real photo path; resized exactly like the app}
+                            {--repeat=1 : Repeat each model N times}
                             {--thinking= : Thinking level override for this experiment}';
 
-    protected $description = 'Probe models with the real payload shape and print status, latency and sanitized errors';
+    protected $description = 'Probe models with the real payload shape and print per-model latency and category';
 
     public function handle(GeminiClient $client): int
     {
@@ -44,8 +45,6 @@ class ProbeGemini extends Command
         $repeat = max(1, (int) $this->option('repeat'));
         $thinking = trim((string) $this->option('thinking'));
 
-        // "minimal" is not a default. It is only allowed when a live 200 for
-        // the exact model/level has been recorded in DEPLOY_NOTES.md.
         if ($thinking !== '' && strtolower($thinking) === 'minimal') {
             foreach ($models as $model) {
                 if (! $this->minimalRecorded($model)) {
@@ -56,6 +55,20 @@ class ProbeGemini extends Command
             }
         }
 
+        $imageData = null;
+        $imageMime = null;
+        if ($imagePath = (string) $this->option('image')) {
+            if (! is_file($imagePath)) {
+                $this->error("Image not found: {$imagePath}");
+
+                return self::FAILURE;
+            }
+            $prepared = $client->prepareImageForModel((string) file_get_contents($imagePath));
+            $imageData = $prepared['data'];
+            $imageMime = $prepared['mime'];
+        }
+
+        $rows = [];
         $allOk = true;
 
         foreach ($models as $model) {
@@ -63,44 +76,44 @@ class ProbeGemini extends Command
             $last = null;
 
             for ($i = 0; $i < $repeat; $i++) {
-                // Fresh result each time: no stale output between models/runs.
-                $last = $client->probeModel($model, $thinking !== '' ? $thinking : null);
+                $last = $client->probeModel($model, $thinking !== '' ? $thinking : null, $imageData, $imageMime);
                 $samples[] = (float) $last['seconds'];
             }
 
             sort($samples);
-            $min = $samples[0];
-            $max = $samples[count($samples) - 1];
-            $median = $samples[intdiv(count($samples), 2)];
-
-            $extras = [];
             if (! $last['ok']) {
                 $allOk = false;
-                $detail = $last['error_message'] ?? $last['error'] ?? null;
-                if ($detail) {
-                    $extras[] = 'error='.$detail;
-                }
-                if ($last['quota_metric'] ?? null) {
-                    $extras[] = 'quotaMetric='.$last['quota_metric'];
-                }
-                if ($last['quota_id'] ?? null) {
-                    $extras[] = 'quotaId='.$last['quota_id'];
-                }
+            }
+            $detail = $last['error_message'] ?? $last['error'] ?? null;
+            if ($last['quota_metric'] ?? null) {
+                $detail = trim((string) $detail.' quotaMetric='.$last['quota_metric']);
+            }
+            if ($last['quota_id'] ?? null) {
+                $detail = trim((string) $detail.' quotaId='.$last['quota_id']);
             }
 
-            $this->line(sprintf(
-                '%s | HTTP %s | %.2f/%.2f/%.2fs | %s%s',
-                $last['model'],
-                $last['status'],
-                $min,
-                $median,
-                $max,
+            $rows[] = [
+                $model,
+                sprintf('%.2f/%.2f/%.2f', $samples[0], $samples[intdiv(count($samples), 2)], $samples[count($samples) - 1]),
                 $last['category'],
-                $extras ? ' | '.implode(' | ', $extras) : ''
-            ));
+                $last['thinking_level'] ?? $this->effectiveThinking($thinking, $client, $model),
+                $detail ? substr($detail, 0, 120) : '-',
+            ];
         }
 
+        $this->table(['model', 'ms min/median/max', 'category', 'thinking level', 'google error (redacted)'], $rows);
+
         return $allOk ? self::SUCCESS : self::FAILURE;
+    }
+
+    private function effectiveThinking(string $thinking, GeminiClient $client, string $model): string
+    {
+        if ($thinking !== '') {
+            return $thinking;
+        }
+
+        // Probe result always carries thinking_level; this is only a fallback.
+        return 'n/a';
     }
 
     private function minimalRecorded(string $model): bool

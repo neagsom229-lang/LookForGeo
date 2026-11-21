@@ -35,6 +35,72 @@ Values below are the non-secret defaults committed in `render.yaml`.
 | `GEMINI_ESCALATE_BELOW` | `60` | `60` | default | Escalate when calibrated confidence is below this |
 | `GEMINI_ESCALATION_TIMEOUT` | `25` | `25` | default | Bounded timeout for the single second pass |
 
+**Observed live behaviour (reported by the deploy owner):** the lite models
+(`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`) intermittently return 503
+and take anywhere from **1.5 s to 32 s** to answer. The older `3.8/3.7/3.6
+flash` models were hanging or overloaded. This variability is why hedging
+exists: one model being slow must not hold up the other.
+
+**Why hedging exists:** `GEMINI_HEDGE_AFTER=18` gives the primary an eighteen-second
+window. If it has not answered, the fallback starts immediately and the first
+valid response wins; the loser is ignored. A primary that merely timed out in
+the hedge window is **not** counted as a breaker failure. Only genuine 429 /
+503 / timeout failures of a model count toward its breaker. Hedges are
+disabled automatically when the global daily cap is more than 80 % used, to
+avoid doubling spend near the limit.
+
+**Per-model live results (fill from `gemini:probe --repeat=10 --models=...` and
+`geo:eval --live --image=<real photo>`; never invent these):**
+
+| model | HTTP | ms min/median/max | category | thinking level | live 200 recorded? |
+|---|---|---|---|---|---|
+| gemini-3.5-flash-lite | (pending) | (pending) | (pending) | low | no |
+| gemini-3.1-flash-lite | (pending) | (pending) | (pending) | low | no |
+
+Only replace `no` with `yes` after a real HTTP 200 is observed. `minimal`
+thinking stays disabled until that row says `yes`.
+
+Implementation note: this is a **staged "primary timeout + fallback"** hedge,
+not two simultaneously in-flight HTTP sockets. The primary request is bounded
+to the hedge window; when that window expires its elapsed time is recorded and
+the fallback request starts. This is deliberate: a true concurrent Guzzle
+promise race could not be made deterministic with Laravel's HTTP fakes, so the
+code and `Gemini primary timeout + fallback` log line name the behaviour
+honestly. `analyses:stats` reports the abandoned-primary count and elapsed
+time so the 18 s default can be tuned from evidence.
+
+**Cloudinary and critical path:** the follow-up `UploadAnalysisImageJob`
+moves Cloudinary **out of the request path for local runs only**, where the
+worker and web process share the local disk. Production (`render.yaml`) still
+uploads to Cloudinary in `AnalysisController@store()` *before* dispatch,
+because the separate worker container has no shared local file. The follow-up
+job is a safety net there, not the primary upload path. Do not claim a
+production latency improvement from this change.
+
+**Latency claims:** p50/p95 figures in this repository come from
+`composer latency:live`/`composer test:decoy`-style local runs and from
+`analyses:stats` on real data. The 1.5–32 s range above is an observation, not
+a target; re-measure after the shorter prompt/schema change before comparing
+p50. `analyses:stats` now prints token p50 and `output_share` so you can see
+whether output length dominates. The 1024 px downscale only runs for images
+larger than `GEMINI_COMPRESS_THRESHOLD_BYTES` (default 1 MB). Smaller images are
+sent **byte-for-byte unchanged**, so `image_bytes` in the log equalling the
+original file size is expected, not proof that downscaling is broken. For
+larger images `image_bytes` is the length of the downscaled/re-encoded payload.
+
+**Automatic requeue:** when both models fail with `overload` or `timeout`, the
+job is released once after 8 s with `stage_label = "Retrying"`. It never
+requeues `bad_request`, never more than once (`ANALYSIS_AUTO_REQUEUE=false`
+disables it), and is skipped when the elapsed time plus the 8 s delay would
+exceed the 60 s total user-wait cap. If the second attempt also fails the row
+becomes `failed` with the usual generic message.
+
+Tuning: lower `GEMINI_HEDGE_AFTER` (e.g. 2) if p95 is dominated by slow
+primaries; raise it (or set `0`) if duplicate requests are too costly. Use
+`composer latency:live -- --iterations=10` and `php artisan gemini:probe
+--repeat=10` to compare before changing. Use `php artisan analyses:stats
+--hours=24` to see hedge win rate and per-model processing percentiles.
+
 **Choosing models (no guessing):** run `php artisan gemini:models` to list
 flash models that support `generateContent`, then
 `php artisan gemini:probe --models=gemini-3.5-flash-lite,gemini-3.1-flash-lite` to see

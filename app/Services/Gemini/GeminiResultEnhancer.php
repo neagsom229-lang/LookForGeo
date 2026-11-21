@@ -95,7 +95,7 @@ class GeminiResultEnhancer
                 $data['landmark_name'] = $landmark->name;
                 $data['city'] = $landmark->city ?? $data['city'];
                 $data['country'] = $landmark->country;
-                $data['region'] = $landmark->region ?? $data['region'];
+                $data['region'] = $landmark->region ?? ($data['region'] ?? null);
                 $data['latitude'] = $landmark->latitude;
                 $data['longitude'] = $landmark->longitude;
                 $data['matched_landmark'] = $landmark->name;

@@ -257,7 +257,7 @@ class AnalysisController extends Controller
             $elapsed = 0;
             if ($analysis->started_at) {
                 $end = $analysis->finished_at ?? now();
-                $elapsed = round($analysis->started_at->diffInSeconds($end), 1);
+                $elapsed = round(abs($analysis->started_at->diffInSeconds($end)), 1);
             }
 
             $response = [

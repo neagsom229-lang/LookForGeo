@@ -96,6 +96,8 @@ class GeminiService
                 $improved = $this->enhancer->enhance($second, $metadata);
                 if ((int) ($improved['confidence'] ?? 0) > $firstConfidence) {
                     $improved['escalated'] = true;
+                    // The escalation model produced the answer actually shown.
+                    $improved['winner'] = $model;
 
                     return $improved;
                 }

@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Gemini\GeminiClient;
 use App\Services\GeminiService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
@@ -18,6 +19,8 @@ class GeoEval extends Command
 {
     protected $signature = 'geo:eval
                             {--live : Call the real Gemini API (needs GEMINI_API_KEY)}
+                            {--image= : Single real photo path (resized exactly like the app)}
+                            {--models= : Comma-separated model ids (a,b,c)}
                             {--limit=0 : Evaluate only the first N images (0 = all)}
                             {--report= : Override the JSON report path}';
 
@@ -29,6 +32,12 @@ class GeoEval extends Command
     {
         $live = (bool) $this->option('live');
         $limit = max(0, (int) $this->option('limit'));
+        $models = array_values(array_filter(array_map('trim', explode(',', (string) $this->option('models')))));
+        $imagePath = (string) $this->option('image');
+
+        if ($imagePath !== '') {
+            return $this->evaluateSingleImage($gemini, $imagePath, $models, $live);
+        }
 
         if ($live && empty(config('services.gemini.key'))) {
             $this->error('Live eval needs GEMINI_API_KEY in the environment.');
@@ -73,6 +82,22 @@ class GeoEval extends Command
                     ]],
                 ], 200);
             });
+        }
+
+        if ($live) {
+            $realPhotos = 0;
+            foreach ($labels as $label) {
+                $license = strtolower((string) ($label['license'] ?? ''));
+                if ($license !== '' && ! str_contains($license, 'synthetic')) {
+                    $realPhotos++;
+                }
+            }
+            if ($realPhotos < 30) {
+                $this->warn("Only {$realPhotos} real labeled photos (need >=30). Calibration numbers are weak until you add real photos with licence notes.");
+            }
+            if (! empty($models)) {
+                $this->info('Requested models: '.implode(',', $models));
+            }
         }
 
         $this->info(sprintf('Evaluating %d images (%s mode)...', count($labels), $live ? 'LIVE' : 'MOCK'));
@@ -241,5 +266,55 @@ class GeoEval extends Command
                 $stats['pct_within_200km'] === null ? 'n/a' : $stats['pct_within_200km'].'%'
             ));
         }
+    }
+
+    private function evaluateSingleImage(GeminiService $gemini, string $path, array $models, bool $live): int
+    {
+        if (! is_file($path)) {
+            $this->error("Image not found: {$path}");
+
+            return self::FAILURE;
+        }
+        if (empty($models)) {
+            $models = array_values(array_unique(array_filter([
+                (string) config('services.gemini.model'),
+                (string) config('services.gemini.fallback_model'),
+            ])));
+        }
+
+        $bytes = (string) file_get_contents($path);
+        $rows = [];
+
+        foreach ($models as $model) {
+            config(['services.gemini.model' => $model, 'services.gemini.fallback_model' => $model]);
+            app()->forgetInstance(GeminiClient::class);
+
+            $started = microtime(true);
+            try {
+                $result = $gemini->analyzeGeolocation($bytes, []);
+            } catch (\Throwable $e) {
+                $result = null;
+            }
+            $seconds = round((microtime(true) - $started) * 1000, 1);
+
+            $rows[] = [
+                $model,
+                sprintf('%.1f/%.1f/%.1f', $seconds, $seconds, $seconds),
+                is_array($result) ? ($result['category'] ?? 'ok') : 'other',
+                (string) config('services.gemini.thinking_level', 'low'),
+                is_array($result) ? (int) ($result['confidence'] ?? 0) : 0,
+            ];
+        }
+
+        $this->table(
+            ['model', 'ms min/median/max', 'category', 'thinking level', 'calibrated confidence'],
+            $rows
+        );
+        if (! $live) {
+            $this->warn('Mock mode: Http::fake returns deterministic data; use --live for real observations.');
+        }
+        $this->info('Record per-model live results in docs/DEPLOY_NOTES.md before enabling any minimal thinking override.');
+
+        return self::SUCCESS;
     }
 }
