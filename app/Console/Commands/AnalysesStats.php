@@ -35,13 +35,17 @@ class AnalysesStats extends Command
         $outputTokens = [];
 
         foreach ($analyses as $analysis) {
-            $model = $analysis->model_used ?: 'unknown';
-            $byModel[$model][] = $analysis->processing_ms;
-
+            // Failures have no answering model and no meaningful latency;
+            // report them separately below instead of polluting p50/p95.
             if ($analysis->status === 'failed') {
                 $category = $analysis->failure_category ?: 'other';
                 $categories[$category] = ($categories[$category] ?? 0) + 1;
+
+                continue;
             }
+
+            $model = $analysis->model_used ?: 'unknown';
+            $byModel[$model][] = $analysis->processing_ms;
 
             $result = is_string($analysis->result) ? json_decode($analysis->result, true) : $analysis->result;
             if (! is_array($result)) {

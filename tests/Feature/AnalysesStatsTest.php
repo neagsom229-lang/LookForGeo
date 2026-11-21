@@ -14,7 +14,7 @@ class AnalysesStatsTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_stats_reports_model_latency_failures_and_hedge_rate(): void
+    public function test_stats_excludes_failures_from_latency_and_reports_them_separately(): void
     {
         $user = User::factory()->create();
         config(['services.gemini.fallback_model' => 'gemini-3.1-flash-lite']);
@@ -29,12 +29,14 @@ class AnalysesStatsTest extends TestCase
             'total_ms' => 1000,
             'result' => ['landmark_name' => 'Eiffel Tower', 'hedged' => true, 'hedge_winner' => 'gemini-3.1-flash-lite', 'abandoned_primary' => 'gemini-3.5-flash-lite', 'primary_abandoned_ms' => 1000],
         ]);
+        // A failure has no answering model: model_used stays null and its
+        // processing_ms must not enter the per-model latency table.
         GeoAnalysis::create([
             'user_id' => $user->id,
             'status' => 'failed',
             'stage_label' => GeminiFailureClassifier::STAGE_LABELS['quota'],
             'failure_category' => 'quota',
-            'model_used' => 'gemini-3.1-flash-lite',
+            'model_used' => null,
             'processing_ms' => 3000,
         ]);
 
@@ -43,13 +45,15 @@ class AnalysesStatsTest extends TestCase
         $text = $output->fetch();
 
         $this->assertSame(0, $exit);
-        $this->assertStringContainsString('gemini-3.5-flash-lite', $text);
-        $this->assertStringContainsString('gemini-3.1-flash-lite', $text);
         $this->assertStringContainsString('p50 processing', $text);
         $this->assertStringContainsString('total (end-to-end)', $text);
         $this->assertStringContainsString('gemini', $text);
         $this->assertStringContainsString('queue', $text);
+        // Failures are reported in their own section only.
+        $this->assertStringContainsString('Failed: 1', $text);
+        $this->assertStringContainsString('failure_category', $text);
         $this->assertStringContainsString('quota', $text);
+        $this->assertStringNotContainsString('| failed |', $text);
         $this->assertStringContainsString('hedge wins: 1', $text);
         $this->assertStringContainsString('Abandoned primaries: 1', $text);
         $this->assertStringContainsString('elapsed at abandonment', $text);

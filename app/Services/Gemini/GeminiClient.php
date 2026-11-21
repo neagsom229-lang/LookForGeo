@@ -497,6 +497,70 @@ class GeminiClient
     /**
      * SEND A SINGLE REQUEST TO GEMINI (no retry logic — that lives in the caller)
      */
+    /**
+     * Full schema is the default. Slim is opt-in via GEMINI_SLIM_SCHEMA and
+     * keeps every field that has a real consumer (region, tags, type and
+     * candidate location/probability/reasoning). The remaining fields are
+     * backfilled by GeminiResultEnhancer's defaults.
+     */
+    private function analysisResponseSchema(): array
+    {
+        $base = [
+            'type' => 'OBJECT',
+            'properties' => [
+                'landmark_name' => ['type' => 'STRING'],
+                'city' => ['type' => 'STRING'],
+                'country' => ['type' => 'STRING'],
+                'region' => ['type' => 'STRING'],
+                'latitude' => ['type' => 'NUMBER', 'nullable' => true],
+                'longitude' => ['type' => 'NUMBER', 'nullable' => true],
+                'confidence' => ['type' => 'INTEGER'],
+                'reasoning' => ['type' => 'STRING'],
+                'negative_evidence' => ['type' => 'STRING'],
+                'vantage_point' => ['type' => 'STRING', 'enum' => ['ground', 'elevated', 'aerial', 'satellite', 'indoor']],
+                'visual_clues' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+                'tags' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+                'description' => ['type' => 'STRING'],
+                'type' => ['type' => 'STRING'],
+                'nearby_landmarks' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+                'wikipedia_url' => ['type' => 'STRING', 'nullable' => true],
+                'nearest_airport' => ['type' => 'STRING', 'nullable' => true],
+                'candidates' => [
+                    'type' => 'ARRAY',
+                    'items' => [
+                        'type' => 'OBJECT',
+                        'properties' => [
+                            'location' => ['type' => 'STRING'],
+                            'city' => ['type' => 'STRING'],
+                            'country' => ['type' => 'STRING'],
+                            'latitude' => ['type' => 'NUMBER', 'nullable' => true],
+                            'longitude' => ['type' => 'NUMBER', 'nullable' => true],
+                            'probability' => ['type' => 'INTEGER'],
+                            'reasoning' => ['type' => 'STRING'],
+                        ],
+                        'required' => ['location', 'probability', 'reasoning'],
+                    ],
+                ],
+            ],
+            'required' => ['landmark_name', 'city', 'country', 'confidence', 'reasoning', 'description'],
+        ];
+
+        if (! (bool) config('services.gemini.slim_schema', false)) {
+            return $base;
+        }
+
+        // Slim: drop only fields with no consumer. Keep the ones the UI,
+        // landmark cross-reference and confidence calculator read.
+        foreach (['negative_evidence', 'nearby_landmarks', 'wikipedia_url', 'nearest_airport'] as $key) {
+            unset($base['properties'][$key]);
+        }
+        foreach (['city', 'country', 'latitude', 'longitude'] as $key) {
+            unset($base['properties']['candidates']['items']['properties'][$key]);
+        }
+
+        return $base;
+    }
+
     private function sendSingleGeminiRequest($model, $imageData, $prompt, ?int $timeoutSeconds = null)
     {
         if (empty($this->apiKey)) {
@@ -536,34 +600,7 @@ class GeminiClient
                 // is schema-conformant. Strict validation happens after
                 // decoding (see GeminiResultValidator).
                 'responseMimeType' => 'application/json',
-                'responseSchema' => [
-                    'type' => 'OBJECT',
-                    'properties' => [
-                        'landmark_name' => ['type' => 'STRING'],
-                        'city' => ['type' => 'STRING'],
-                        'country' => ['type' => 'STRING'],
-                        'latitude' => ['type' => 'NUMBER', 'nullable' => true],
-                        'longitude' => ['type' => 'NUMBER', 'nullable' => true],
-                        'confidence' => ['type' => 'INTEGER'],
-                        'reasoning' => ['type' => 'STRING'],
-                        'description' => ['type' => 'STRING'],
-                        'vantage_point' => ['type' => 'STRING', 'enum' => ['ground', 'elevated', 'aerial', 'satellite', 'indoor']],
-                        'visual_clues' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-                        'candidates' => [
-                            'type' => 'ARRAY',
-                            'items' => [
-                                'type' => 'OBJECT',
-                                'properties' => [
-                                    'location' => ['type' => 'STRING'],
-                                    'probability' => ['type' => 'INTEGER'],
-                                    'reasoning' => ['type' => 'STRING'],
-                                ],
-                                'required' => ['location', 'probability', 'reasoning'],
-                            ],
-                        ],
-                    ],
-                    'required' => ['landmark_name', 'city', 'country', 'confidence', 'reasoning', 'description'],
-                ],
+                'responseSchema' => $this->analysisResponseSchema(),
             ]),
         ];
 

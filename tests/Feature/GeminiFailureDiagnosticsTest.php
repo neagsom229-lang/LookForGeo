@@ -102,10 +102,13 @@ class GeminiFailureDiagnosticsTest extends TestCase
         $result['status']->assertJsonPath('status', 'failed')
             ->assertJsonPath('error', GeminiFailureClassifier::MESSAGES['quota'])
             ->assertJsonPath('failure_category', 'quota');
+        $failed = GeoAnalysis::find($result['id']);
         $this->assertSame(
             GeminiFailureClassifier::STAGE_LABELS['quota'],
-            GeoAnalysis::find($result['id'])->stage_label
+            $failed->stage_label
         );
+        // No model answered, so model_used must stay null on failure.
+        $this->assertNull($failed->model_used);
     }
 
     public function test_400_schema_or_thinking_rejection_is_logged_with_status(): void

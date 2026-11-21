@@ -29,7 +29,7 @@ function Find-ExistingDevProcesses {
     $found = @()
     foreach ($p in $all) {
         $line = "$($p.CommandLine)"
-        if ($line -match 'artisan\s+serve' -or $line -match 'queue:work') {
+        if ($line -match 'artisan\s+serve' -or $line -match 'queue:listen' -or $line -match 'queue:work') {
             $found += $p
         }
     }
@@ -48,13 +48,17 @@ if ($existing.Count -gt 0) {
 
 Write-Host "=== TraceGeo local dev ==="
 Write-Host "Starting php artisan serve on http://127.0.0.1:8000 ..."
-Write-Host "Starting queue worker (database, --tries=1 --timeout=180) ..."
+Write-Host "Starting queue listener (database, --tries=1 --timeout=180) ..."
 Write-Host "Reaping stuck analyses every 60s."
 Write-Host "Tailing storage\logs\laravel.log (Ctrl+C to stop everything)"
 Write-Host ""
 
 $server = Start-Process -PassThru -NoNewWindow -FilePath "php" -ArgumentList "artisan", "serve"
-$worker = Start-Process -PassThru -NoNewWindow -FilePath "php" -ArgumentList "artisan", "queue:work", "--tries=1", "--timeout=180"
+# queue:listen boots a fresh worker process for every job, so PHP edits take
+# effect on the next job without restarting the listener. queue:work is a
+# long-running daemon that loads code once -- correct for production where a
+# deploy restarts workers, but it silently runs stale code locally.
+$worker = Start-Process -PassThru -NoNewWindow -FilePath "php" -ArgumentList "artisan", "queue:listen", "--tries=1", "--timeout=180"
 
 function Stop-ProcessTree($procId) {
     if (-not $procId) { return }

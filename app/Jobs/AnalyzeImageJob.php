@@ -22,12 +22,14 @@ class AnalyzeImageJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    // ONE retry layer lives in GeminiClient (one retry on primary, then one
-    // fallback model, all within a 90s budget). The queue itself does not
-    // retry: release(45) and a high $tries only burned worker attempts on
-    // jobs whose handle() already marks the analysis failed. A stuck job is
-    // recovered by `analyses:reap-stuck` instead.
-    public int $tries = 1;
+    // GeminiClient owns the in-request retries (one on the primary, then one
+    // fallback). The single automatic requeue for overload/timeout uses
+    // release(), which consumes a worker attempt. Job-level tries=2 overrides
+    // the worker's --tries=1 (Laravel reads the job payload's maxTries first),
+    // so that released job really runs again. Permanent failures are caught in
+    // handle() and marked failed; the second attempt then short-circuits, so
+    // this does not add a retry to genuinely bad requests.
+    public int $tries = 2;
 
     public int $timeout = 180;
 
@@ -85,7 +87,7 @@ class AnalyzeImageJob implements ShouldQueue
             return false;
         }
         $elapsed = $analysis->started_at ? (int) abs($analysis->started_at->diffInSeconds(now())) : 0;
-        if ($elapsed + 8 > 60) {
+        if ($elapsed + (int) config('services.analysis.requeue_delay_seconds', 8) > 60) {
             return false;
         }
         Cache::put($key, 1, now()->addMinutes(10));
@@ -113,7 +115,14 @@ class AnalyzeImageJob implements ShouldQueue
                 'image_path' => $analysis->image_path,
             ]);
 
-            // Skip if already completed or failed
+            Log::info('AnalyzeImageJob attempt', [
+                'analysis_id' => $this->analysisId,
+                'attempt' => $this->attempts(),
+                'max_tries' => $this->tries,
+            ]);
+
+            // Skip if already completed or failed. A worker retry after a
+            // permanent failure is therefore a harmless no-op.
             if (in_array($analysis->status, ['completed', 'failed'])) {
                 Log::info('⏭️ Analysis already '.$analysis->status.', skipping: '.$this->analysisId);
 
@@ -190,7 +199,7 @@ class AnalyzeImageJob implements ShouldQueue
                         'status' => 'processing',
                         'progress' => 40,
                     ]);
-                    $this->release(8);
+                    $this->release((int) config('services.analysis.requeue_delay_seconds', 8));
 
                     return;
                 }
@@ -257,8 +266,8 @@ class AnalyzeImageJob implements ShouldQueue
                 $analysis = GeoAnalysis::find($this->analysisId);
                 if ($analysis && ! in_array($analysis->status, ['completed', 'failed'])) {
                     $analysis->markAsFailed(SecretSanitizer::redact($e->getMessage()));
+                    // model_used is intentionally left null: no model answered.
                     $this->writeTelemetry($analysis, [
-                        'model_used' => (string) config('services.gemini.model'),
                         'failure_category' => GeminiFailureClassifier::categoryFromStageLabel($analysis->stage_label) ?? 'other',
                     ]);
                     Log::info('✅ Error status saved to database');

@@ -44,6 +44,7 @@ return [
         // One automatic requeue (8s) when both models fail with overload or
         // timeout. Never used for bad_request; total user wait is capped.
         'auto_requeue' => (bool) env('ANALYSIS_AUTO_REQUEUE', true),
+        'requeue_delay_seconds' => (int) env('ANALYSIS_REQUEUE_DELAY_SECONDS', 8),
     ],
 
     /*
@@ -74,6 +75,9 @@ return [
         // Start the fallback in parallel if the primary has not answered by
         // this many seconds. 0 disables hedging.
         'hedge_after' => (float) env('GEMINI_HEDGE_AFTER', 18),
+        // Opt-in only: keep the full prompt/schema until live geo:eval
+        // before/after accuracy and p50 evidence has been supplied.
+        'slim_schema' => (bool) env('GEMINI_SLIM_SCHEMA', false),
         'retries' => (int) env('GEMINI_RETRIES', 1),
         'max_total_time' => (int) env('GEMINI_TOTAL_BUDGET', 110),
         'min_attempt_seconds' => (int) env('GEMINI_MIN_ATTEMPT_SECONDS', 15),
