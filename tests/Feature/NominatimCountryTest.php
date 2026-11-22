@@ -106,6 +106,44 @@ class NominatimCountryTest extends TestCase
         $this->assertSame('iso', $signal['method']);
     }
 
+    /**
+     * league/iso3166 resolves official names behind the alias map; 30 common
+     * variants are locked here. Weights are unaffected by this lookup.
+     */
+    public function test_thirty_common_country_names_resolve_to_iso_alpha2(): void
+    {
+        $cases = [
+            'Afghanistan' => 'af', 'Albania' => 'al', 'Algeria' => 'dz',
+            'Argentina' => 'ar', 'Australia' => 'au', 'Austria' => 'at',
+            'Bangladesh' => 'bd', 'Belgium' => 'be', 'Brazil' => 'br',
+            'Bulgaria' => 'bg', 'Cambodia' => 'kh', 'Cameroon' => 'cm',
+            'Canada' => 'ca', 'Chile' => 'cl', 'China' => 'cn',
+            'Colombia' => 'co', 'Croatia' => 'hr', 'Denmark' => 'dk',
+            'Egypt' => 'eg', 'Estonia' => 'ee', 'Ethiopia' => 'et',
+            'Finland' => 'fi', 'France' => 'fr', 'Germany' => 'de',
+            'Ghana' => 'gh', 'Greece' => 'gr', 'Hungary' => 'hu',
+            'Iceland' => 'is', 'India' => 'in', 'Indonesia' => 'id',
+        ];
+
+        $out = $this->score('France', [
+            'address' => ['country' => 'France', 'country_code' => 'fr'],
+        ]);
+        $this->assertSame(20, $out['confidence_signals']['country_consistency']['points']);
+
+        // The normaliser is private; exercise it through the score signal by
+        // asserting each name matches its own code via a reverse-geocode
+        // payload that uses that name (no top-level country_code).
+        foreach ($cases as $name => $code) {
+            $out = $this->score($name, ['address' => ['country' => $name]]);
+            $signal = $out['confidence_signals']['country_consistency'];
+
+            $this->assertSame('iso', $signal['method'], $name);
+            $this->assertSame($code, $signal['reverse_code'], $name);
+            $this->assertSame(20, $signal['points'], $name);
+        }
+        $this->assertCount(30, $cases);
+    }
+
     public function test_unmapped_name_falls_back_to_name_comparison(): void
     {
         $out = $this->score('Wakanda', [

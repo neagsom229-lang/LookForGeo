@@ -4,6 +4,7 @@ namespace App\Services\Gemini;
 
 use App\Services\OpenStreetMapService;
 use Illuminate\Support\Facades\Log;
+use League\ISO3166\ISO3166;
 
 /**
  * Calibrated confidence from CHECKABLE signals only.
@@ -19,6 +20,9 @@ use Illuminate\Support\Facades\Log;
  */
 class ConfidenceCalculator
 {
+    /** ISO 3166 data provider, built once; handles official country names. */
+    private static ?ISO3166 $isoCountries = null;
+
     private const MAX_SCORE = 95;
 
     private const LOW_CONFIDENCE_BELOW = 50;
@@ -317,7 +321,19 @@ class ConfidenceCalculator
             'finland' => 'fi', 'ireland' => 'ie', 'greece' => 'gr',
         ];
 
-        return $aliases[$value] ?? null;
+        if (isset($aliases[$value])) {
+            return $aliases[$value];
+        }
+
+        // league/iso3166 resolves official names case-insensitively and is
+        // used behind this normaliser (weights never depend on the source).
+        try {
+            self::$isoCountries ??= new ISO3166;
+
+            return strtolower(self::$isoCountries->name($value)['alpha2']);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     private function haversine(float $lat1, float $lng1, float $lat2, float $lng2): float

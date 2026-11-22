@@ -125,6 +125,9 @@ class ConfidenceCalibrationMatrixTest extends TestCase
         foreach ($rows as $row) {
             $table .= '| '.implode(' | ', $row)." |\n";
         }
-        fwrite(STDERR, "\n".$table."\n");
+        // Keep normal test output clean; operators can request the table.
+        if (getenv('TEST_VERBOSE') === '1') {
+            fwrite(STDERR, "\n".$table."\n");
+        }
     }
 }

@@ -52,6 +52,14 @@ yarn.lock
 .DS_Store
 Thumbs.db
 
+# Real evaluation photos (may contain GPS / personal data) -- keep these
+# outside the public repository; only synthetic fixtures are committed.
+tests/fixtures/eval/real/
+**/real-photos/
+**/real_photos/
+**/eval-real/
+storage/app/eval-real/
+
 # Deployment
 .docker/
 docker-compose.yml

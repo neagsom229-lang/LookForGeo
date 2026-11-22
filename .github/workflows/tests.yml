@@ -192,8 +192,10 @@ jobs:
 
       # Existing debt is captured in phpstan-baseline.neon; any NEW level-5
       # error fails the job. Regenerate the baseline only with intent.
+      # The explicit flag matches the composer analyse script and keeps
+      # PHPStan off setup-php's default 128M limit.
       - name: Static analysis
-        run: composer analyse
+        run: composer analyse -- --memory-limit=1G
 
   pgsql-upgrade:
     name: Postgres migration upgrade (origin/main -> PR)

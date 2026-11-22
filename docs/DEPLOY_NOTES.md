@@ -125,7 +125,12 @@ Still proposed (NOT applied), pending operator review:
 `php artisan geo:eval --live --labels=<csv> --images=<dir>`. `--labels` and
 `--images` must be given together. The CSV header is
 `file,landmark,city,country,latitude,longitude,license` (`licence` is also
-accepted). `file` is relative to `--images`; `latitude`/`longitude` are the
+accepted). **Real photos must stay outside this public repository**: EXIF GPS
+and private property are a privacy risk, so keep them in an untracked directory
+and pass it via `--images`. `.gitignore` excludes `tests/fixtures/eval/real/`,
+`**/real-photos/`, `**/real_photos/`, `**/eval-real/` and
+`storage/app/eval-real/`. Only the synthetic fixtures under
+`tests/fixtures/eval/images/` are committed. `file` is relative to `--images`; `latitude`/`longitude` are the
 ground truth in decimal degrees; `license` must name the rights holder/source
 (e.g. `Photo by A, CC BY 4.0`). Rows whose licence mentions `synthetic` are
 not counted as real photos, and the command warns when fewer than 30 real
