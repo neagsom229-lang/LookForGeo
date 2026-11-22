@@ -119,14 +119,17 @@ class GeminiProbeTest extends TestCase
         $image = imagecreatetruecolor(1200, 900);
         ob_start();
         imagepng($image);
-        $path = tempnam(sys_get_temp_dir(), 'tg-probe').'.png';
-        file_put_contents($path, (string) ob_get_clean());
+        // tempnam() creates a file itself; rename it so no orphan remains.
+        $path = (string) tempnam(sys_get_temp_dir(), 'tg-probe');
+        $imagePath = $path.'.png';
+        rename($path, $imagePath);
+        file_put_contents($imagePath, (string) ob_get_clean());
 
         Http::fake(['*' => Http::response($this->body(), 200)]);
         try {
-            Artisan::call('gemini:probe', ['--models' => 'model-a', '--image' => $path], new BufferedOutput);
+            Artisan::call('gemini:probe', ['--models' => 'model-a', '--image' => $imagePath], new BufferedOutput);
         } finally {
-            @unlink($path);
+            @unlink($imagePath);
         }
 
         Http::assertSent(function ($request) {

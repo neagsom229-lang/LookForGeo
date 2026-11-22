@@ -25,7 +25,6 @@ writes are best-effort and skip missing columns rather than fail analysis.
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Primary model (was `gemini-3.6-flash`) |
 | `GEMINI_FALLBACK_MODEL` | `gemini-3.1-flash-lite` | Fallback (was `gemini-3.5-flash`) |
 | `GEMINI_HEDGE_AFTER` | `18` | Was `10`; stage fallback after 18 s (0 disables) |
-| `GEMINI_SLIM_SCHEMA` | `false` | Opt-in; keep full prompt/schema until live eval evidence |
 | `GEMINI_IMAGE_ENCODER` | `auto` | `auto`/`jpeg`/`png`; tests force `png` |
 | `GEMINI_TOTAL_BUDGET` | `110` | Shared retry/fallback budget (s) |
 | `GEMINI_TIMEOUT` | `50` | Per-request timeout (s) |
@@ -42,6 +41,8 @@ writes are best-effort and skip missing columns rather than fail analysis.
 | `ANALYSIS_REAP_MINUTES` | `10` | Reap-on-read window for stuck jobs |
 | `ANALYSIS_AUTO_REQUEUE` | `true` | One automatic requeue on overload/timeout |
 | `ANALYSIS_REQUEUE_DELAY_SECONDS` | `8` | Delay before that requeue |
+| `NOMINATIM_CONTACT` | *(empty)* | Policy-required contact in the User-Agent; role address, never personal |
+| `GEMINI_CONFIDENCE_FORWARD_GEOCODE` | `true` | Informational distance signal, points=0 |
 
 Production values are in `render.yaml` as non-secret defaults; secrets (`APP_KEY`,
 `DATABASE_URL`, `GEMINI_API_KEY`, `GOOGLE_MAPS_EMBED_KEY`, `CLOUDINARY_*`) are
@@ -64,9 +65,9 @@ Production values are in `render.yaml` as non-secret defaults; secrets (`APP_KEY
 - **Models:** default primary `gemini-3.5-flash-lite`, fallback
   `gemini-3.1-flash-lite`; escalation model empty. Choose models only from live
   probe evidence; no latency numbers are asserted in this repository.
-- **Schema/prompt:** full schema is default; slim variant behind
-  `GEMINI_SLIM_SCHEMA=false` until `geo:eval --live` before/after accuracy and
-  p50 evidence is supplied. Confidence weights are unchanged (country +20/-20,
+- **Schema/prompt:** the slim variant was removed entirely. One full schema;
+  coordinates and candidates are always requested. Confidence weights are
+  unchanged (country +20/-20,
   visual cues +10/+5, resolution +10/+5/-10, candidate gap +15/+8/-15,
   coordinate sources +10). Country comparison now uses ISO 3166 alpha-2 from
   Nominatim with `league/iso3166` behind the alias normaliser.
@@ -85,7 +86,7 @@ Production values are in `render.yaml` as non-secret defaults; secrets (`APP_KEY
    branch deploy in Render to the previous release).
 2. Restore the previous env defaults in Render, chiefly
    `GEMINI_MODEL=gemini-3.6-flash`, `GEMINI_FALLBACK_MODEL=gemini-3.5-flash`,
-   `GEMINI_HEDGE_AFTER=10`, and unset `GEMINI_SLIM_SCHEMA`,
+   `GEMINI_HEDGE_AFTER=10`, and unset `GEMINI_IMAGE_ENCODER`,
    `ANALYSIS_AUTO_REQUEUE`, `ANALYSIS_REQUEUE_DELAY_SECONDS`,
    `GEMINI_IMAGE_ENCODER`. Secrets themselves are not changed by this PR.
 3. Roll back the additive migrations in reverse order:

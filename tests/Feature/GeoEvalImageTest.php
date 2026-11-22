@@ -33,17 +33,20 @@ class GeoEvalImageTest extends TestCase
         $image = imagecreatetruecolor(40, 30);
         ob_start();
         imagepng($image);
-        $path = tempnam(sys_get_temp_dir(), 'tg-eval').'.png';
-        file_put_contents($path, (string) ob_get_clean());
+        // tempnam() creates a file itself; rename it so no orphan remains.
+        $path = (string) tempnam(sys_get_temp_dir(), 'tg-eval');
+        $imagePath = $path.'.png';
+        rename($path, $imagePath);
+        file_put_contents($imagePath, (string) ob_get_clean());
 
         $output = new BufferedOutput;
         try {
             $exit = Artisan::call('geo:eval', [
-                '--image' => $path,
+                '--image' => $imagePath,
                 '--models' => 'gemini-model-a,gemini-model-b',
             ], $output);
         } finally {
-            @unlink($path);
+            @unlink($imagePath);
         }
         $text = $output->fetch();
 
@@ -61,8 +64,17 @@ class GeoEvalImageTest extends TestCase
         config(['services.gemini.key' => 'AIzaSyFakeEvalKey1234567890']);
         $this->fakeGemini();
 
+        $report = (string) tempnam(sys_get_temp_dir(), 'tg-eval-report');
         $output = new BufferedOutput;
-        $exit = Artisan::call('geo:eval', ['--live' => true, '--limit' => 2, '--report' => tempnam(sys_get_temp_dir(), 'tg-eval-report')], $output);
+        try {
+            $exit = Artisan::call('geo:eval', [
+                '--live' => true,
+                '--limit' => 2,
+                '--report' => $report,
+            ], $output);
+        } finally {
+            @unlink($report);
+        }
         $text = $output->fetch();
 
         $this->assertSame(0, $exit);

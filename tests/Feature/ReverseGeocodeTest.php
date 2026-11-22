@@ -6,13 +6,15 @@ use App\Services\OpenStreetMapService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Mockery;
 use Tests\TestCase;
 
 class ReverseGeocodeTest extends TestCase
 {
-    public function test_success_uses_identifying_user_agent_and_is_cached_briefly(): void
+    public function test_success_uses_configured_contact_and_is_cached_briefly(): void
     {
+        config(['services.nominatim.contact' => 'ops@example.org']);
         Http::fake([
             'nominatim.openstreetmap.org/*' => Http::response([
                 'address' => ['country' => 'United States', 'country_code' => 'us'],
@@ -24,14 +26,24 @@ class ReverseGeocodeTest extends TestCase
         $second = $osm->reverseGeocode(40.6892, -74.0445);
 
         $this->assertSame($first, $second);
+        $this->assertSame('ok', $osm->lastOutcomeCategory());
         Http::assertSentCount(1);
         Http::assertSent(fn ($request) => str_contains(
             implode(' ', $request->header('User-Agent')),
-            'TraceGeo/1.0'
+            'contact: ops@example.org'
         ));
     }
 
-    public function test_rate_limit_is_logged_with_category(): void
+    public function test_no_personal_contact_literal_is_committed(): void
+    {
+        $source = (string) file_get_contents(base_path('app/Services/OpenStreetMapService.php'));
+
+        $this->assertStringNotContainsString('admin@', $source);
+        $this->assertStringNotContainsString('gmail.com', $source);
+        $this->assertStringContainsString("config('services.nominatim.contact'", $source);
+    }
+
+    public function test_rate_limit_response_is_logged_with_category(): void
     {
         Log::spy();
         Http::fake(['nominatim.openstreetmap.org/*' => Http::response(['error' => 'too many'], 429)]);
@@ -39,7 +51,7 @@ class ReverseGeocodeTest extends TestCase
         $result = (new OpenStreetMapService)->reverseGeocode(1.0, 2.0);
 
         $this->assertNull($result);
-        Log::shouldHaveReceived('warning')->with('Reverse geocode failed', Mockery::on(function ($context) {
+        Log::shouldHaveReceived('warning')->with('Nominatim geocode failed', Mockery::on(function ($context) {
             return ($context['category'] ?? null) === 'rate_limit'
                 && ($context['provider'] ?? null) === 'nominatim';
         }));
@@ -55,7 +67,7 @@ class ReverseGeocodeTest extends TestCase
         $result = (new OpenStreetMapService)->reverseGeocode(3.0, 4.0);
 
         $this->assertNull($result);
-        Log::shouldHaveReceived('warning')->with('Reverse geocode failed', Mockery::on(function ($context) {
+        Log::shouldHaveReceived('warning')->with('Nominatim geocode failed', Mockery::on(function ($context) {
             return ($context['category'] ?? null) === 'timeout';
         }));
     }
@@ -68,13 +80,14 @@ class ReverseGeocodeTest extends TestCase
         $result = (new OpenStreetMapService)->reverseGeocode(5.0, 6.0);
 
         $this->assertNull($result);
-        Log::shouldHaveReceived('warning')->with('Reverse geocode failed', Mockery::on(function ($context) {
+        Log::shouldHaveReceived('warning')->with('Nominatim geocode failed', Mockery::on(function ($context) {
             return ($context['category'] ?? null) === 'bad_response';
         }));
     }
 
-    public function test_at_most_one_request_per_second(): void
+    public function test_cache_backed_limiter_blocks_second_request_without_sleeping(): void
     {
+        Log::spy();
         Http::fake(['nominatim.openstreetmap.org/*' => Http::response(['address' => []], 200)]);
 
         $osm = new OpenStreetMapService;
@@ -83,7 +96,9 @@ class ReverseGeocodeTest extends TestCase
         $osm->reverseGeocode(30.0, 40.0);
         $elapsed = (hrtime(true) - $started) / 1_000_000_000;
 
-        Http::assertSentCount(2);
-        $this->assertGreaterThanOrEqual(0.9, $elapsed, 'second request must be throttled');
+        Http::assertSentCount(1);
+        $this->assertLessThan(0.5, $elapsed, 'no in-process sleep');
+        $this->assertSame('rate_limit', $osm->lastOutcomeCategory());
+        $this->assertGreaterThanOrEqual(1, RateLimiter::attempts('nominatim_request'));
     }
 }

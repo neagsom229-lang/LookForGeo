@@ -51,6 +51,8 @@ services:
         value: true
       - key: GEMINI_HEALTH_PROBE
         value: true
+      - key: NOMINATIM_CONTACT
+        sync: false
       - key: GEMINI_THINKING_LEVEL
         value: low
       - key: GEMINI_HEDGE_AFTER
@@ -133,6 +135,8 @@ services:
         value: true
       - key: GEMINI_HEALTH_PROBE
         value: true
+      - key: NOMINATIM_CONTACT
+        sync: false
       - key: GEMINI_THINKING_LEVEL
         value: low
       - key: GEMINI_HEDGE_AFTER

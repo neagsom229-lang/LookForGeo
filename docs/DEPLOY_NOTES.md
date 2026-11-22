@@ -79,10 +79,8 @@ production latency improvement from this change.
 
 **No latency claims without live data:** no p50/p95 numbers are stated here.
 `analyses:stats` prints token p50 and `output_share` so you can measure once
-live data exists. The slim prompt/schema is **off by default**
-(`GEMINI_SLIM_SCHEMA=false`) and must stay off until you supply `geo:eval
---live` before/after accuracy and p50. Default behaviour is the original full
-schema. The 1024 px downscale only runs for images
+live data exists. The single full schema always requests coordinates and
+candidates. The 1024 px downscale only runs for images
 larger than `GEMINI_COMPRESS_THRESHOLD_BYTES` (default 1 MB). Smaller images are
 sent **byte-for-byte unchanged**, so `image_bytes` in the log equalling the
 original file size is expected, not proof that downscaling is broken. For
@@ -120,6 +118,27 @@ Still proposed (NOT applied), pending operator review:
   -5 each, so no single weak signal can erase a named landmark;
 - add a +10 "specific landmark named with in-country coordinates" baseline;
 - never display 0 % when the answer is internally consistent - floor at 15.
+
+**Slim schema removed:** the opt-in slim prompt/schema is gone from code,
+config, env, tests and docs. Evidence: real analyses 20-21 (slim on) stored
+`latitude`/`longitude` null and `coordinate_sources=0`, while 9-19 (full
+schema) had `coordinate_sources=1`. The single full schema always requests
+coordinates and candidates; `ResultShapeTest` verifies an end-to-end completed
+analysis stores them.
+
+**Why country_consistency was "unavailable" on real analyses:** the signal is
+computed inside `GeminiResultEnhancer` → `ConfidenceCalculator::checkCountry`.
+It needs **model coordinates and a country name**; with null coordinates (the
+slim-schema analyses) it returns `unavailable` before calling Nominatim. It is
+also `unavailable` when `GEMINI_CONFIDENCE_REVERSE_GEOCODE=false`, or when
+reverse geocoding is skipped by the 1 req/s limit or returns rate_limit /
+timeout / bad_response. The reverse-geocoded country was never persisted
+before; results now store `geocode_attempt` (coordinates used, outcome
+category, reverse country/code) and `analyses:explain` prints it. A new
+`forward_geocode_distance` signal records the distance between the named place
+and the model coordinates with **points = 0** until real-photo `geo:eval`
+justifies a weight. `NOMINATIM_CONTACT` supplies the policy-required contact
+in the User-Agent; no personal address is committed.
 
 **Real-photo `geo:eval` datasets:** use
 `php artisan geo:eval --live --labels=<csv> --images=<dir>`. `--labels` and

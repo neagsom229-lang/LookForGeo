@@ -84,6 +84,29 @@ class AnalysesExplain extends Command
         }
         $this->table(['signal', 'points', 'state', 'details'], $rows);
 
+        $attempt = $result['geocode_attempt'] ?? null;
+        $this->line('Geocode attempt:');
+        if (is_array($attempt)) {
+            $coords = $attempt['coordinates_used'] ?? [null, null];
+            $this->line(sprintf(
+                '  coordinates used: %s, %s',
+                $coords[0] ?? 'n/a',
+                $coords[1] ?? 'n/a'
+            ));
+            $this->line('  outcome category: '.($attempt['outcome_category'] ?? 'n/a'));
+            if (array_key_exists('reverse_country', $attempt)) {
+                $this->line('  reverse country: '.($attempt['reverse_country'] ?? 'none'));
+            }
+        } else {
+            $this->line('  (none stored - older result)');
+        }
+
+        $forward = $signals['forward_geocode_distance'] ?? null;
+        if (is_array($forward)) {
+            $this->line('Forward-geocode distance: '.($forward['distance_km'] ?? 'n/a')
+                .' km (points='.($forward['points'] ?? 0).', state='.($forward['state'] ?? 'n/a').')');
+        }
+
         $total = array_sum(array_column($signals, 'points'));
         $this->line('Sum of signal points: '.$total.' (stored confidence: '.($result['confidence'] ?? 'n/a').')');
 

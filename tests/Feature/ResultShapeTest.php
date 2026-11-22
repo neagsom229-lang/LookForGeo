@@ -69,8 +69,6 @@ class ResultShapeTest extends TestCase
 
     public function test_default_schema_stores_coordinates_country_and_candidates(): void
     {
-        // phpunit.xml forces GEMINI_SLIM_SCHEMA=false (the default).
-        config(['services.gemini.slim_schema' => false]);
         $this->fakeGemini(true);
 
         $analysis = $this->runJob();
@@ -87,7 +85,6 @@ class ResultShapeTest extends TestCase
 
     public function test_missing_coordinates_still_complete_but_flagged_and_capped(): void
     {
-        config(['services.gemini.slim_schema' => false]);
         $this->fakeGemini(false);
 
         $analysis = $this->runJob();

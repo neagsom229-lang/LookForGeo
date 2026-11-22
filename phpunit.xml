@@ -32,8 +32,8 @@
         <env name="DATABASE_URL" value="sqlite:///:memory:" force="true"/>
         <!-- Test-only fake key: CI has no .env; never a real secret. -->
         <env name="GEMINI_API_KEY" value="AIzaSyFakeTestKey1234567890" force="true"/>
-        <env name="GEMINI_SLIM_SCHEMA" value="false" force="true"/>
         <env name="GEMINI_CONFIDENCE_REVERSE_GEOCODE" value="false" force="true"/>
+        <env name="GEMINI_CONFIDENCE_FORWARD_GEOCODE" value="false" force="true"/>
         <env name="GEMINI_HEALTH_PROBE" value="false" force="true"/>
         <env name="GEMINI_MODEL" value="gemini-3.5-flash-lite" force="true"/>
         <env name="GEMINI_FALLBACK_MODEL" value="gemini-3.1-flash-lite" force="true"/>
