@@ -13,15 +13,15 @@ updates:
         patterns:
           - "*"
         update-types:
-          - minor
-          - patch
+          - version-update:semver-minor
+          - version-update:semver-patch
     ignore:
       - dependency-name: laravel/tinker
         update-types:
-          - major
+          - version-update:semver-major
       - dependency-name: google/cloud-storage
         update-types:
-          - major
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /

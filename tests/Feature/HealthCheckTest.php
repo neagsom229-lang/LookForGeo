@@ -3,12 +3,15 @@
 namespace Tests\Feature;
 
 use App\Services\SystemHealthService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class HealthCheckTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_health_reports_all_dependency_checks(): void
     {
         $response = $this->getJson('/api/health')->assertOk();
@@ -25,6 +28,20 @@ class HealthCheckTest extends TestCase
             ]);
         $this->assertTrue($response->json('checks.database.ok'));
         $this->assertSame('disabled', $response->json('checks.gemini.state'));
+    }
+
+    public function test_health_reports_start_time_pending_migrations_and_schema(): void
+    {
+        $response = $this->getJson('/api/health')->assertOk();
+
+        $response->assertJsonStructure([
+            'started_at',
+            'pending_migrations',
+            'schema_ok',
+        ]);
+        $this->assertNotSame('', $response->json('started_at'));
+        $this->assertSame(0, $response->json('pending_migrations'));
+        $this->assertTrue($response->json('schema_ok'));
     }
 
     public function test_health_reports_short_deploy_commit(): void

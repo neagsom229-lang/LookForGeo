@@ -18,9 +18,21 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // Stable boot timestamp for /api/health (no request-time ambiguity).
+        config(['app.started_at' => now()->toIso8601String()]);
+
         $this->app->singleton(GeocodingService::class);
         $this->app->singleton(LandmarkRecognitionService::class);
         $this->app->singleton(RequestContext::class);
+    }
+
+    /** Public for a focused test; called only in production boot. */
+    public function warnIfNominatimContactMissing(): void
+    {
+        $contact = trim((string) config('services.nominatim.contact', ''));
+        if ($contact === '') {
+            Log::warning('NOMINATIM_CONTACT is empty: Nominatim geocoding may be rejected. Set a role contact address in Render.');
+        }
     }
 
     public function boot(): void
@@ -38,6 +50,7 @@ class AppServiceProvider extends ServiceProvider
         // Force HTTPS in production to fix mixed content warnings
         if ($this->app->environment('production')) {
             URL::forceScheme('https');
+            $this->warnIfNominatimContactMissing();
         }
 
         // Rate limiter (migrated from RouteServiceProvider for Laravel 11+)

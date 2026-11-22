@@ -22,6 +22,9 @@ class AnalysisApiController extends Controller
             'status' => $report['status'],
             'version' => '1.0.0',
             'commit' => substr((string) config('app.deploy_commit'), 0, 7),
+            'started_at' => $report['started_at'],
+            'pending_migrations' => $report['pending_migrations'],
+            'schema_ok' => $report['schema_ok'],
             'timestamp' => now()->toISOString(),
             'checks' => $report['checks'],
         ]);
