@@ -47,7 +47,7 @@ After rotation: redeploy web + worker, run `composer ci` locally, and confirm
 
 - `NOMINATIM_CONTACT` must be set (`sync: false` in `render.yaml`); the app logs
   a warning at boot in production when it is empty.
-- `entrypoint.sh` retries migrations at most 10 times, prints the real
+- `entrypoint.sh` retries migrations at most 12 times (5s apart, at least 60s total wait), prints the real
   migration error and exits non-zero so Render shows a failed deploy.
 - `/api/health` exposes `started_at`, `pending_migrations`, `schema_ok`,
   `commit` and the dependency checks for the deploy probe.

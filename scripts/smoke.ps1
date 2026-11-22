@@ -300,6 +300,35 @@ try {
                 $failures++
             }
 
+            # ---------- B3b. real-HTTP CSRF reproduction from "/" ----------
+            # Reproduces the reported 419: load the home page with a cookie
+            # jar, read the meta csrf-token, POST a PNG and require success.
+            $homePage = (& curl.exe -s -i -c $jar -b $jar "$base/") -join "`n"
+            $homeStatus = Get-StatusCode $homePage
+            $homeBody = (Split-HttpResponse $homePage)[1]
+            $homeTokenMatch = [regex]::Match($homeBody, '<meta name="csrf-token" content="([^"]+)"')
+            if ($homeStatus -ne 200 -or -not $homeTokenMatch.Success) {
+                Write-Host "FAIL: GET / -> $homeStatus or no csrf-token on home page"
+                $failures++
+            } else {
+                $homeToken = $homeTokenMatch.Groups[1].Value
+                $homeUpload = (& curl.exe -s -i -c $jar -b $jar -X POST `
+                    -H "X-CSRF-TOKEN: $homeToken" `
+                    -H "Accept: application/json" `
+                    -F "image=@$fixture;type=image/png" `
+                    "$base/api/analyze/store") -join "`n"
+                $homeUploadStatus = Get-StatusCode $homeUpload
+                if ($homeUploadStatus -eq '419') {
+                    Write-Host "FAIL: POST /api/analyze/store with home CSRF token -> 419"
+                    $failures++
+                } elseif ($homeUploadStatus -eq '200') {
+                    Write-Host "PASS: POST /api/analyze/store with home CSRF token -> 200 (not 419)"
+                } else {
+                    Write-Host "FAIL: POST /api/analyze/store with home CSRF token -> $homeUploadStatus"
+                    $failures++
+                }
+            }
+
             $analysisPage = (& curl.exe -s -i -c $jar -b $jar "$base/analysis") -join "`n"
             $analysisStatus = Get-StatusCode $analysisPage
             if ($analysisStatus -eq 200) {

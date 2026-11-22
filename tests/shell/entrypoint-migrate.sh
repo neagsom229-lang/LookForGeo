@@ -50,12 +50,12 @@ run_case() {
 run_case 2 0
 grep -q 'MIGRATIONS_OK' "$tmp/out" || { echo 'FAIL: no success marker'; exit 1; }
 grep -q 'SQLSTATE\[08006\] connection refused' "$tmp/out" || { echo 'FAIL: real error missing'; exit 1; }
-grep -q 'attempt 3/10 failed' "$tmp/out" || true
+grep -q 'attempt 3/12 failed' "$tmp/out" || true
 
-# Always fails: bounded at 10 attempts and non-zero exit.
+# Always fails: bounded at 12 attempts and non-zero exit.
 run_case 100 1
-[ "$(cat "$tmp/counter")" -eq 10 ] || { echo "FAIL: expected 10 attempts, got $(cat "$tmp/counter")"; exit 1; }
-grep -q 'after 10 attempts' "$tmp/out" || { echo 'FAIL: bounded message missing'; exit 1; }
-grep -q 'SQLSTATE\[08006\] connection refused (attempt 10)' "$tmp/out" || { echo 'FAIL: last error missing'; exit 1; }
+[ "$(cat "$tmp/counter")" -eq 12 ] || { echo "FAIL: expected 12 attempts, got $(cat "$tmp/counter")"; exit 1; }
+grep -q 'after 12 attempts' "$tmp/out" || { echo 'FAIL: bounded message missing'; exit 1; }
+grep -q 'SQLSTATE\[08006\] connection refused (attempt 12)' "$tmp/out" || { echo 'FAIL: last error missing'; exit 1; }
 
 echo 'ENTRYPOINT_HARNESS_OK'

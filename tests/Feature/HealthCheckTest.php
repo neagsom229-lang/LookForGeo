@@ -36,12 +36,26 @@ class HealthCheckTest extends TestCase
 
         $response->assertJsonStructure([
             'started_at',
-            'pending_migrations',
+            'pending_migrations_present',
             'schema_ok',
         ]);
         $this->assertNotSame('', $response->json('started_at'));
-        $this->assertSame(0, $response->json('pending_migrations'));
+        $this->assertFalse($response->json('pending_migrations_present'));
         $this->assertTrue($response->json('schema_ok'));
+        $this->assertNull($response->json('pending_migrations'));
+    }
+
+    public function test_health_counts_require_the_admin_header(): void
+    {
+        config(['services.health.admin_token' => 'admin-secret']);
+
+        $this->getJson('/api/health', ['X-Admin-Token' => 'wrong'])
+            ->assertOk()
+            ->assertJsonMissing(['pending_migrations']);
+
+        $this->getJson('/api/health', ['X-Admin-Token' => 'admin-secret'])
+            ->assertOk()
+            ->assertJsonPath('pending_migrations', 0);
     }
 
     public function test_health_reports_short_deploy_commit(): void

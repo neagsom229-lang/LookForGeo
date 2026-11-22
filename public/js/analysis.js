@@ -417,6 +417,9 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 },
                 credentials: 'same-origin'
             });
+            if (res.status === 419) {
+                throw new Error('Your session expired, reload the page');
+            }
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.success) {
                 throw new Error(data.message || `HTTP ${res.status}`);
@@ -1125,6 +1128,9 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 credentials: 'same-origin'
             })
             .then(r => {
+                if (r.status === 419) {
+                    throw new Error('Your session expired, reload the page');
+                }
                 if (!r.ok) return r.json().then(d => {
                     throw new Error(d.message || `HTTP ${r.status}`);
                 });

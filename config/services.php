@@ -119,6 +119,12 @@ return [
     | NOMINATIM (OpenStreetMap geocoding)
     |--------------------------------------------------------------------------
     */
+    'health' => [
+        // Optional admin token: exposes raw counts on /api/health only when
+        // the X-Admin-Token header matches. Never committed as a value.
+        'admin_token' => env('HEALTH_ADMIN_TOKEN', ''),
+    ],
+
     'nominatim' => [
         // Contact identifier required by the Nominatim usage policy. No
         // personal address is committed; deploy owners set it in Render.

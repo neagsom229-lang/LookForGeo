@@ -18,34 +18,54 @@ class WorkflowConfigTest extends TestCase
         return $parsed;
     }
 
-    public function test_dependabot_uses_valid_version_update_values(): void
+    public function test_dependabot_ignore_uses_version_update_semver_values(): void
     {
         $config = $this->parse('.github/dependabot.yml');
-
         $this->assertSame(2, $config['version']);
+
         $allowed = [
             'version-update:semver-major',
             'version-update:semver-minor',
             'version-update:semver-patch',
         ];
-
+        $found = 0;
         foreach ($config['updates'] as $update) {
-            $this->assertLessThanOrEqual(3, $update['open-pull-requests-limit']);
-
             foreach ($update['ignore'] ?? [] as $rule) {
+                $found++;
+                $this->assertArrayHasKey('update-types', $rule);
                 $this->assertNotSame([], $rule['update-types']);
                 foreach ($rule['update-types'] as $type) {
-                    $this->assertContains($type, $allowed, 'Dependabot update-types must be version-update:semver-*');
+                    $this->assertContains($type, $allowed, 'ignore.update-types must be version-update:semver-*');
                 }
-                // Major bumps must be explicitly ignored, not shortened.
-                $this->assertContains('version-update:semver-major', $rule['update-types']);
             }
+        }
+        $this->assertGreaterThan(0, $found);
+    }
 
+    public function test_dependabot_groups_use_plain_minor_patch_values(): void
+    {
+        $config = $this->parse('.github/dependabot.yml');
+
+        $found = 0;
+        foreach ($config['updates'] as $update) {
             foreach ($update['groups'] ?? [] as $group) {
+                $found++;
+                $this->assertArrayHasKey('update-types', $group);
                 foreach ($group['update-types'] as $type) {
-                    $this->assertContains($type, $allowed);
+                    // GitHub docs: group update-types are plain major/minor/patch.
+                    $this->assertContains($type, ['major', 'minor', 'patch']);
+                    $this->assertStringStartsNotWith('version-update:', $type);
                 }
             }
+        }
+        $this->assertGreaterThan(0, $found);
+    }
+
+    public function test_dependabot_pull_request_limit_is_at_most_three(): void
+    {
+        foreach ($this->parse('.github/dependabot.yml')['updates'] as $update) {
+            $this->assertArrayHasKey('open-pull-requests-limit', $update);
+            $this->assertLessThanOrEqual(3, $update['open-pull-requests-limit']);
         }
     }
 

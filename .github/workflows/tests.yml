@@ -175,6 +175,20 @@ jobs:
           echo "Checking: $CHANGED"
           vendor/bin/pint --test $CHANGED
 
+  dependabot-schema:
+    name: Dependabot schema (check-jsonschema)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # check-jsonschema 0.39.0 (Apache-2.0, Python >=3.11) ships a vendored
+      # SchemaStore dependabot schema as "vendor.dependabot"; both are
+      # actively maintained upstream. Pinned so schema drift is visible.
+      - name: Validate .github/dependabot.yml
+        run: |
+          python3 -m pip install --user 'check-jsonschema==0.39.0'
+          python3 -m check_jsonschema --builtin-schema vendor.dependabot .github/dependabot.yml
+
   larastan:
     name: Larastan (level 5, baseline ratchet)
     runs-on: ubuntu-latest

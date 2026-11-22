@@ -13,21 +13,30 @@ use Illuminate\Support\Facades\Storage;
 
 class AnalysisApiController extends Controller
 {
-    public function health(SystemHealthService $health)
+    public function health(Request $request, SystemHealthService $health)
     {
         $report = $health->checks();
 
-        return response()->json([
+        $payload = [
             'success' => true,
             'status' => $report['status'],
             'version' => '1.0.0',
             'commit' => substr((string) config('app.deploy_commit'), 0, 7),
             'started_at' => $report['started_at'],
-            'pending_migrations' => $report['pending_migrations'],
-            'schema_ok' => $report['schema_ok'],
+            // Public shape: booleans only, no migration counts.
+            'schema_ok' => (bool) $report['schema_ok'],
+            'pending_migrations_present' => (int) $report['pending_migrations'] > 0,
             'timestamp' => now()->toISOString(),
             'checks' => $report['checks'],
-        ]);
+        ];
+
+        $adminToken = trim((string) config('services.health.admin_token', ''));
+        $provided = (string) $request->header('X-Admin-Token', '');
+        if ($adminToken !== '' && hash_equals($adminToken, $provided)) {
+            $payload['pending_migrations'] = (int) $report['pending_migrations'];
+        }
+
+        return response()->json($payload);
     }
 
     public function history(Request $request)

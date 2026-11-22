@@ -13,8 +13,8 @@ updates:
         patterns:
           - "*"
         update-types:
-          - version-update:semver-minor
-          - version-update:semver-patch
+          - minor
+          - patch
     ignore:
       - dependency-name: laravel/tinker
         update-types:

@@ -78,7 +78,12 @@ Production values are in `render.yaml` as non-secret defaults; secrets (`APP_KEY
   (reloads code per job); production keeps `queue:work`.
 - **Quality gates:** `composer ci` = test:all + decoy + pint-changed + analyse;
   pre-push is fast (test + pint-changed, ~10 s). PHPStan runs with
-  `--memory-limit=1G` in both the composer script and CI.
+  `--memory-limit=1G` in both the composer script and CI. A separate CI job
+  validates `.github/dependabot.yml` with `check-jsonschema==0.39.0` and its
+  builtin `vendor.dependabot` schema (PyPI: Apache-2.0, Python ≥3.11; the
+  schema is vendored in the actively maintained upstream repository). Note the
+  two grammars: `ignore[].update-types` uses `version-update:semver-major`,
+  while `groups[].update-types` uses plain `minor`/`patch`.
 
 ## 4. Rollback
 
