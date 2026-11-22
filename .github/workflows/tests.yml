@@ -278,6 +278,25 @@ jobs:
       - name: Build Dockerfile
         run: docker build -t tracegeo-ci .
 
+      # The production image installs with --no-dev. If league/iso3166 were
+      # only a dev dependency, this would fail - it runs the app's own
+      # country normaliser, not the library directly.
+      - name: Production image includes ISO normalizer (require)
+        run: |
+          docker run --rm --entrypoint php tracegeo-ci -r '
+          require "vendor/autoload.php";
+          $app = require "bootstrap/app.php";
+          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+          $calculator = new App\Services\Gemini\ConfidenceCalculator(
+              $app->make(App\Services\OpenStreetMapService::class)
+          );
+          $method = new ReflectionMethod($calculator, "countryCode");
+          $method->setAccessible(true);
+          $code = $method->invoke($calculator, "USA");
+          echo "USA -> ", $code, PHP_EOL;
+          exit($code === "us" ? 0 : 1);
+          '
+
       - name: Start container
         run: |
           docker run -d --name tracegeo-ci --network host \

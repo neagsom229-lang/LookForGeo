@@ -61,7 +61,9 @@ class AnalysesExplainTest extends TestCase
         $this->assertStringContainsString('Score is 0', $text);
         $this->assertStringNotContainsString('AIza', $text);
 
-        fwrite(STDERR, "\n=== analyses:explain {$analysis->id} (score 0) ===\n".$text."\n");
+        if (getenv('TEST_VERBOSE') === '1') {
+            fwrite(STDERR, "\n=== analyses:explain {$analysis->id} (score 0) ===\n".$text."\n");
+        }
     }
 
     public function test_missing_analysis_fails_cleanly(): void

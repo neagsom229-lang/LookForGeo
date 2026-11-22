@@ -27,6 +27,9 @@ class ConfidenceCalculator
 
     private const LOW_CONFIDENCE_BELOW = 50;
 
+    /** A result without coordinates cannot be pinned: cap its confidence. */
+    private const NO_COORDINATE_CAP = 49;
+
     public function __construct(private OpenStreetMapService $osm) {}
 
     /**
@@ -51,6 +54,18 @@ class ConfidenceCalculator
         $this->checkCoordinateSources($data, $signals, $factors);
 
         $score = (int) max(0, min(self::MAX_SCORE, array_sum(array_column($signals, 'points'))));
+
+        // A completed analysis with no usable coordinates is still useful as
+        // text, but it must never be presented as a pinned/identified place.
+        $lat = $data['latitude'] ?? null;
+        $lng = $data['longitude'] ?? null;
+        $hasCoordinates = is_numeric($lat) && is_numeric($lng)
+            && abs((float) $lat) <= 90 && abs((float) $lng) <= 180;
+        $data['coordinates_missing'] = ! $hasCoordinates;
+        if (! $hasCoordinates) {
+            $score = min($score, self::NO_COORDINATE_CAP);
+            $factors[] = 'Coordinates missing: location could not be pinned; confidence capped at '.self::NO_COORDINATE_CAP.'.';
+        }
 
         $data['model_reported_confidence'] = $modelReported;
         $data['confidence'] = $score;

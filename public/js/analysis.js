@@ -1181,9 +1181,17 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                         });
                         console.log('📦 Full result:', result);
 
+                        // Never animate a pin to fallback coordinates: a result
+                        // with coordinates_missing=true is not pinnable.
+                        const pinnable = !result.coordinates_missing &&
+                            isValidCoord(result.latitude ?? result.lat, result.longitude ?? result.lng);
                         setTimeout(async () => {
                             stopStarfield();
-                            await revealTarget(tLat, tLng, tName);
+                            if (pinnable) {
+                                await revealTarget(tLat, tLng, tName);
+                            } else if (DOM.mapStatusText) {
+                                DOM.mapStatusText.textContent = 'Location could not be pinned - coordinates missing';
+                            }
                             DOM.whiteFlash.classList.remove('run');
                             void DOM.whiteFlash.offsetWidth;
                             DOM.whiteFlash.classList.add('run');
@@ -1332,9 +1340,9 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         if (DOM.placeCountry) DOM.placeCountry.textContent = data.country || '';
         if (DOM.placeRegion) DOM.placeRegion.textContent = data.region || '';
         if (DOM.coordText) {
-            DOM.coordText.textContent = hasCoords ?
-                `${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}° ${lng>=0?'E':'W'}` :
-                'Not available';
+            DOM.coordText.textContent = (data.coordinates_missing || !hasCoords)
+                ? 'Location could not be pinned - coordinates missing'
+                : `${Math.abs(lat).toFixed(4)}\u00b0 ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}\u00b0 ${lng>=0?'E':'W'}`;
         }
         if (DOM.confPillText) DOM.confPillText.textContent = `${confidence}% Confidence${data.confidence_level ? ' - ' + data.confidence_level : ''}`;
         // Colour comes from the band class, never from inline styles: CSS
@@ -1347,35 +1355,42 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 sessionStorage.getItem('uploadedImage');
             console.log('🧪 Full imgUrl:', imgUrl);
 
-            if (!resultMapInstance) {
-                resultMapInstance = L.map('resultMap', {
-                    center: [lat, lng],
-                    zoom: 13,
-                    zoomControl: true,
-                    attributionControl: true
-                });
-                L.tileLayer(ROADS_URL, {
-                    attribution: ROADS_ATTR,
-                    maxZoom: 19
-                }).addTo(resultMapInstance);
-                setTimeout(() => resultMapInstance.invalidateSize(), 300);
+            if (data.coordinates_missing || !hasCoords) {
+                // No pin, no fallback globe flight: show a clear message only.
+                if (DOM.mapStatusText) {
+                    DOM.mapStatusText.textContent = 'Location could not be pinned - coordinates missing';
+                }
             } else {
-                resultMapInstance.setView([lat, lng], 13);
-            }
+                if (!resultMapInstance) {
+                    resultMapInstance = L.map('resultMap', {
+                        center: [lat, lng],
+                        zoom: 13,
+                        zoomControl: true,
+                        attributionControl: true
+                    });
+                    L.tileLayer(ROADS_URL, {
+                        attribution: ROADS_ATTR,
+                        maxZoom: 19
+                    }).addTo(resultMapInstance);
+                    setTimeout(() => resultMapInstance.invalidateSize(), 300);
+                } else {
+                    resultMapInstance.setView([lat, lng], 13);
+                }
 
-            const markerIcon = L.divIcon({
-                html: `<div class="avatar-marker marker-drop">
-                         <div class="ring"></div><div class="ring2"></div>
-                         <div class="photo" style="background-image:url('${imgUrl || ''}')">
-                         </div>
-                       </div>`,
-                className: '',
-                iconSize: [46, 46],
-                iconAnchor: [23, 23]
-            });
-            L.marker([lat, lng], {
-                icon: markerIcon
-            }).addTo(resultMapInstance);
+                const markerIcon = L.divIcon({
+                    html: `<div class="avatar-marker marker-drop">
+                             <div class="ring"></div><div class="ring2"></div>
+                             <div class="photo" style="background-image:url('${imgUrl || ''}')">
+                             </div>
+                           </div>`,
+                    className: '',
+                    iconSize: [46, 46],
+                    iconAnchor: [23, 23]
+                });
+                L.marker([lat, lng], {
+                    icon: markerIcon
+                }).addTo(resultMapInstance);
+            }
 
             const renderImage = (url) => {
                 let attempts = 0;

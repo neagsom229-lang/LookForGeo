@@ -35,6 +35,24 @@ class AnalysesExplain extends Command
             return self::FAILURE;
         }
 
+        // Result shape: the analysis-21 style failure had every signal
+        // "unavailable" because the stored result had no coordinates/country.
+        $shapeRows = [];
+        foreach (['latitude', 'longitude', 'country', 'city', 'candidates'] as $key) {
+            $value = $result[$key] ?? null;
+            $present = $value !== null && $value !== '' && $value !== [];
+            $shapeRows[] = [
+                $key,
+                $present ? 'present' : 'missing',
+                is_array($value) ? count($value).' entries' : (is_scalar($value) ? gettype($value) : '-'),
+            ];
+        }
+        $this->line('Result shape:');
+        $this->table(['key', 'state', 'detail'], $shapeRows);
+        if (! empty($result['coordinates_missing'])) {
+            $this->warn('coordinates_missing=true: no pinnable location was stored.');
+        }
+
         $signals = $result['confidence_signals'] ?? [];
         if (! is_array($signals) || $signals === []) {
             $this->line('No confidence_signals stored for this analysis (older result or no scoring pass).');

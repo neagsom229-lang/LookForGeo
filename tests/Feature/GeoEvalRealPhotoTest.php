@@ -88,7 +88,9 @@ class GeoEvalRealPhotoTest extends TestCase
             $this->assertSame(2, $json['metrics']['calibration']['low:0-49']['count']);
             $this->assertSame(0.0, (float) $json['metrics']['calibration']['low:0-49']['median_error_km']);
 
-            fwrite(STDERR, "\n=== geo:eval real-photo ===\n".$text."\n");
+            if (getenv('TEST_VERBOSE') === '1') {
+                fwrite(STDERR, "\n=== geo:eval real-photo ===\n".$text."\n");
+            }
         } finally {
             array_map('unlink', glob($dir.'/*') ?: []);
             @rmdir($dir);
