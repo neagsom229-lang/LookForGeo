@@ -104,16 +104,36 @@ category breakdown).
 `ConfidenceCalibrationMatrixTest` prints an inputs-to-score table with realistic
 outputs and no EXIF. Two consistent answers score 0 %: Statue of Liberty when
 reverse geocoding reports the wrong country (-20) on a low-res image (-10), and
-Phnom Kulen with tied candidates (-15) on a low-res image (-10). A third finding:
-real Nominatim nests country under `address.country`, which the current reader
-ignores, so the country signal is silently 0.
+Phnom Kulen with tied candidates (-15) on a low-res image (-10). A third finding
+was that Nominatim nests country under `address.country`, which the reader
+ignored, so the signal was silently 0.
 
-Proposed (NOT applied) changes, pending the table above and operator review:
-- read `address.country` / `address.country_code` as well as top-level keys;
+FIXED (weights unchanged): the reader now accepts real Nominatim payloads,
+prefers `address.country_code` (ISO 3166 alpha-2), and normalises model-side
+names such as `USA` / `United States of America` / `UK` / `Cambodia` to codes
+before comparing. NominatimCountryTest covers real-shaped responses; the
+matrix row for Statue of Liberty with a Nominatim payload rises from 35 % to
+55 % because the country signal is now detected, not because weights changed.
+
+Still proposed (NOT applied), pending operator review:
 - cap country mismatch at -10 and low-resolution/tied-candidate penalties at
   -5 each, so no single weak signal can erase a named landmark;
 - add a +10 "specific landmark named with in-country coordinates" baseline;
 - never display 0 % when the answer is internally consistent - floor at 15.
+
+**Real-photo `geo:eval` datasets:** use
+`php artisan geo:eval --live --labels=<csv> --images=<dir>`. `--labels` and
+`--images` must be given together. The CSV header is
+`file,landmark,city,country,latitude,longitude,license` (`licence` is also
+accepted). `file` is relative to `--images`; `latitude`/`longitude` are the
+ground truth in decimal degrees; `license` must name the rights holder/source
+(e.g. `Photo by A, CC BY 4.0`). Rows whose licence mentions `synthetic` are
+not counted as real photos, and the command warns when fewer than 30 real
+photos are present. The report adds a `dataset: real-photo` field and an
+accuracy table by predicted-confidence band (`n`, within 25 km, within
+200 km, median error km) in addition to the overall median error. Without
+`--live`, the fake returns each label as the prediction and the command warns
+that accuracy numbers are not meaningful.
 
 **Local vs production worker:** `scripts/dev.ps1` uses
 `php artisan queue:listen --tries=1 --timeout=180` locally because `listen`

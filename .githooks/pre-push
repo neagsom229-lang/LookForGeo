@@ -1,30 +1,45 @@
 #!/bin/sh
-# Block the push when composer ci fails (tests, decoy, pint, analyse).
+# Fast pre-push gate: composer test + pint-changed only (must stay under 60s).
+# The full composer ci (test:all, decoy, pint-changed, analyse) is the manual
+# and CI command; it is deliberately NOT run here.
 # Install: git config core.hooksPath .githooks
-echo "pre-push: running composer ci ..."
+started=$(date +%s 2>/dev/null || echo 0)
 
 # Git for Windows sh may not expose composer as an executable, so try several
 # forms. Always detach stdin from Git's ref list. cmd //c ... < /dev/null is
 # banner-free in Git Bash; never call cmd without that redirect.
-if command -v composer >/dev/null 2>&1; then
-  composer ci < /dev/null
-elif command -v composer.bat >/dev/null 2>&1; then
-  cmd //c composer ci < /dev/null
-elif command -v php >/dev/null 2>&1 && [ -f "$HOME/.config/composer/composer.phar" ]; then
-  php "$HOME/.config/composer/composer.phar" ci < /dev/null
-elif command -v composer.phar >/dev/null 2>&1 && command -v php >/dev/null 2>&1; then
-  php "$(command -v composer.phar)" ci < /dev/null
-elif command -v cmd.exe >/dev/null 2>&1; then
-  cmd //c composer ci < /dev/null
-else
-  echo "pre-push: composer not found (tried composer, composer.bat, composer.phar and cmd). Blocking push." >&2
-  exit 1
-fi
+run_composer() {
+  if command -v composer >/dev/null 2>&1; then
+    composer "$@" < /dev/null
+  elif command -v composer.bat >/dev/null 2>&1; then
+    cmd //c composer "$@" < /dev/null
+  elif command -v php >/dev/null 2>&1 && [ -f "$HOME/.config/composer/composer.phar" ]; then
+    php "$HOME/.config/composer/composer.phar" "$@" < /dev/null
+  elif command -v composer.phar >/dev/null 2>&1 && command -v php >/dev/null 2>&1; then
+    php "$(command -v composer.phar)" "$@" < /dev/null
+  elif command -v cmd.exe >/dev/null 2>&1; then
+    cmd //c composer "$@" < /dev/null
+  else
+    echo "pre-push: composer not found (tried composer, composer.bat, composer.phar and cmd). Blocking push." >&2
+    return 127
+  fi
+}
 
+echo "pre-push: running composer test ..."
+run_composer test
 status=$?
 if [ "$status" -ne 0 ]; then
-  echo "pre-push: composer ci FAILED (exit $status). Push blocked." >&2
+  echo "pre-push: composer test FAILED (exit $status). Push blocked." >&2
   exit "$status"
 fi
-echo "pre-push: composer ci passed."
+
+echo "pre-push: running pint-changed ..."
+run_composer pint-changed
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo "pre-push: pint-changed FAILED (exit $status). Push blocked." >&2
+  exit "$status"
+fi
+
+echo "pre-push: passed in $(( $(date +%s 2>/dev/null || echo 0) - started ))s."
 exit 0

@@ -64,9 +64,10 @@ class ConfidenceCalibrationMatrixTest extends TestCase
                 'meta' => ['resolution' => ['width' => 1280, 'height' => 960]],
                 'osm' => ['address' => ['country' => 'United States']],
                 'reverse' => true,
-                // Real Nominatim nests country under "address"; the current
-                // reader only checks top-level keys, so this signal is lost.
-                'expected' => 35,
+                // Real Nominatim nests country under "address"; the reader
+                // now resolves address.country_code to ISO alpha-2, so the
+                // country signal is restored (+20).
+                'expected' => 55,
             ],
             'Phnom Kulen / no EXIF, no OSM, good resolution' => [
                 'data' => $this->makeResult('Phnom Kulen', 'Cambodia', 13.6844, 103.9586, ['city' => 'Siem Reap']),
