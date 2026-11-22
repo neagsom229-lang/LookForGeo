@@ -1,21 +1,21 @@
 #!/bin/sh
-# Block the push when the test suite fails.
+# Block the push when composer ci fails (tests, decoy, pint, analyse).
 # Install: git config core.hooksPath .githooks
-echo "pre-push: running composer test ..."
+echo "pre-push: running composer ci ..."
 
 # Git for Windows sh may not expose composer as an executable, so try several
 # forms. Always detach stdin from Git's ref list. cmd //c ... < /dev/null is
 # banner-free in Git Bash; never call cmd without that redirect.
 if command -v composer >/dev/null 2>&1; then
-  composer test < /dev/null
+  composer ci < /dev/null
 elif command -v composer.bat >/dev/null 2>&1; then
-  cmd //c composer test < /dev/null
+  cmd //c composer ci < /dev/null
 elif command -v php >/dev/null 2>&1 && [ -f "$HOME/.config/composer/composer.phar" ]; then
-  php "$HOME/.config/composer/composer.phar" test < /dev/null
+  php "$HOME/.config/composer/composer.phar" ci < /dev/null
 elif command -v composer.phar >/dev/null 2>&1 && command -v php >/dev/null 2>&1; then
-  php "$(command -v composer.phar)" test < /dev/null
+  php "$(command -v composer.phar)" ci < /dev/null
 elif command -v cmd.exe >/dev/null 2>&1; then
-  cmd //c composer test < /dev/null
+  cmd //c composer ci < /dev/null
 else
   echo "pre-push: composer not found (tried composer, composer.bat, composer.phar and cmd). Blocking push." >&2
   exit 1
@@ -23,8 +23,8 @@ fi
 
 status=$?
 if [ "$status" -ne 0 ]; then
-  echo "pre-push: composer test FAILED (exit $status). Push blocked." >&2
+  echo "pre-push: composer ci FAILED (exit $status). Push blocked." >&2
   exit "$status"
 fi
-echo "pre-push: composer test passed."
+echo "pre-push: composer ci passed."
 exit 0

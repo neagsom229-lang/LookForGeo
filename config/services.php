@@ -95,6 +95,9 @@ return [
         // stored ORIGINAL by AnalyzeImageJob, so resizing the copy sent to
         // the model loses no metadata. 1024px keeps vision tokens low.
         'compress_images' => env('GEMINI_COMPRESS_IMAGES', true),
+        // auto = JPEG when GD has it, else PNG. Tests force jpeg|png so the
+        // outcome never depends on the runner's GD build.
+        'image_encoder' => env('GEMINI_IMAGE_ENCODER', 'auto'),
         'max_image_dimension' => (int) env('GEMINI_MAX_IMAGE_DIMENSION', 1024),
         'compress_threshold_bytes' => (int) env('GEMINI_COMPRESS_THRESHOLD_BYTES', 1_000_000),
         // Optional reverse-geocode check for calibrated confidence. Off in

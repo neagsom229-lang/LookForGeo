@@ -33,6 +33,31 @@ jobs:
       - name: Run tests (fast + slow process group)
         run: composer test:all
 
+  gd-matrix:
+    name: GD matrix (${{ matrix.gd }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gd: [with-jpeg, without-jpeg]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rebuild GD explicitly so one leg has imagecreatefromjpeg() and the
+      # other does not. Tests force the encoder path via config, so both
+      # legs must produce identical results.
+      - name: Build PHP image (${{ matrix.gd }})
+        run: |
+          WITH_JPEG=1
+          [ "${{ matrix.gd }}" = "without-jpeg" ] && WITH_JPEG=0
+          docker build -f docker/Dockerfile.gd-matrix \
+            --build-arg WITH_JPEG="$WITH_JPEG" -t tracegeo-gd:${{ matrix.gd }} .
+
+      - name: Run full suite
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work tracegeo-gd:${{ matrix.gd }} \
+            sh -c 'composer install --optimize-autoloader --no-interaction && composer test:all'
+
   decoy-env:
     name: Hermetic suite with decoy .env
     runs-on: ubuntu-latest

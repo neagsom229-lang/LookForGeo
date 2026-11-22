@@ -17,6 +17,8 @@ class GeminiDownscaleTest extends TestCase
             'services.gemini.compress_images' => true,
             'services.gemini.max_image_dimension' => 1024,
             'services.gemini.compress_threshold_bytes' => 1000,
+            // Force the PNG path: the suite must not care whether GD has JPEG.
+            'services.gemini.image_encoder' => 'png',
             'services.gemini.retry_backoff_ms' => 0,
         ]);
     }
@@ -33,7 +35,7 @@ class GeminiDownscaleTest extends TestCase
             ], 200),
         ]);
 
-        $original = $this->noisyPng(1400, 1200);
+        $original = $this->noisyPng(1100, 900);
         $originalSize = getimagesizefromstring($original);
         $this->assertGreaterThan(1024, $originalSize[0]);
 
@@ -53,6 +55,8 @@ class GeminiDownscaleTest extends TestCase
         $this->assertNotNull($sentBytes);
         $sentSize = getimagesizefromstring($sentBytes);
         $this->assertLessThanOrEqual(1024, max($sentSize[0], $sentSize[1]));
+        // The forced encoder path is deterministic on every GD build.
+        Http::assertSent(fn ($request) => ($request->data()['contents'][0]['parts'][1]['inline_data']['mime_type'] ?? null) === 'image/png');
     }
 
     private function noisyPng(int $width, int $height): string

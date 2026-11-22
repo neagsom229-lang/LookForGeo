@@ -27,7 +27,7 @@ class AnalysesStatsTest extends TestCase
             'queue_ms' => 200,
             'gemini_ms' => 800,
             'total_ms' => 1000,
-            'result' => ['landmark_name' => 'Eiffel Tower', 'hedged' => true, 'hedge_winner' => 'gemini-3.1-flash-lite', 'abandoned_primary' => 'gemini-3.5-flash-lite', 'primary_abandoned_ms' => 1000],
+            'result' => ['landmark_name' => 'Eiffel Tower', 'hedged' => true, 'hedge_winner' => 'gemini-3.1-flash-lite', 'abandoned_primary' => 'gemini-3.5-flash-lite', 'primary_abandoned_ms' => 1000, 'prompt_tokens' => 1000, 'output_tokens' => 200, 'thought_tokens' => 55],
         ]);
         // A failure has no answering model: model_used stays null and its
         // processing_ms must not enter the per-model latency table.
@@ -49,6 +49,7 @@ class AnalysesStatsTest extends TestCase
         $this->assertStringContainsString('total (end-to-end)', $text);
         $this->assertStringContainsString('gemini', $text);
         $this->assertStringContainsString('queue', $text);
+        $this->assertStringContainsString('thought=55', $text);
         // Failures are reported in their own section only.
         $this->assertStringContainsString('Failed: 1', $text);
         $this->assertStringContainsString('failure_category', $text);

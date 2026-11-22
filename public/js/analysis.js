@@ -1337,9 +1337,10 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 'Not available';
         }
         if (DOM.confPillText) DOM.confPillText.textContent = `${confidence}% Confidence${data.confidence_level ? ' - ' + data.confidence_level : ''}`;
-        const dot = DOM.confPill?.querySelector('.dot');
-        if (dot) dot.style.background = tier === 'high' ? 'var(--success)' : tier === 'medium' ? 'var(--warning)' :
-            'var(--danger)';
+        // Colour comes from the band class, never from inline styles: CSS
+        // guarantees green only for >= 50 (high), amber for mid and red for
+        // low, and the calibrated low_confidence flag always wins.
+        if (DOM.confPill) DOM.confPill.className = `pill-confidence band-${tier}`;
 
         if (DOM.photoFrame) {
             let imgUrl = data.image_url || data.result?.image_url || data.result_image_url || uploadedImageURL ||

@@ -35,6 +35,9 @@ class GeminiClient
 
     protected $baseUrl;
 
+    /** Monotonic start of the in-flight Gemini call, for elapsed_ms. */
+    private ?int $lastAttemptNs = null;
+
     public function __construct(private GeminiCircuitBreaker $circuit)
     {
         $this->apiKey = config('services.gemini.key');
@@ -467,13 +470,18 @@ class GeminiClient
         ?int $status = null,
         ?\Throwable $exception = null
     ): array {
+        $elapsedMs = $this->lastAttemptNs !== null
+            ? (int) round((hrtime(true) - $this->lastAttemptNs) / 1_000_000)
+            : (int) round((microtime(true) - $started) * 1000);
+        $result['gemini_ms'] = $elapsedMs;
         $context = [
             'model' => $model,
-            'elapsed_ms' => (int) round((microtime(true) - $started) * 1000),
+            'elapsed_ms' => $elapsedMs,
             'thinking_level' => str_starts_with($model, 'gemini-3') ? $this->thinkingLevel : 'n/a',
             'image_bytes' => $imageBytes,
             'prompt_tokens' => (int) ($result['prompt_tokens'] ?? 0),
             'output_tokens' => (int) ($result['output_tokens'] ?? 0),
+            'thought_tokens' => (int) ($result['thought_tokens'] ?? 0),
             'category' => isset($result['error'])
                 ? GeminiFailureClassifier::classify($result)['category']
                 : 'success',
@@ -579,6 +587,9 @@ class GeminiClient
         $imageMime = $compressed['mime'];
         $imageBytes = strlen($compressedImage);
         $attemptStarted = microtime(true);
+        // hrtime() is monotonic: a wall-clock adjustment cannot corrupt the
+        // per-attempt latency we persist and chart in analyses:stats.
+        $this->lastAttemptNs = hrtime(true);
 
         $payload = [
             'contents' => [
@@ -682,6 +693,7 @@ class GeminiClient
             $result = $this->cleanArray($parsed);
             $result['prompt_tokens'] = (int) ($usage['promptTokenCount'] ?? 0);
             $result['output_tokens'] = (int) ($usage['candidatesTokenCount'] ?? 0);
+            $result['thought_tokens'] = (int) ($usage['thoughtsTokenCount'] ?? 0);
 
             return $this->finishAttempt($result, $model, $attemptStarted, $imageBytes, $status);
 
@@ -747,16 +759,28 @@ class GeminiClient
             $resized = imagecreatetruecolor($newWidth, $newHeight);
             imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
 
-            // Some GD builds have no JPEG encoder. Fall back to PNG and send
-            // the matching mime type so Gemini can still decode the image.
+            // Encoder choice is explicit (config, forced in tests) so the
+            // result never depends on whether the runner's GD has JPEG.
+            // "auto" prefers JPEG and falls back to PNG when unavailable.
+            $encoder = strtolower((string) config('services.gemini.image_encoder', 'auto'));
+            $useJpeg = $encoder === 'jpeg' || ($encoder === 'auto' && function_exists('imagejpeg'));
+            $usePng = $encoder === 'png' || ($encoder === 'auto' && ! function_exists('imagejpeg'));
+
             ob_start();
             try {
-                if (function_exists('imagejpeg')) {
+                if ($useJpeg && function_exists('imagejpeg')) {
                     imagejpeg($resized, null, 82);
                     $mime = 'image/jpeg';
-                } elseif (function_exists('imagepng')) {
+                } elseif ($usePng && function_exists('imagepng')) {
                     imagepng($resized, null, 6);
                     $mime = 'image/png';
+                } elseif (function_exists('imagepng')) {
+                    // Requested encoder missing: still produce a valid image.
+                    imagepng($resized, null, 6);
+                    $mime = 'image/png';
+                } elseif (function_exists('imagejpeg')) {
+                    imagejpeg($resized, null, 82);
+                    $mime = 'image/jpeg';
                 } else {
                     throw new \RuntimeException('GD has no JPEG or PNG encoder');
                 }

@@ -539,5 +539,4 @@ class LandmarkController extends Controller
             'results' => $results,
         ]);
     }
-
 }

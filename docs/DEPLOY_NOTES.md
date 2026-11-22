@@ -100,6 +100,21 @@ semantics. `model_used` stays null on failure, and `analyses:stats` excludes
 failures from the per-model latency table (failures get their own count and
 category breakdown).
 
+**Calibration bug (0 % for famous landmarks) — proposal only, weights UNCHANGED:**
+`ConfidenceCalibrationMatrixTest` prints an inputs-to-score table with realistic
+outputs and no EXIF. Two consistent answers score 0 %: Statue of Liberty when
+reverse geocoding reports the wrong country (-20) on a low-res image (-10), and
+Phnom Kulen with tied candidates (-15) on a low-res image (-10). A third finding:
+real Nominatim nests country under `address.country`, which the current reader
+ignores, so the country signal is silently 0.
+
+Proposed (NOT applied) changes, pending the table above and operator review:
+- read `address.country` / `address.country_code` as well as top-level keys;
+- cap country mismatch at -10 and low-resolution/tied-candidate penalties at
+  -5 each, so no single weak signal can erase a named landmark;
+- add a +10 "specific landmark named with in-country coordinates" baseline;
+- never display 0 % when the answer is internally consistent - floor at 15.
+
 **Local vs production worker:** `scripts/dev.ps1` uses
 `php artisan queue:listen --tries=1 --timeout=180` locally because `listen`
 boots a fresh worker process per job, so code edits take effect immediately.

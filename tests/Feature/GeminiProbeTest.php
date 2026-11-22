@@ -109,8 +109,14 @@ class GeminiProbeTest extends TestCase
 
     public function test_probe_image_is_resized_like_the_app(): void
     {
-        config(['services.gemini.key' => 'AIzaSyFakeProbeKey1234567890']);
-        $image = imagecreatetruecolor(4000, 3000);
+        config([
+            'services.gemini.key' => 'AIzaSyFakeProbeKey1234567890',
+            // Small fixture + low threshold triggers the downscale path
+            // without exhausting memory on constrained CI runners.
+            'services.gemini.compress_threshold_bytes' => 1000,
+            'services.gemini.image_encoder' => 'png',
+        ]);
+        $image = imagecreatetruecolor(1200, 900);
         ob_start();
         imagepng($image);
         $path = tempnam(sys_get_temp_dir(), 'tg-probe').'.png';

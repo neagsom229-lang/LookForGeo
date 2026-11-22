@@ -33,6 +33,7 @@ class AnalysesStats extends Command
         $abandonedMs = [];
         $promptTokens = [];
         $outputTokens = [];
+        $thoughtTokens = [];
 
         foreach ($analyses as $analysis) {
             // Failures have no answering model and no meaningful latency;
@@ -57,6 +58,9 @@ class AnalysesStats extends Command
             }
             if (isset($result['output_tokens'])) {
                 $outputTokens[] = (int) $result['output_tokens'];
+            }
+            if (isset($result['thought_tokens'])) {
+                $thoughtTokens[] = (int) $result['thought_tokens'];
             }
             if (isset($result['abandoned_primary'])) {
                 $abandoned++;
@@ -113,11 +117,13 @@ class AnalysesStats extends Command
 
         sort($promptTokens);
         sort($outputTokens);
+        sort($thoughtTokens);
         if ($promptTokens) {
             $p50In = $promptTokens[intdiv(count($promptTokens), 2)];
             $p50Out = $outputTokens ? $outputTokens[intdiv(count($outputTokens), 2)] : 0;
+            $p50Thought = $thoughtTokens ? $thoughtTokens[intdiv(count($thoughtTokens), 2)] : 0;
             $share = ($p50In + $p50Out) ? round(100 * $p50Out / ($p50In + $p50Out), 1) : 0;
-            $this->line("Tokens p50: prompt={$p50In} output={$p50Out} output_share={$share}%");
+            $this->line("Tokens p50: prompt={$p50In} output={$p50Out} thought={$p50Thought} output_share={$share}%");
         }
 
         sort($abandonedMs);

@@ -242,9 +242,13 @@ class AnalyzeImageJob implements ShouldQueue
                 'queue_ms' => ($analysis->created_at && $analysis->started_at)
                     ? (int) abs($analysis->created_at->diffInMilliseconds($analysis->started_at))
                     : null,
-                'gemini_ms' => $analysis->started_at
-                    ? (int) abs($analysis->started_at->diffInMilliseconds($finishedAt))
-                    : null,
+                // Prefer the hrtime measurement of the actual Gemini call;
+                // fall back to timestamps for older/legacy results.
+                'gemini_ms' => isset($aiResult['gemini_ms'])
+                    ? (int) $aiResult['gemini_ms']
+                    : ($analysis->started_at
+                        ? (int) abs($analysis->started_at->diffInMilliseconds($finishedAt))
+                        : null),
                 'total_ms' => $analysis->created_at
                     ? (int) abs($analysis->created_at->diffInMilliseconds($finishedAt))
                     : null,

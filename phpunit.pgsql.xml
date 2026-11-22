@@ -27,6 +27,9 @@
         <env name="BROADCAST_CONNECTION" value="null" force="true"/>
         <env name="CACHE_STORE" value="array" force="true"/>
         <!-- Force an in-memory sqlite database for tests — NEVER the prod URL from .env -->
+        <!-- Test-only fake key: CI has no .env; never a real secret. -->
+        <env name="GEMINI_API_KEY" value="AIzaSyFakeTestKey1234567890" force="true"/>
+        <env name="GEMINI_SLIM_SCHEMA" value="false" force="true"/>
         <env name="GEMINI_CONFIDENCE_REVERSE_GEOCODE" value="false" force="true"/>
         <env name="GEMINI_HEALTH_PROBE" value="false" force="true"/>
         <env name="GEMINI_MODEL" value="gemini-3.5-flash-lite" force="true"/>

@@ -47,6 +47,8 @@
     "test:slow": "phpunit --group=slow",
     "test:decoy": "php scripts/test-decoy.php",
     "test:all": ["@test", "@test:slow"],
+    "pint-changed": "php scripts/pint-changed.php",
+    "ci": ["@test:all", "@test:decoy", "@pint-changed", "@analyse"],
     "dev": [
         "Composer\\Config::disableProcessTimeout",
         "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1"
