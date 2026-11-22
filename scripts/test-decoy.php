@@ -10,21 +10,30 @@ $tmp = sys_get_temp_dir().'/tg-decoy-'.bin2hex(random_bytes(5));
 
 function runCommand(array $command, string $cwd): array
 {
+    // Write to temp files, not pipes: a child (or grandchild) process that
+    // inherits a pipe write handle can keep stream_get_contents() blocked
+    // forever. Files have no EOF ownership problem.
+    $outFile = tempnam(sys_get_temp_dir(), 'tg-out');
+    $errFile = tempnam(sys_get_temp_dir(), 'tg-err');
     $process = proc_open($command, [
-        1 => ['pipe', 'w'],
-        2 => ['pipe', 'w'],
+        1 => ['file', $outFile, 'w'],
+        2 => ['file', $errFile, 'w'],
     ], $pipes, $cwd);
 
     if (! is_resource($process)) {
+        @unlink($outFile);
+        @unlink($errFile);
+
         return [1, 'could not start process'];
     }
 
-    $out = stream_get_contents($pipes[1]);
-    $err = stream_get_contents($pipes[2]);
-    fclose($pipes[1]);
-    fclose($pipes[2]);
+    $status = proc_close($process);
+    $out = (string) file_get_contents($outFile);
+    $err = (string) file_get_contents($errFile);
+    @unlink($outFile);
+    @unlink($errFile);
 
-    return [proc_close($process), trim($out."\n".$err)];
+    return [$status, trim($out."\n".$err)];
 }
 
 $decoy = [
