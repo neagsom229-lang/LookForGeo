@@ -4,6 +4,7 @@ namespace App\Services\Gemini;
 
 use App\Services\OpenStreetMapService;
 use Illuminate\Support\Facades\Log;
+use League\ISO3166\ISO3166;
 
 /**
  * Calibrated confidence from CHECKABLE signals only.
@@ -19,9 +20,15 @@ use Illuminate\Support\Facades\Log;
  */
 class ConfidenceCalculator
 {
+    /** ISO 3166 data provider, built once; handles official country names. */
+    private static ?ISO3166 $isoCountries = null;
+
     private const MAX_SCORE = 95;
 
     private const LOW_CONFIDENCE_BELOW = 50;
+
+    /** A result without coordinates cannot be pinned: cap its confidence. */
+    private const NO_COORDINATE_CAP = 49;
 
     public function __construct(private OpenStreetMapService $osm) {}
 
@@ -47,6 +54,18 @@ class ConfidenceCalculator
         $this->checkCoordinateSources($data, $signals, $factors);
 
         $score = (int) max(0, min(self::MAX_SCORE, array_sum(array_column($signals, 'points'))));
+
+        // A completed analysis with no usable coordinates is still useful as
+        // text, but it must never be presented as a pinned/identified place.
+        $lat = $data['latitude'] ?? null;
+        $lng = $data['longitude'] ?? null;
+        $hasCoordinates = is_numeric($lat) && is_numeric($lng)
+            && abs((float) $lat) <= 90 && abs((float) $lng) <= 180;
+        $data['coordinates_missing'] = ! $hasCoordinates;
+        if (! $hasCoordinates) {
+            $score = min($score, self::NO_COORDINATE_CAP);
+            $factors[] = 'Coordinates missing: location could not be pinned; confidence capped at '.self::NO_COORDINATE_CAP.'.';
+        }
 
         $data['model_reported_confidence'] = $modelReported;
         $data['confidence'] = $score;
@@ -106,39 +125,65 @@ class ConfidenceCalculator
             return;
         }
 
-        $reverseCountry = null;
+        $reverseName = null;
+        $reverseCode = null;
         if (config('services.gemini.confidence_reverse_geocode', true)) {
             try {
                 $place = $this->osm->reverseGeocode((float) $lat, (float) $lng);
-                $reverseCountry = strtolower((string) ($place['country'] ?? $place['country_code'] ?? ''));
+                if (is_array($place)) {
+                    // Real Nominatim nests country data under "address".
+                    $address = is_array($place['address'] ?? null) ? $place['address'] : [];
+                    $reverseCode = $this->countryCode($address['country_code'] ?? $place['country_code'] ?? null);
+                    $reverseName = strtolower((string) (
+                        $address['country'] ?? $place['country'] ?? ''
+                    ));
+                    if ($reverseCode === null) {
+                        $reverseCode = $this->countryCode($reverseName);
+                    }
+                }
             } catch (\Throwable $e) {
                 Log::warning('Reverse-geocode confidence check failed: '.$e->getMessage());
             }
         }
 
+        $statedCode = $this->countryCode($country);
+
         // Landmark DB match is the offline fallback for the same signal.
-        if ($reverseCountry === null && isset($data['matched_landmark'])) {
-            $reverseCountry = $country; // DB match already cross-referenced country
+        if ($reverseCode === null && $reverseName === null && isset($data['matched_landmark'])) {
+            $reverseCode = $statedCode;
+            $reverseName = $country; // DB match already cross-referenced country
         }
 
-        if ($reverseCountry === null || $reverseCountry === '') {
+        // An empty stated country already returned above.
+        if ($reverseCode === null && $reverseName === null) {
             $signals['country_consistency'] = ['points' => 0, 'state' => 'unavailable'];
             $factors[] = 'Could not verify that the coordinates are inside the stated country.';
 
             return;
         }
 
-        $matches = str_contains($reverseCountry, $country) || str_contains($country, $reverseCountry);
+        // Prefer ISO 3166 alpha-2 codes; fall back to normalised names only
+        // when either side cannot be resolved to a code.
+        $method = ($statedCode !== null && $reverseCode !== null) ? 'iso' : 'name';
+        if ($method === 'iso') {
+            $matches = $statedCode === $reverseCode;
+        } else {
+            $matches = $reverseName !== null
+                && (str_contains($reverseName, $country) || str_contains($country, $reverseName));
+        }
         $points = $matches ? 20 : -20;
         $signals['country_consistency'] = [
             'points' => $points,
             'state' => $matches ? 'match' : 'mismatch',
+            'method' => $method,
             'stated' => $country,
-            'reverse_geocoded' => $reverseCountry,
+            'stated_code' => $statedCode,
+            'reverse_geocoded' => $reverseName,
+            'reverse_code' => $reverseCode,
         ];
         $factors[] = $matches
-            ? 'Coordinates are inside the stated country ('.$country.').'
-            : "Country mismatch: model says {$country}, reverse geocode says {$reverseCountry}.";
+            ? 'Coordinates are inside the stated country ('.$country.($method === 'iso' ? ', '.$statedCode : '').').'
+            : "Country mismatch: model says {$country}, reverse geocode says ".($reverseName ?: $reverseCode).'.';
     }
 
     private function checkVisualCues(array $data, array &$signals, array &$factors): void
@@ -241,6 +286,69 @@ class ConfidenceCalculator
         }
 
         return 'Very Low';
+    }
+
+    /**
+     * Resolve a country label (name or ISO 3166 alpha-2) to a canonical code.
+     * Nominatim supplies address.country_code; model output uses names such as
+     * "USA", so a small alias table is needed before comparing.
+     */
+    private function countryCode(?string $value): ?string
+    {
+        $value = strtolower(trim((string) $value));
+        if ($value === '') {
+            return null;
+        }
+        // Two-letter non-ISO aliases must be canonicalised before the regex.
+        if ($value === 'uk') {
+            return 'gb';
+        }
+        if (preg_match('/^[a-z]{2}$/', $value)) {
+            return $value;
+        }
+
+        $aliases = [
+            'usa' => 'us', 'u.s.a.' => 'us', 'united states' => 'us',
+            'united states of america' => 'us', 'america' => 'us',
+            'uk' => 'gb', 'u.k.' => 'gb', 'united kingdom' => 'gb',
+            'great britain' => 'gb', 'england' => 'gb',
+            'uae' => 'ae', 'united arab emirates' => 'ae',
+            'russia' => 'ru', 'russian federation' => 'ru',
+            'south korea' => 'kr', 'republic of korea' => 'kr',
+            'north korea' => 'kp', 'viet nam' => 'vn',
+            'lao peoples democratic republic' => 'la',
+            'czech republic' => 'cz', 'ivory coast' => 'ci',
+            'france' => 'fr', 'germany' => 'de', 'italy' => 'it',
+            'spain' => 'es', 'portugal' => 'pt', 'netherlands' => 'nl',
+            'belgium' => 'be', 'switzerland' => 'ch', 'austria' => 'at',
+            'canada' => 'ca', 'mexico' => 'mx', 'brazil' => 'br',
+            'argentina' => 'ar', 'chile' => 'cl', 'peru' => 'pe',
+            'china' => 'cn', 'japan' => 'jp', 'india' => 'in',
+            'indonesia' => 'id', 'thailand' => 'th', 'malaysia' => 'my',
+            'singapore' => 'sg', 'philippines' => 'ph', 'pakistan' => 'pk',
+            'bangladesh' => 'bd', 'sri lanka' => 'lk', 'nepal' => 'np',
+            'cambodia' => 'kh', 'myanmar' => 'mm', 'burma' => 'mm',
+            'australia' => 'au', 'new zealand' => 'nz',
+            'egypt' => 'eg', 'morocco' => 'ma', 'tunisia' => 'tn',
+            'south africa' => 'za', 'kenya' => 'ke', 'nigeria' => 'ng',
+            'turkey' => 'tr', 'turkiye' => 'tr', 'poland' => 'pl',
+            'sweden' => 'se', 'norway' => 'no', 'denmark' => 'dk',
+            'finland' => 'fi', 'ireland' => 'ie', 'greece' => 'gr',
+        ];
+
+        if (isset($aliases[$value])) {
+            return $aliases[$value];
+        }
+
+        // league/iso3166 resolves official names case-insensitively and is
+        // used behind this normaliser (weights never depend on the source).
+        try {
+            self::$isoCountries ??= new ISO3166;
+
+            return strtolower(self::$isoCountries->name($value)['alpha2']);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     private function haversine(float $lat1, float $lng1, float $lat2, float $lng2): float

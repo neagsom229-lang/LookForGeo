@@ -1,0 +1,20 @@
+ARG PHP_VERSION=8.2-cli
+FROM php:${PHP_VERSION}
+
+# WITH_JPEG=1 builds GD with JPEG support; WITH_JPEG=0 builds it without.
+# Both legs run the same suite, proving no test depends on imagejpeg().
+ARG WITH_JPEG=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libjpeg62-turbo-dev libfreetype6-dev libpng-dev libpq-dev libcurl4-openssl-dev \
+      libzip-dev libonig-dev libsqlite3-dev unzip git \
+    && if [ "$WITH_JPEG" = "1" ]; then \
+         docker-php-ext-configure gd --with-freetype --with-jpeg; \
+       else \
+         docker-php-ext-configure gd --with-freetype; \
+       fi \
+    && docker-php-ext-install -j"$(nproc)" gd exif pcntl bcmath mbstring pdo_sqlite pdo_pgsql curl zip \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+ENV COMPOSER_ALLOW_SUPERUSER=1 COMPOSER_PROCESS_TIMEOUT=0
+WORKDIR /work

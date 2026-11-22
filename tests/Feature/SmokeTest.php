@@ -19,10 +19,10 @@ class SmokeTest extends TestCase
      */
     public function test_full_local_workflow(): void
     {
-        fwrite(STDERR, "\nsmoke stage=health");
+        self::stage("\nsmoke stage=health");
         $this->getJson('/api/health')->assertOk();
 
-        fwrite(STDERR, "\nsmoke stage=register");
+        self::stage("\nsmoke stage=register");
         Storage::fake('public');
 
         Http::fake([
@@ -58,13 +58,13 @@ class SmokeTest extends TestCase
         $register->assertRedirect();
         $this->assertDatabaseHas('users', ['email' => 'smoke@example.com']);
 
-        fwrite(STDERR, "\nsmoke stage=login");
+        self::stage("\nsmoke stage=login");
         $this->post('/login', ['email' => 'smoke@example.com', 'password' => 'password'])
             ->assertRedirect();
 
         $user = User::where('email', 'smoke@example.com')->firstOrFail();
 
-        fwrite(STDERR, "\nsmoke stage=upload");
+        self::stage("\nsmoke stage=upload");
         $upload = $this->actingAs($user, 'web')->postJson('/api/analyze/store', [
             'image' => UploadedFile::fake()->createWithContent('smoke.png', $this->tinyPngBytes()),
         ]);
@@ -73,19 +73,19 @@ class SmokeTest extends TestCase
 
         $id = $upload->json('id');
 
-        fwrite(STDERR, "\nsmoke stage=status");
+        self::stage("\nsmoke stage=status");
         $status = $this->actingAs($user, 'web')->getJson("/api/analyze/{$id}/status");
         $status->assertOk();
         $this->assertSame('completed', $status->json('status'));
         $this->assertSame(100, (int) $status->json('progress'));
 
-        fwrite(STDERR, "\nsmoke stage=result");
+        self::stage("\nsmoke stage=result");
         $result = $status->json('result');
         $this->assertNotEmpty($result['landmark_name']);
         $this->assertEquals(48.8584, (float) $result['latitude']);
         $this->assertEquals(2.2945, (float) $result['longitude']);
 
-        fwrite(STDERR, "\nsmoke result landmark={$result['landmark_name']} coords={$result['latitude']},{$result['longitude']}\n");
+        self::stage("\nsmoke result landmark={$result['landmark_name']} coords={$result['latitude']},{$result['longitude']}\n");
     }
 
     private function tinyPngBytes(): string
@@ -102,5 +102,13 @@ class SmokeTest extends TestCase
         imagedestroy($image);
 
         return $bytes;
+    }
+
+    /** Keep stage tracing out of normal test output. */
+    private static function stage(string $message): void
+    {
+        if (getenv('TEST_VERBOSE') === '1') {
+            fwrite(STDERR, $message);
+        }
     }
 }

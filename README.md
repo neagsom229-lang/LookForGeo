@@ -224,7 +224,7 @@ php artisan queue:work --tries=1 --timeout=180
 ```
 
 **"cURL error 28: Connection timed out"**
-High-resolution multimodal analysis can take 20–40 seconds depending on upstream load. Increase the Gemini timeout in `.env`:
+Analysis can take longer under upstream load. No latency figures are asserted here; measure before changing timeouts. If attempts are timing out, increase the Gemini timeout in `.env`:
 ```env
 GEMINI_TIMEOUT=50
 GEMINI_TOTAL_BUDGET=110

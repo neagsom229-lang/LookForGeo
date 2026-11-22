@@ -38,7 +38,7 @@ services:
       - key: GEMINI_CIRCUIT_FAILURES
         value: 3
       - key: GEMINI_CIRCUIT_OPEN_SECONDS
-        value: 60
+        value: 100
       # Cost guard: per-user daily quota + global kill switch (0 = off)
       - key: GEMINI_DAILY_PER_USER
         value: 50
@@ -53,6 +53,10 @@ services:
         value: true
       - key: GEMINI_THINKING_LEVEL
         value: low
+      - key: GEMINI_HEDGE_AFTER
+        value: 18
+      - key: GEMINI_TIMEOUT_OVERRIDES
+        value: ""
       - key: GEMINI_THINKING_OVERRIDES
         value: ""
       - key: GEMINI_MODEL
@@ -63,7 +67,7 @@ services:
       - key: GEMINI_ESCALATION_MODEL
         value: ""
       - key: GEMINI_ESCALATE_BELOW
-        value: 60
+        value: 100
       - key: GEMINI_ESCALATION_TIMEOUT
         value: 25
       # Secret keys — set actual values in Render Dashboard
@@ -116,7 +120,7 @@ services:
       - key: GEMINI_CIRCUIT_FAILURES
         value: 3
       - key: GEMINI_CIRCUIT_OPEN_SECONDS
-        value: 60
+        value: 100
       # Cost guard: per-user daily quota + global kill switch (0 = off)
       - key: GEMINI_DAILY_PER_USER
         value: 50
@@ -131,6 +135,10 @@ services:
         value: true
       - key: GEMINI_THINKING_LEVEL
         value: low
+      - key: GEMINI_HEDGE_AFTER
+        value: 18
+      - key: GEMINI_TIMEOUT_OVERRIDES
+        value: ""
       - key: GEMINI_THINKING_OVERRIDES
         value: ""
       - key: GEMINI_MODEL
@@ -141,7 +149,7 @@ services:
       - key: GEMINI_ESCALATION_MODEL
         value: ""
       - key: GEMINI_ESCALATE_BELOW
-        value: 60
+        value: 100
       - key: GEMINI_ESCALATION_TIMEOUT
         value: 25
       - key: GEMINI_API_KEY

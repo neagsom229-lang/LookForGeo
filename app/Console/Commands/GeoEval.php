@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Gemini\GeminiClient;
 use App\Services\GeminiService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
@@ -18,6 +19,10 @@ class GeoEval extends Command
 {
     protected $signature = 'geo:eval
                             {--live : Call the real Gemini API (needs GEMINI_API_KEY)}
+                            {--image= : Single real photo path (resized exactly like the app)}
+                            {--labels= : CSV with file,landmark,city,country,latitude,longitude,license}
+                            {--images= : Directory containing the real photos named in --labels}
+                            {--models= : Comma-separated model ids (a,b,c)}
                             {--limit=0 : Evaluate only the first N images (0 = all)}
                             {--report= : Override the JSON report path}';
 
@@ -29,6 +34,20 @@ class GeoEval extends Command
     {
         $live = (bool) $this->option('live');
         $limit = max(0, (int) $this->option('limit'));
+        $models = array_values(array_filter(array_map('trim', explode(',', (string) $this->option('models')))));
+        $imagePath = (string) $this->option('image');
+        $labelsPath = (string) $this->option('labels');
+        $imagesDir = (string) $this->option('images');
+
+        if ($imagePath !== '') {
+            return $this->evaluateSingleImage($gemini, $imagePath, $models, $live);
+        }
+        if (($labelsPath !== '') !== ($imagesDir !== '')) {
+            $this->error('--labels and --images must be supplied together for real-photo mode.');
+
+            return self::FAILURE;
+        }
+        $realPhotoMode = $labelsPath !== '';
 
         if ($live && empty(config('services.gemini.key'))) {
             $this->error('Live eval needs GEMINI_API_KEY in the environment.');
@@ -36,16 +55,30 @@ class GeoEval extends Command
             return self::FAILURE;
         }
 
-        $labels = $this->readLabels();
+        $labels = $realPhotoMode ? $this->readLabels($labelsPath) : $this->readLabels();
         if (empty($labels)) {
-            $this->error('No labels found in tests/fixtures/eval/labels.csv. Run scripts/make-eval-fixtures.php first.');
+            $this->error($realPhotoMode
+                ? "No labels found in {$labelsPath}."
+                : 'No labels found in tests/fixtures/eval/labels.csv. Run scripts/make-eval-fixtures.php first.');
 
             return self::FAILURE;
+        }
+        if ($realPhotoMode) {
+            foreach (['file', 'latitude', 'longitude', 'license'] as $column) {
+                if (! array_key_exists($column, $labels[0])) {
+                    $this->error("CSV is missing required column '{$column}'.");
+
+                    return self::FAILURE;
+                }
+            }
         }
         if ($limit > 0) {
             $labels = array_slice($labels, 0, $limit);
         }
 
+        if (! $live && $realPhotoMode) {
+            $this->warn('Mock mode returns the label as the prediction; accuracy numbers are not meaningful without --live.');
+        }
         if (! $live) {
             // Mock: no network, no reverse-geocode call. The fake returns the
             // expected location so calibration reports honest (low) scores
@@ -75,11 +108,34 @@ class GeoEval extends Command
             });
         }
 
-        $this->info(sprintf('Evaluating %d images (%s mode)...', count($labels), $live ? 'LIVE' : 'MOCK'));
+        if ($live || $realPhotoMode) {
+            $realPhotos = 0;
+            foreach ($labels as $label) {
+                $license = strtolower((string) ($label['license'] ?? ''));
+                if ($license !== '' && ! str_contains($license, 'synthetic')) {
+                    $realPhotos++;
+                }
+            }
+            if ($realPhotos < 30) {
+                $this->warn("Only {$realPhotos} real labeled photos (need >=30). Calibration numbers are weak until you add real photos with licence notes.");
+            }
+            if (! empty($models)) {
+                $this->info('Requested models: '.implode(',', $models));
+            }
+        }
+
+        $this->info(sprintf(
+            'Evaluating %d images (%s%s)...',
+            count($labels),
+            $live ? 'LIVE' : 'MOCK',
+            $realPhotoMode ? ', real-photo labels' : ''
+        ));
 
         $rows = [];
         foreach ($labels as $label) {
-            $path = dirname(__DIR__, 3).'/tests/fixtures/eval/'.$label['file'];
+            $path = $realPhotoMode
+                ? rtrim($imagesDir, '/\\').'/'.$label['file']
+                : dirname(__DIR__, 3).'/tests/fixtures/eval/'.$label['file'];
             if (! is_file($path)) {
                 $this->warn('Missing fixture: '.$label['file']);
 
@@ -120,7 +176,7 @@ class GeoEval extends Command
             ];
         }
 
-        $report = $this->buildReport($rows, $live);
+        $report = $this->buildReport($rows, $live, $realPhotoMode);
         $reportPath = (string) ($this->option('report') ?: storage_path('app/eval-'.($live ? 'live' : 'mock').'.json'));
         file_put_contents($reportPath, json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
@@ -130,9 +186,9 @@ class GeoEval extends Command
         return self::SUCCESS;
     }
 
-    private function readLabels(): array
+    private function readLabels(?string $path = null): array
     {
-        $path = dirname(__DIR__, 3).'/tests/fixtures/eval/labels.csv';
+        $path = $path ?: dirname(__DIR__, 3).'/tests/fixtures/eval/labels.csv';
         if (! is_file($path)) {
             return [];
         }
@@ -144,14 +200,18 @@ class GeoEval extends Command
             if (count($row) < 6) {
                 continue;
             }
-            $labels[] = array_combine($header, $row);
+            $label = array_combine($header, $row);
+            if (! array_key_exists('license', $label) && array_key_exists('licence', $label)) {
+                $label['license'] = $label['licence'];
+            }
+            $labels[] = $label;
         }
         fclose($handle);
 
         return $labels;
     }
 
-    private function buildReport(array $rows, bool $live): array
+    private function buildReport(array $rows, bool $live, bool $realPhotoMode = false): array
     {
         $errors = array_values(array_filter(array_column($rows, 'error_km'), fn ($v) => $v !== null));
         $latencies = array_values(array_column($rows, 'seconds'));
@@ -164,16 +224,23 @@ class GeoEval extends Command
                 return $r['error_km'] !== null && $r['confidence'] >= $min && $r['confidence'] <= $max;
             }));
             $within200 = count(array_filter($bucket, fn ($r) => $r['error_km'] <= 200));
+            $within25 = count(array_filter($bucket, fn ($r) => $r['error_km'] <= 25));
+            $bandErrors = array_column($bucket, 'error_km');
             $calibration[$name] = [
                 'count' => count($bucket),
+                'pct_within_25km' => $bucket ? round(100 * $within25 / count($bucket), 1) : null,
                 'pct_within_200km' => $bucket ? round(100 * $within200 / count($bucket), 1) : null,
+                'median_error_km' => $bandErrors ? round($this->percentile($bandErrors, 0.5), 2) : null,
             ];
         }
 
         return [
             'generated_at' => now()->toIso8601String(),
             'mode' => $live ? 'live' : 'mock',
-            'fixture_license' => 'CC0 synthetic images; coordinates are public geographic facts',
+            'dataset' => $realPhotoMode ? 'real-photo' : 'synthetic-fixtures',
+            'fixture_license' => $realPhotoMode
+                ? 'User-supplied photos; see the license column of the labels CSV'
+                : 'CC0 synthetic images; coordinates are public geographic facts',
             'count' => $total,
             'metrics' => [
                 'median_error_km' => $errors ? round($this->percentile($errors, 0.5), 2) : null,
@@ -233,13 +300,67 @@ class GeoEval extends Command
             ['Failure rate', $m['failure_rate_pct'].'%'],
         ]);
 
+        $bandRows = [];
         foreach ($m['calibration'] as $name => $stats) {
-            $this->line(sprintf(
-                'calibration %-14s n=%d within200=%s',
+            $bandRows[] = [
                 $name,
                 $stats['count'],
-                $stats['pct_within_200km'] === null ? 'n/a' : $stats['pct_within_200km'].'%'
-            ));
+                $stats['pct_within_25km'] === null ? 'n/a' : $stats['pct_within_25km'].'%',
+                $stats['pct_within_200km'] === null ? 'n/a' : $stats['pct_within_200km'].'%',
+                $stats['median_error_km'] ?? 'n/a',
+            ];
         }
+        $this->line('Accuracy by predicted-confidence band:');
+        $this->table(['band', 'n', 'within 25 km', 'within 200 km', 'median error (km)'], $bandRows);
+    }
+
+    private function evaluateSingleImage(GeminiService $gemini, string $path, array $models, bool $live): int
+    {
+        if (! is_file($path)) {
+            $this->error("Image not found: {$path}");
+
+            return self::FAILURE;
+        }
+        if (empty($models)) {
+            $models = array_values(array_unique(array_filter([
+                (string) config('services.gemini.model'),
+                (string) config('services.gemini.fallback_model'),
+            ])));
+        }
+
+        $bytes = (string) file_get_contents($path);
+        $rows = [];
+
+        foreach ($models as $model) {
+            config(['services.gemini.model' => $model, 'services.gemini.fallback_model' => $model]);
+            app()->forgetInstance(GeminiClient::class);
+
+            $started = microtime(true);
+            try {
+                $result = $gemini->analyzeGeolocation($bytes, []);
+            } catch (\Throwable $e) {
+                $result = null;
+            }
+            $seconds = round((microtime(true) - $started) * 1000, 1);
+
+            $rows[] = [
+                $model,
+                sprintf('%.1f/%.1f/%.1f', $seconds, $seconds, $seconds),
+                is_array($result) ? ($result['category'] ?? 'ok') : 'other',
+                (string) config('services.gemini.thinking_level', 'low'),
+                is_array($result) ? (int) ($result['confidence'] ?? 0) : 0,
+            ];
+        }
+
+        $this->table(
+            ['model', 'ms min/median/max', 'category', 'thinking level', 'calibrated confidence'],
+            $rows
+        );
+        if (! $live) {
+            $this->warn('Mock mode: Http::fake returns deterministic data; use --live for real observations.');
+        }
+        $this->info('Record per-model live results in docs/DEPLOY_NOTES.md before enabling any minimal thinking override.');
+
+        return self::SUCCESS;
     }
 }

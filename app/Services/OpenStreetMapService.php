@@ -2,12 +2,21 @@
 
 namespace App\Services;
 
+use App\Services\Gemini\SecretSanitizer;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class OpenStreetMapService
 {
+    /** Nominatim usage policy: identify the app and respect 1 req/s. */
+    private const REVERSE_USER_AGENT = 'TraceGeo/1.0 (https://lookforgeo.onrender.com; contact: admin@lookforgeo.onrender.com)';
+
+    private const REVERSE_CACHE_SECONDS = 600;
+
+    private const REVERSE_MIN_INTERVAL_S = 1.0;
+
     /**
      * Geocode with multiple fallback sources
      */
@@ -246,15 +255,17 @@ class OpenStreetMapService
      */
     public function reverseGeocode(float $lat, float $lng): ?array
     {
+        $cacheKey = 'reverse_'.md5($lat.$lng);
+        if (Cache::has($cacheKey)) {
+            $cached = Cache::get($cacheKey);
+
+            return is_array($cached) ? $cached : null;
+        }
+
         try {
-            $cacheKey = 'reverse_'.md5($lat.$lng);
-
-            if (Cache::has($cacheKey)) {
-                return Cache::get($cacheKey);
-            }
-
+            $this->throttleReverseRequest();
             $response = Http::timeout(10)
-                ->withHeaders(['User-Agent' => 'LandmarkApp/1.0'])
+                ->withHeaders(['User-Agent' => self::REVERSE_USER_AGENT])
                 ->get('https://nominatim.openstreetmap.org/reverse', [
                     'lat' => $lat,
                     'lon' => $lng,
@@ -265,15 +276,53 @@ class OpenStreetMapService
 
             if ($response->successful()) {
                 $data = $response->json();
-                Cache::put($cacheKey, $data, 86400);
+                if (! is_array($data)) {
+                    $this->logReverseFailure('bad_response', ['status' => $response->status()]);
+
+                    return null;
+                }
+                // "Briefly": avoid hammering a free service while still
+                // refreshing stale country data.
+                Cache::put($cacheKey, $data, self::REVERSE_CACHE_SECONDS);
 
                 return $data;
             }
-        } catch (\Exception $e) {
-            Log::warning('Reverse geocoding failed: '.$e->getMessage());
+
+            $this->logReverseFailure(
+                $response->status() === 429 ? 'rate_limit' : 'bad_response',
+                ['status' => $response->status()]
+            );
+        } catch (ConnectionException $e) {
+            $this->logReverseFailure('timeout', [
+                'message' => SecretSanitizer::redact($e->getMessage()),
+            ]);
+        } catch (\Throwable $e) {
+            $this->logReverseFailure('bad_response', [
+                'message' => SecretSanitizer::redact($e->getMessage()),
+            ]);
         }
 
         return null;
+    }
+
+    /** Keep at most one reverse request per second (Nominatim policy). */
+    private function throttleReverseRequest(): void
+    {
+        $key = 'nominatim_reverse_last_at';
+        $last = (float) Cache::get($key, 0);
+        $wait = ($last + self::REVERSE_MIN_INTERVAL_S) - microtime(true);
+        if ($wait > 0) {
+            usleep((int) ($wait * 1_000_000));
+        }
+        Cache::put($key, microtime(true), 60);
+    }
+
+    private function logReverseFailure(string $category, array $context): void
+    {
+        Log::warning('Reverse geocode failed', array_merge([
+            'category' => $category,
+            'provider' => 'nominatim',
+        ], $context));
     }
 
     /**

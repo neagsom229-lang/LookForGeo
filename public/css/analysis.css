@@ -684,6 +684,26 @@
         border-radius: 50%;
     }
 
+    /* Confidence bands: green is reserved for high (>= 50 and not flagged
+       low). Mid is amber and low is red -- never green below 50. */
+    .pill-confidence.band-low {
+        color: var(--danger);
+        border-color: rgba(248, 113, 113, 0.4);
+    }
+    .pill-confidence.band-low .dot { background: var(--danger); }
+
+    .pill-confidence.band-medium {
+        color: var(--warning);
+        border-color: rgba(251, 191, 36, 0.4);
+    }
+    .pill-confidence.band-medium .dot { background: var(--warning); }
+
+    .pill-confidence.band-high {
+        color: var(--success);
+        border-color: rgba(45, 212, 191, 0.4);
+    }
+    .pill-confidence.band-high .dot { background: var(--success); }
+
     .pane-actions {
         position: absolute;
         bottom: 20px;

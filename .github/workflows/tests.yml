@@ -33,6 +33,31 @@ jobs:
       - name: Run tests (fast + slow process group)
         run: composer test:all
 
+  gd-matrix:
+    name: GD matrix (${{ matrix.gd }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gd: [with-jpeg, without-jpeg]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rebuild GD explicitly so one leg has imagecreatefromjpeg() and the
+      # other does not. Tests force the encoder path via config, so both
+      # legs must produce identical results.
+      - name: Build PHP image (${{ matrix.gd }})
+        run: |
+          WITH_JPEG=1
+          [ "${{ matrix.gd }}" = "without-jpeg" ] && WITH_JPEG=0
+          docker build -f docker/Dockerfile.gd-matrix \
+            --build-arg WITH_JPEG="$WITH_JPEG" -t tracegeo-gd:${{ matrix.gd }} .
+
+      - name: Run full suite
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work tracegeo-gd:${{ matrix.gd }} \
+            sh -c 'composer install --optimize-autoloader --no-interaction && composer test:all'
+
   decoy-env:
     name: Hermetic suite with decoy .env
     runs-on: ubuntu-latest
@@ -167,8 +192,10 @@ jobs:
 
       # Existing debt is captured in phpstan-baseline.neon; any NEW level-5
       # error fails the job. Regenerate the baseline only with intent.
+      # The explicit flag matches the composer analyse script and keeps
+      # PHPStan off setup-php's default 128M limit.
       - name: Static analysis
-        run: composer analyse
+        run: composer analyse -- --memory-limit=1G
 
   pgsql-upgrade:
     name: Postgres migration upgrade (origin/main -> PR)
@@ -250,6 +277,25 @@ jobs:
 
       - name: Build Dockerfile
         run: docker build -t tracegeo-ci .
+
+      # The production image installs with --no-dev. If league/iso3166 were
+      # only a dev dependency, this would fail - it runs the app's own
+      # country normaliser, not the library directly.
+      - name: Production image includes ISO normalizer (require)
+        run: |
+          docker run --rm --entrypoint php tracegeo-ci -r '
+          require "vendor/autoload.php";
+          $app = require "bootstrap/app.php";
+          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+          $calculator = new App\Services\Gemini\ConfidenceCalculator(
+              $app->make(App\Services\OpenStreetMapService::class)
+          );
+          $method = new ReflectionMethod($calculator, "countryCode");
+          $method->setAccessible(true);
+          $code = $method->invoke($calculator, "USA");
+          echo "USA -> ", $code, PHP_EOL;
+          exit($code === "us" ? 0 : 1);
+          '
 
       - name: Start container
         run: |

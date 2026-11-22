@@ -34,6 +34,9 @@ class GeminiFailureDiagnosticsTest extends TestCase
             'services.gemini.min_attempt_seconds' => 15,
             'services.gemini.retries' => 0,
             'services.gemini.retry_backoff_ms' => 0,
+            // Isolate the terminal-failure sanitization path; the one
+            // automatic requeue is covered in AutoRequeueTest.
+            'services.analysis.auto_requeue' => false,
         ]);
         Log::spy();
     }
@@ -99,10 +102,13 @@ class GeminiFailureDiagnosticsTest extends TestCase
         $result['status']->assertJsonPath('status', 'failed')
             ->assertJsonPath('error', GeminiFailureClassifier::MESSAGES['quota'])
             ->assertJsonPath('failure_category', 'quota');
+        $failed = GeoAnalysis::find($result['id']);
         $this->assertSame(
             GeminiFailureClassifier::STAGE_LABELS['quota'],
-            GeoAnalysis::find($result['id'])->stage_label
+            $failed->stage_label
         );
+        // No model answered, so model_used must stay null on failure.
+        $this->assertNull($failed->model_used);
     }
 
     public function test_400_schema_or_thinking_rejection_is_logged_with_status(): void

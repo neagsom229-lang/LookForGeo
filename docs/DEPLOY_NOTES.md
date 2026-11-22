@@ -35,6 +35,124 @@ Values below are the non-secret defaults committed in `render.yaml`.
 | `GEMINI_ESCALATE_BELOW` | `60` | `60` | default | Escalate when calibrated confidence is below this |
 | `GEMINI_ESCALATION_TIMEOUT` | `25` | `25` | default | Bounded timeout for the single second pass |
 
+**Reported live behaviour (not measured here):** the lite models
+(`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`) intermittently return 503.
+No latency figures are asserted in this repository: no live before/after
+measurements have been supplied. This variability is why hedging exists: one
+model being slow must not hold up the other.
+
+**Why hedging exists:** `GEMINI_HEDGE_AFTER=18` gives the primary an eighteen-second
+window. If it has not answered, the fallback starts immediately and the first
+valid response wins; the loser is ignored. A primary that merely timed out in
+the hedge window is **not** counted as a breaker failure. Only genuine 429 /
+503 / timeout failures of a model count toward its breaker. Hedges are
+disabled automatically when the global daily cap is more than 80 % used, to
+avoid doubling spend near the limit.
+
+**Per-model live results (fill from `gemini:probe --repeat=10 --models=...` and
+`geo:eval --live --image=<real photo>`; never invent these):**
+
+| model | HTTP | ms min/median/max | category | thinking level | live 200 recorded? |
+|---|---|---|---|---|---|
+| gemini-3.5-flash-lite | (pending) | (pending) | (pending) | low | no |
+| gemini-3.1-flash-lite | (pending) | (pending) | (pending) | low | no |
+
+Only replace `no` with `yes` after a real HTTP 200 is observed. `minimal`
+thinking stays disabled until that row says `yes`.
+
+Implementation note: this is a **staged "primary timeout + fallback"** hedge,
+not two simultaneously in-flight HTTP sockets. The primary request is bounded
+to the hedge window; when that window expires its elapsed time is recorded and
+the fallback request starts. This is deliberate: a true concurrent Guzzle
+promise race could not be made deterministic with Laravel's HTTP fakes, so the
+code and `Gemini primary timeout + fallback` log line name the behaviour
+honestly. `analyses:stats` reports the abandoned-primary count and elapsed
+time so the 18 s default can be tuned from evidence.
+
+**Cloudinary and critical path:** the follow-up `UploadAnalysisImageJob`
+moves Cloudinary **out of the request path for local runs only**, where the
+worker and web process share the local disk. Production (`render.yaml`) still
+uploads to Cloudinary in `AnalysisController@store()` *before* dispatch,
+because the separate worker container has no shared local file. The follow-up
+job is a safety net there, not the primary upload path. Do not claim a
+production latency improvement from this change.
+
+**No latency claims without live data:** no p50/p95 numbers are stated here.
+`analyses:stats` prints token p50 and `output_share` so you can measure once
+live data exists. The slim prompt/schema is **off by default**
+(`GEMINI_SLIM_SCHEMA=false`) and must stay off until you supply `geo:eval
+--live` before/after accuracy and p50. Default behaviour is the original full
+schema. The 1024 px downscale only runs for images
+larger than `GEMINI_COMPRESS_THRESHOLD_BYTES` (default 1 MB). Smaller images are
+sent **byte-for-byte unchanged**, so `image_bytes` in the log equalling the
+original file size is expected, not proof that downscaling is broken. For
+larger images `image_bytes` is the length of the downscaled/re-encoded payload.
+
+**Automatic requeue:** when both models fail with `overload` or `timeout`, the
+job is released once after 8 s with `stage_label = "Retrying"`. It never
+requeues `bad_request`, never more than once (`ANALYSIS_AUTO_REQUEUE=false`
+disables it), and is skipped when the elapsed time plus the 8 s delay would
+exceed the 60 s total user-wait cap. If the second attempt also fails the row
+becomes `failed` with the usual generic message. Job-level `tries=2` is baked
+into the queue payload so this `release()` is not killed by `--tries=1`;
+`RequeueWorkerTest` proves the second run with the database driver and worker
+semantics. `model_used` stays null on failure, and `analyses:stats` excludes
+failures from the per-model latency table (failures get their own count and
+category breakdown).
+
+**Calibration bug (0 % for famous landmarks) — proposal only, weights UNCHANGED:**
+`ConfidenceCalibrationMatrixTest` prints an inputs-to-score table with realistic
+outputs and no EXIF. Two consistent answers score 0 %: Statue of Liberty when
+reverse geocoding reports the wrong country (-20) on a low-res image (-10), and
+Phnom Kulen with tied candidates (-15) on a low-res image (-10). A third finding
+was that Nominatim nests country under `address.country`, which the reader
+ignored, so the signal was silently 0.
+
+FIXED (weights unchanged): the reader now accepts real Nominatim payloads,
+prefers `address.country_code` (ISO 3166 alpha-2), and normalises model-side
+names such as `USA` / `United States of America` / `UK` / `Cambodia` to codes
+before comparing. NominatimCountryTest covers real-shaped responses; the
+matrix row for Statue of Liberty with a Nominatim payload rises from 35 % to
+55 % because the country signal is now detected, not because weights changed.
+
+Still proposed (NOT applied), pending operator review:
+- cap country mismatch at -10 and low-resolution/tied-candidate penalties at
+  -5 each, so no single weak signal can erase a named landmark;
+- add a +10 "specific landmark named with in-country coordinates" baseline;
+- never display 0 % when the answer is internally consistent - floor at 15.
+
+**Real-photo `geo:eval` datasets:** use
+`php artisan geo:eval --live --labels=<csv> --images=<dir>`. `--labels` and
+`--images` must be given together. The CSV header is
+`file,landmark,city,country,latitude,longitude,license` (`licence` is also
+accepted). **Real photos must stay outside this public repository**: EXIF GPS
+and private property are a privacy risk, so keep them in an untracked directory
+and pass it via `--images`. `.gitignore` excludes `tests/fixtures/eval/real/`,
+`**/real-photos/`, `**/real_photos/`, `**/eval-real/` and
+`storage/app/eval-real/`. Only the synthetic fixtures under
+`tests/fixtures/eval/images/` are committed. `file` is relative to `--images`; `latitude`/`longitude` are the
+ground truth in decimal degrees; `license` must name the rights holder/source
+(e.g. `Photo by A, CC BY 4.0`). Rows whose licence mentions `synthetic` are
+not counted as real photos, and the command warns when fewer than 30 real
+photos are present. The report adds a `dataset: real-photo` field and an
+accuracy table by predicted-confidence band (`n`, within 25 km, within
+200 km, median error km) in addition to the overall median error. Without
+`--live`, the fake returns each label as the prediction and the command warns
+that accuracy numbers are not meaningful.
+
+**Local vs production worker:** `scripts/dev.ps1` uses
+`php artisan queue:listen --tries=1 --timeout=180` locally because `listen`
+boots a fresh worker process per job, so code edits take effect immediately.
+Production keeps `queue:work` (a long-running daemon that loads code once),
+where deploys restart workers. Do not switch local dev to `queue:work`: it
+silently runs stale code after every edit.
+
+Tuning: lower `GEMINI_HEDGE_AFTER` (e.g. 2) if p95 is dominated by slow
+primaries; raise it (or set `0`) if duplicate requests are too costly. Use
+`composer latency:live -- --iterations=10` and `php artisan gemini:probe
+--repeat=10` to compare before changing. Use `php artisan analyses:stats
+--hours=24` to see hedge win rate and per-model processing percentiles.
+
 **Choosing models (no guessing):** run `php artisan gemini:models` to list
 flash models that support `generateContent`, then
 `php artisan gemini:probe --models=gemini-3.5-flash-lite,gemini-3.1-flash-lite` to see

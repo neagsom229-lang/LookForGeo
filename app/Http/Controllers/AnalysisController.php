@@ -257,7 +257,7 @@ class AnalysisController extends Controller
             $elapsed = 0;
             if ($analysis->started_at) {
                 $end = $analysis->finished_at ?? now();
-                $elapsed = round($analysis->started_at->diffInSeconds($end), 1);
+                $elapsed = round(abs($analysis->started_at->diffInSeconds($end)), 1);
             }
 
             $response = [
@@ -283,6 +283,7 @@ class AnalysisController extends Controller
                     'country' => $result['country'] ?? null,
                     'latitude' => $result['latitude'] ?? null,
                     'longitude' => $result['longitude'] ?? null,
+                    'coordinates_missing' => (bool) ($result['coordinates_missing'] ?? false),
                     'confidence' => $result['confidence'] ?? 0,
                     'description' => $result['description'] ?? null,
                     'image_url' => $analysis->image_url,
@@ -643,6 +644,7 @@ class AnalysisController extends Controller
                     'country' => $result['country'] ?? null,
                     'latitude' => $result['latitude'] ?? null,
                     'longitude' => $result['longitude'] ?? null,
+                    'coordinates_missing' => (bool) ($result['coordinates_missing'] ?? false),
                     'confidence' => $result['confidence'] ?? 0,
                     'description' => $result['description'] ?? null,
                     'type' => $result['type'] ?? null,

@@ -30,6 +30,9 @@
         <env name="DB_CONNECTION" value="sqlite" force="true"/>
         <env name="DB_DATABASE" value=":memory:" force="true"/>
         <env name="DATABASE_URL" value="sqlite:///:memory:" force="true"/>
+        <!-- Test-only fake key: CI has no .env; never a real secret. -->
+        <env name="GEMINI_API_KEY" value="AIzaSyFakeTestKey1234567890" force="true"/>
+        <env name="GEMINI_SLIM_SCHEMA" value="false" force="true"/>
         <env name="GEMINI_CONFIDENCE_REVERSE_GEOCODE" value="false" force="true"/>
         <env name="GEMINI_HEALTH_PROBE" value="false" force="true"/>
         <env name="GEMINI_MODEL" value="gemini-3.5-flash-lite" force="true"/>
@@ -39,6 +42,8 @@
         <env name="GEMINI_TOTAL_BUDGET" value="110" force="true"/>
         <env name="GEMINI_THINKING_LEVEL" value="low" force="true"/>
         <env name="GEMINI_THINKING_OVERRIDES" value="" force="true"/>
+        <env name="GEMINI_TIMEOUT_OVERRIDES" value="" force="true"/>
+        <env name="GEMINI_HEDGE_AFTER" value="0" force="true"/>
         <env name="CLOUDINARY_CLOUD_NAME" value="" force="true"/>
         <env name="CLOUDINARY_URL" value="" force="true"/>
         <env name="CLOUDINARY_API_KEY" value="" force="true"/>

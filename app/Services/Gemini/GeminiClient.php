@@ -2,6 +2,7 @@
 
 namespace App\Services\Gemini;
 
+use App\Models\GeoAnalysis;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -29,7 +30,13 @@ class GeminiClient
     /** @var array<string,string> */
     protected array $thinkingOverrides = [];
 
+    /** @var array<string,int> */
+    protected array $timeoutOverrides = [];
+
     protected $baseUrl;
+
+    /** Monotonic start of the in-flight Gemini call, for elapsed_ms. */
+    private ?int $lastAttemptNs = null;
 
     public function __construct(private GeminiCircuitBreaker $circuit)
     {
@@ -49,6 +56,13 @@ class GeminiClient
         // Keep the configured casing (default lowercase "low"). An empty
         // value omits thinkingConfig entirely.
         $this->thinkingLevel = trim((string) config('services.gemini.thinking_level', 'low'));
+
+        foreach (explode(',', (string) config('services.gemini.timeout_overrides', '')) as $pair) {
+            if (str_contains($pair, '=')) {
+                [$modelName, $seconds] = explode('=', trim($pair), 2);
+                $this->timeoutOverrides[trim($modelName)] = max(1, (int) trim($seconds));
+            }
+        }
 
         foreach (explode(',', (string) config('services.gemini.thinking_overrides', '')) as $pair) {
             if (str_contains($pair, '=')) {
@@ -101,8 +115,112 @@ class GeminiClient
      * attempt window left, so a 30s request can never start at second 89
      * of a 90s budget and overshoot the user-visible failure target.
      */
+    private function hedgeEnabled(): bool
+    {
+        $after = (float) config('services.gemini.hedge_after', 6);
+
+        return $after > 0
+            && $this->primaryModel !== $this->fallbackModel
+            && ! $this->dailyCapNearLimit();
+    }
+
+    private function dailyCapNearLimit(): bool
+    {
+        $limit = (int) config('services.gemini.daily_limit_global', 0);
+        if ($limit <= 0) {
+            return false;
+        }
+        $used = (int) GeoAnalysis::whereDate('created_at', today())->count();
+
+        return ($used / $limit) > 0.8;
+    }
+
+    /**
+     * Hedge: give the primary only the hedge window, then immediately start
+     * the fallback. The first valid response wins; a primary that merely ran
+     * out of the hedge window is not recorded as a breaker failure.
+     *
+     * @return array{result: array, winner: string, failures: array<int,string>}|null
+     */
+    private function sendPrimaryTimeoutThenFallback(string $imageData, string $prompt): ?array
+    {
+        if (! $this->hedgeEnabled()) {
+            return null;
+        }
+
+        $after = (float) config('services.gemini.hedge_after', 6);
+        $started = microtime(true);
+        $primaryResult = $this->sendSingleGeminiRequest(
+            $this->primaryModel, $imageData, $prompt, max(1, (int) ceil($after))
+        );
+
+        if (! isset($primaryResult['error'])) {
+            return ['result' => $primaryResult, 'winner' => $this->primaryModel, 'failures' => []];
+        }
+
+        $abandonedMs = (int) round((microtime(true) - $started) * 1000);
+
+        // Primary did not answer in the hedge window: its elapsed time is recorded and the fallback starts now.
+        $fallbackResult = $this->sendSingleGeminiRequest(
+            $this->fallbackModel, $imageData, $prompt, $this->timeoutForModel($this->fallbackModel)
+        );
+
+        $primaryClass = $this->withClassification($primaryResult);
+        $fallbackClass = isset($fallbackResult['error']) ? $this->withClassification($fallbackResult) : $fallbackResult;
+
+        $winner = isset($fallbackResult['error']) ? 'none' : $this->fallbackModel;
+        $result = isset($fallbackResult['error']) ? $fallbackClass : $fallbackResult;
+        $failures = [];
+
+        if (isset($fallbackResult['error'])) {
+            // Both models genuinely failed.
+            $failures = [$this->primaryModel, $this->fallbackModel];
+            $result = array_merge($primaryClass, [
+                'error' => $fallbackClass['error'],
+                'message' => $fallbackClass['message'],
+                'category' => $fallbackClass['category'],
+                'user_message' => $fallbackClass['user_message'],
+                'stage_label' => $fallbackClass['stage_label'],
+            ]);
+        }
+
+        Log::info('Gemini primary timeout + fallback', [
+            'hedged' => true,
+            'winner' => $winner,
+            'ms' => (int) round((microtime(true) - $started) * 1000),
+        ]);
+
+        $result['hedged'] = true;
+        $result['hedge_winner'] = $winner;
+        $result['abandoned_primary'] = $this->primaryModel;
+        $result['primary_abandoned_ms'] = $abandonedMs;
+
+        return ['result' => $result, 'winner' => $winner, 'failures' => $failures];
+    }
+
     public function analyzeWithFallback($imageData, $prompt, ?callable $onRetry = null)
     {
+        // Hedged first pass: start the fallback only if the primary is slow.
+        $hedged = $this->sendPrimaryTimeoutThenFallback($imageData, $prompt);
+        if ($hedged !== null) {
+            $result = $hedged['result'];
+            $classified = isset($result['error']) ? $this->withClassification($result) : $result;
+
+            if (! isset($result['error'])) {
+                $this->circuit->recordSuccess($hedged['winner']);
+                $result['winner'] = $hedged['winner'];
+
+                return $result;
+            }
+
+            // Only real failures of a model count toward its breaker.
+            foreach ($hedged['failures'] as $failedModel) {
+                $this->noteCircuitFailure($failedModel, $classified);
+            }
+
+            return $classified;
+        }
+
         $deadline = microtime(true) + $this->maxTotalTimeSeconds;
         $models = array_values(array_unique([$this->primaryModel, $this->fallbackModel]));
         $last = ['error' => 'unknown', 'message' => 'No model attempted'];
@@ -141,6 +259,7 @@ class GeminiClient
 
             if (! isset($result['error'])) {
                 $this->circuit->recordSuccess($model);
+                $result['winner'] = $model;
 
                 return $result;
             }
@@ -216,7 +335,7 @@ class GeminiClient
             // left, so a single slow attempt can never blow past the shared
             // deadline (and, transitively, can never approach the job's
             // own queue timeout).
-            $requestTimeout = (int) max(1, min($this->requestTimeout, floor($remaining)));
+            $requestTimeout = (int) max(1, min($this->timeoutForModel($model), floor($remaining)));
 
             try {
                 $result = $this->sendSingleGeminiRequest($model, $imageData, $prompt, $requestTimeout);
@@ -286,6 +405,23 @@ class GeminiClient
      * need those fields omitted rather than sent with unknown values, so we
      * only add the thinking config for 3.x models.
      */
+    public function timeoutForModel(string $model): int
+    {
+        if (isset($this->timeoutOverrides[$model])) {
+            return $this->timeoutOverrides[$model];
+        }
+
+        if (str_contains($model, 'flash-lite')) {
+            return 20;
+        }
+
+        if (str_contains($model, 'flash')) {
+            return max(20, $this->requestTimeout);
+        }
+
+        return $this->requestTimeout;
+    }
+
     private function generationConfig(string $model, array $config): array
     {
         $level = $this->thinkingLevelFor($model);
@@ -334,11 +470,18 @@ class GeminiClient
         ?int $status = null,
         ?\Throwable $exception = null
     ): array {
+        $elapsedMs = $this->lastAttemptNs !== null
+            ? (int) round((hrtime(true) - $this->lastAttemptNs) / 1_000_000)
+            : (int) round((microtime(true) - $started) * 1000);
+        $result['gemini_ms'] = $elapsedMs;
         $context = [
             'model' => $model,
-            'elapsed_ms' => (int) round((microtime(true) - $started) * 1000),
+            'elapsed_ms' => $elapsedMs,
             'thinking_level' => str_starts_with($model, 'gemini-3') ? $this->thinkingLevel : 'n/a',
             'image_bytes' => $imageBytes,
+            'prompt_tokens' => (int) ($result['prompt_tokens'] ?? 0),
+            'output_tokens' => (int) ($result['output_tokens'] ?? 0),
+            'thought_tokens' => (int) ($result['thought_tokens'] ?? 0),
             'category' => isset($result['error'])
                 ? GeminiFailureClassifier::classify($result)['category']
                 : 'success',
@@ -362,6 +505,70 @@ class GeminiClient
     /**
      * SEND A SINGLE REQUEST TO GEMINI (no retry logic — that lives in the caller)
      */
+    /**
+     * Full schema is the default. Slim is opt-in via GEMINI_SLIM_SCHEMA and
+     * keeps every field that has a real consumer (region, tags, type and
+     * candidate location/probability/reasoning). The remaining fields are
+     * backfilled by GeminiResultEnhancer's defaults.
+     */
+    private function analysisResponseSchema(): array
+    {
+        $base = [
+            'type' => 'OBJECT',
+            'properties' => [
+                'landmark_name' => ['type' => 'STRING'],
+                'city' => ['type' => 'STRING'],
+                'country' => ['type' => 'STRING'],
+                'region' => ['type' => 'STRING'],
+                'latitude' => ['type' => 'NUMBER', 'nullable' => true],
+                'longitude' => ['type' => 'NUMBER', 'nullable' => true],
+                'confidence' => ['type' => 'INTEGER'],
+                'reasoning' => ['type' => 'STRING'],
+                'negative_evidence' => ['type' => 'STRING'],
+                'vantage_point' => ['type' => 'STRING', 'enum' => ['ground', 'elevated', 'aerial', 'satellite', 'indoor']],
+                'visual_clues' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+                'tags' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+                'description' => ['type' => 'STRING'],
+                'type' => ['type' => 'STRING'],
+                'nearby_landmarks' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
+                'wikipedia_url' => ['type' => 'STRING', 'nullable' => true],
+                'nearest_airport' => ['type' => 'STRING', 'nullable' => true],
+                'candidates' => [
+                    'type' => 'ARRAY',
+                    'items' => [
+                        'type' => 'OBJECT',
+                        'properties' => [
+                            'location' => ['type' => 'STRING'],
+                            'city' => ['type' => 'STRING'],
+                            'country' => ['type' => 'STRING'],
+                            'latitude' => ['type' => 'NUMBER', 'nullable' => true],
+                            'longitude' => ['type' => 'NUMBER', 'nullable' => true],
+                            'probability' => ['type' => 'INTEGER'],
+                            'reasoning' => ['type' => 'STRING'],
+                        ],
+                        'required' => ['location', 'probability', 'reasoning'],
+                    ],
+                ],
+            ],
+            'required' => ['landmark_name', 'city', 'country', 'confidence', 'reasoning', 'description'],
+        ];
+
+        if (! (bool) config('services.gemini.slim_schema', false)) {
+            return $base;
+        }
+
+        // Slim: drop only fields with no consumer. Keep the ones the UI,
+        // landmark cross-reference and confidence calculator read.
+        foreach (['negative_evidence', 'nearby_landmarks', 'wikipedia_url', 'nearest_airport'] as $key) {
+            unset($base['properties'][$key]);
+        }
+        foreach (['city', 'country', 'latitude', 'longitude'] as $key) {
+            unset($base['properties']['candidates']['items']['properties'][$key]);
+        }
+
+        return $base;
+    }
+
     private function sendSingleGeminiRequest($model, $imageData, $prompt, ?int $timeoutSeconds = null)
     {
         if (empty($this->apiKey)) {
@@ -380,6 +587,9 @@ class GeminiClient
         $imageMime = $compressed['mime'];
         $imageBytes = strlen($compressedImage);
         $attemptStarted = microtime(true);
+        // hrtime() is monotonic: a wall-clock adjustment cannot corrupt the
+        // per-attempt latency we persist and chart in analyses:stats.
+        $this->lastAttemptNs = hrtime(true);
 
         $payload = [
             'contents' => [
@@ -401,45 +611,7 @@ class GeminiClient
                 // is schema-conformant. Strict validation happens after
                 // decoding (see GeminiResultValidator).
                 'responseMimeType' => 'application/json',
-                'responseSchema' => [
-                    'type' => 'OBJECT',
-                    'properties' => [
-                        'landmark_name' => ['type' => 'STRING'],
-                        'city' => ['type' => 'STRING'],
-                        'country' => ['type' => 'STRING'],
-                        'region' => ['type' => 'STRING'],
-                        'latitude' => ['type' => 'NUMBER', 'nullable' => true],
-                        'longitude' => ['type' => 'NUMBER', 'nullable' => true],
-                        'confidence' => ['type' => 'INTEGER'],
-                        'reasoning' => ['type' => 'STRING'],
-                        'negative_evidence' => ['type' => 'STRING'],
-                        'vantage_point' => ['type' => 'STRING', 'enum' => ['ground', 'elevated', 'aerial', 'satellite', 'indoor']],
-                        'visual_clues' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-                        'tags' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-                        'description' => ['type' => 'STRING'],
-                        'type' => ['type' => 'STRING'],
-                        'nearby_landmarks' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
-                        'wikipedia_url' => ['type' => 'STRING', 'nullable' => true],
-                        'nearest_airport' => ['type' => 'STRING', 'nullable' => true],
-                        'candidates' => [
-                            'type' => 'ARRAY',
-                            'items' => [
-                                'type' => 'OBJECT',
-                                'properties' => [
-                                    'location' => ['type' => 'STRING'],
-                                    'city' => ['type' => 'STRING'],
-                                    'country' => ['type' => 'STRING'],
-                                    'latitude' => ['type' => 'NUMBER', 'nullable' => true],
-                                    'longitude' => ['type' => 'NUMBER', 'nullable' => true],
-                                    'probability' => ['type' => 'INTEGER'],
-                                    'reasoning' => ['type' => 'STRING'],
-                                ],
-                                'required' => ['location', 'probability', 'reasoning'],
-                            ],
-                        ],
-                    ],
-                    'required' => ['landmark_name', 'city', 'country', 'confidence', 'reasoning', 'description'],
-                ],
+                'responseSchema' => $this->analysisResponseSchema(),
             ]),
         ];
 
@@ -499,6 +671,7 @@ class GeminiClient
             }
 
             $data = $response->json();
+            $usage = is_array($data['usageMetadata'] ?? null) ? $data['usageMetadata'] : [];
             $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 
             if (empty($text)) {
@@ -517,7 +690,12 @@ class GeminiClient
                 );
             }
 
-            return $this->finishAttempt($this->cleanArray($parsed), $model, $attemptStarted, $imageBytes, $status);
+            $result = $this->cleanArray($parsed);
+            $result['prompt_tokens'] = (int) ($usage['promptTokenCount'] ?? 0);
+            $result['output_tokens'] = (int) ($usage['candidatesTokenCount'] ?? 0);
+            $result['thought_tokens'] = (int) ($usage['thoughtsTokenCount'] ?? 0);
+
+            return $this->finishAttempt($result, $model, $attemptStarted, $imageBytes, $status);
 
         } catch (ConnectionException $e) {
             return $this->finishAttempt(
@@ -581,16 +759,28 @@ class GeminiClient
             $resized = imagecreatetruecolor($newWidth, $newHeight);
             imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
 
-            // Some GD builds have no JPEG encoder. Fall back to PNG and send
-            // the matching mime type so Gemini can still decode the image.
+            // Encoder choice is explicit (config, forced in tests) so the
+            // result never depends on whether the runner's GD has JPEG.
+            // "auto" prefers JPEG and falls back to PNG when unavailable.
+            $encoder = strtolower((string) config('services.gemini.image_encoder', 'auto'));
+            $useJpeg = $encoder === 'jpeg' || ($encoder === 'auto' && function_exists('imagejpeg'));
+            $usePng = $encoder === 'png' || ($encoder === 'auto' && ! function_exists('imagejpeg'));
+
             ob_start();
             try {
-                if (function_exists('imagejpeg')) {
+                if ($useJpeg && function_exists('imagejpeg')) {
                     imagejpeg($resized, null, 82);
                     $mime = 'image/jpeg';
-                } elseif (function_exists('imagepng')) {
+                } elseif ($usePng && function_exists('imagepng')) {
                     imagepng($resized, null, 6);
                     $mime = 'image/png';
+                } elseif (function_exists('imagepng')) {
+                    // Requested encoder missing: still produce a valid image.
+                    imagepng($resized, null, 6);
+                    $mime = 'image/png';
+                } elseif (function_exists('imagejpeg')) {
+                    imagejpeg($resized, null, 82);
+                    $mime = 'image/jpeg';
                 } else {
                     throw new \RuntimeException('GD has no JPEG or PNG encoder');
                 }
@@ -749,7 +939,13 @@ class GeminiClient
      *
      * @return array{model: string, status: int, seconds: float, ok: bool, category: string, error?: string, error_message?: string|null, quota_metric?: string|null, quota_id?: string|null, retry_after_seconds?: int}
      */
-    public function probeModel(string $model, ?string $thinkingOverride = null): array
+    /** Prepare real image bytes exactly as the app does before sending. */
+    public function prepareImageForModel(string $imageData): array
+    {
+        return $this->compressImageIfNeeded($imageData);
+    }
+
+    public function probeModel(string $model, ?string $thinkingOverride = null, ?string $imageData = null, ?string $imageMime = null): array
     {
         $started = microtime(true);
 
@@ -765,7 +961,8 @@ class GeminiClient
         }
 
         $url = "{$this->baseUrl}/models/{$model}:generateContent";
-        $png = $this->tinyProbePng();
+        $png = $imageData ?? $this->tinyProbePng();
+        $mime = $imageMime ?? 'image/png';
         $imageBytes = strlen($png);
 
         $generationConfig = $this->generationConfig($model, [
@@ -789,7 +986,7 @@ class GeminiClient
                     'contents' => [[
                         'parts' => [
                             ['text' => 'Reply with the JSON object {"ok":true}.'],
-                            ['inline_data' => ['mime_type' => 'image/png', 'data' => base64_encode($png)]],
+                            ['inline_data' => ['mime_type' => $mime, 'data' => base64_encode($png)]],
                         ],
                     ]],
                     // Same shape as a real analysis request: structured JSON,
@@ -831,6 +1028,7 @@ class GeminiClient
                 'status' => $status,
                 'seconds' => round(microtime(true) - $started, 2),
                 'ok' => $response->successful(),
+                'thinking_level' => $thinkingOverride ?: $this->effectiveThinkingLevel($model),
                 'category' => $response->successful() ? 'ok' : match (true) {
                     $status === 429 => 'quota',
                     $status === 503 => 'overload',
@@ -856,6 +1054,7 @@ class GeminiClient
                 'status' => 0,
                 'seconds' => round(microtime(true) - $started, 2),
                 'ok' => false,
+                'thinking_level' => $thinkingOverride ?: $this->effectiveThinkingLevel($model),
                 'category' => $e instanceof ConnectionException ? 'timeout' : 'other',
                 'error' => SecretSanitizer::redact($e->getMessage()),
                 'error_message' => SecretSanitizer::redact(substr($e->getMessage(), 0, 200)),

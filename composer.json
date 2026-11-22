@@ -14,6 +14,7 @@
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.3",
         "laravel/tinker": "^2.10.1",
+        "league/iso3166": "^4.7",
         "predis/predis": "^3.5",
         "symfony/clock": "^7.0",
         "symfony/event-dispatcher": "^7.0",
@@ -47,6 +48,8 @@
     "test:slow": "phpunit --group=slow",
     "test:decoy": "php scripts/test-decoy.php",
     "test:all": ["@test", "@test:slow"],
+    "pint-changed": "php scripts/pint-changed.php",
+    "ci": ["@test:all", "@test:decoy", "@pint-changed", "@analyse"],
     "dev": [
         "Composer\\Config::disableProcessTimeout",
         "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1"
@@ -57,7 +60,7 @@
     "latency:live": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-latency.ps1 -Live",
     "eval": "php artisan geo:eval",
     "eval:live": "php artisan geo:eval --live",
-    "analyse": "phpstan analyse --no-progress",
+    "analyse": "phpstan analyse --no-progress --memory-limit=1G",
     "analyse:baseline": "phpstan analyse --generate-baseline=phpstan-baseline.neon --no-progress",
     "post-autoload-dump": [
         "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",

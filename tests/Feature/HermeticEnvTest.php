@@ -17,7 +17,11 @@ class HermeticEnvTest extends TestCase
         $this->assertSame('sync', config('queue.default'));
         $this->assertSame('array', config('session.driver'));
         $this->assertSame('testing', config('logging.default'));
-        $this->assertSame('sqlite', config('database.default'));
+        // The pgsql CI leg intentionally leaves DB_CONNECTION to the
+        // container env; assert the forced value wins over any decoy .env
+        // without hardcoding a driver.
+        $this->assertSame(env('DB_CONNECTION'), config('database.default'));
+        $this->assertContains(config('database.default'), ['sqlite', 'pgsql']);
         $this->assertSame('gemini-3.5-flash-lite', config('services.gemini.model'));
         $this->assertSame('gemini-3.1-flash-lite', config('services.gemini.fallback_model'));
         $this->assertSame('', config('services.gemini.escalation_model'));

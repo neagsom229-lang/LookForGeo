@@ -5,9 +5,20 @@ namespace App\Services\Gemini;
 class GeminiPrompt
 {
     /**
-     * ULTIMATE GEOLOCATION PROMPT
+     * Full prompt is the default. The slim variant is opt-in via
+     * GEMINI_SLIM_SCHEMA and is NOT enabled until live geo:eval before/after
+     * accuracy and p50 evidence has been supplied by the operator.
      */
     public function buildUltimateGeoPrompt($metadata)
+    {
+        if ((bool) config('services.gemini.slim_schema', false)) {
+            return $this->slimPrompt($metadata);
+        }
+
+        return $this->fullPrompt($metadata);
+    }
+
+    private function fullPrompt($metadata): string
     {
         $exif = $this->formatExifForPrompt($metadata);
 
@@ -121,8 +132,36 @@ PROMPT;
     }
 
     /**
-     * Format EXIF for prompt
+     * Opt-in slim variant. Only fields with a real consumer are requested;
+     * the rest are backfilled by GeminiResultEnhancer's defaults.
      */
+    private function slimPrompt($metadata): string
+    {
+        $exif = $this->formatExifForPrompt($metadata);
+
+        return <<<PROMPT
+You are an OSINT geolocation analyst. Identify where this photo was taken from visible evidence.
+
+Return ONLY valid JSON with exactly these keys:
+- landmark_name: specific place or "Unknown"
+- city, country: text or "Unknown"
+- region: state/province/region or "Unknown" (required by the UI and landmark cross-reference)
+- latitude, longitude: numbers or null
+- confidence: integer 0-100
+- reasoning: MAXIMUM 2 sentences naming the strongest visual evidence
+- description: 1 sentence describing the scene
+- vantage_point: ground|elevated|aerial|satellite|indoor
+- visual_clues: array of at most 5 short strings
+- tags: array of at most 5 short strings (required by the UI)
+- type: landmark|city|natural|architectural|historical|street|indoor
+- candidates: array of up to 3 objects {location, probability, reasoning (1 sentence)}; probability feeds the confidence calculator
+
+Use null for unknown coordinates and "Unknown" for unknown text. Do not repeat the prompt or add commentary.
+
+Metadata (may be empty): {$exif}
+PROMPT;
+    }
+
     private function formatExifForPrompt($metadata)
     {
         if (empty($metadata)) {
@@ -138,10 +177,10 @@ PROMPT;
             $lines[] = "Camera: {$metadata['camera']['make']} {$model}";
         }
         if (isset($metadata['datetime'])) {
-            $lines[] = "DateTime: {$metadata['datetime']}";
+            $lines[] = 'DateTime: '.$metadata['datetime'];
         }
         if (isset($metadata['settings']['iso'])) {
-            $lines[] = "ISO: {$metadata['settings']['iso']}";
+            $lines[] = 'ISO: '.$metadata['settings']['iso'];
         }
 
         return empty($lines) ? 'No EXIF data available.' : implode("\n", $lines);
