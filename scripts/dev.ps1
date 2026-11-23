@@ -13,6 +13,20 @@ try { $OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
 $root = (Get-Item $PSScriptRoot).Parent.FullName
 Set-Location $root
 
+# Exactly one listener may own the chosen port. More than one means a stale
+# server is still bound and `php artisan serve` would silently pick another.
+$port = 8000
+$listenLines = @(netstat -ano 2>$null | Select-String -Pattern "TCP\s+.*:$port\s+.*LISTENING")
+$listenerPids = @($listenLines | ForEach-Object {
+    $fields = ($_.ToString() -split '\s+') | Where-Object { $_ }
+    if ($fields.Count -gt 0) { $fields[-1] }
+} | Where-Object { $_ -match '^\d+$' } | Sort-Object -Unique)
+if ($listenerPids.Count -gt 1) {
+    Write-Host "FAILED: more than one listener on port $port (PIDs: $($listenerPids -join ', '))." -ForegroundColor Red
+    Write-Host "Stop the stale listeners, then run composer dev again."
+    exit 1
+}
+
 # Local development only: setup.ps1 already migrates, but dev.ps1 is also
 # usable standalone. Never do this against production.
 if ($env:APP_ENV -ne 'production') {
@@ -47,7 +61,7 @@ if ($existing.Count -gt 0) {
 }
 
 Write-Host "=== TraceGeo local dev ==="
-Write-Host "Starting php artisan serve on http://127.0.0.1:8000 ..."
+Write-Host "Starting php artisan serve on http://127.0.0.1:$port ..."
 Write-Host "Starting queue listener (database, --tries=1 --timeout=180) ..."
 Write-Host "Reaping stuck analyses every 60s."
 Write-Host "Tailing storage\logs\laravel.log (Ctrl+C to stop everything)"
@@ -121,7 +135,7 @@ try {
             break
         }
         if ($server.HasExited) {
-            $failure = "DEV SERVER DIED (exit code $(Get-ExitCodeLabel $server)) -- http://127.0.0.1:8000 is down!`n" +
+            $failure = "DEV SERVER DIED (exit code $(Get-ExitCodeLabel $server)) -- http://127.0.0.1:$port is down!`n" +
                        "  Restart with: composer dev"
             break
         }

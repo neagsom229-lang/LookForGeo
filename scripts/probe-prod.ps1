@@ -222,6 +222,23 @@ try {
         Add-Fail 'GET /api/search does not return the expected Unauthenticated message'
     }
 
+    # An unauthenticated 4xx JSON error must not leak debug structure.
+    if ($search.Status -ge 400 -and $search.Status -lt 500 -and $search.ContentType -match 'application/json') {
+        try {
+            $errorJson = $search.Body | ConvertFrom-Json
+            $leakyKeys = @('trace', 'exception', 'file') | Where-Object {
+                $errorJson.PSObject.Properties.Name -contains $_
+            }
+            if ($leakyKeys.Count -eq 0) {
+                Add-Pass 'GET /api/search 4xx JSON has no trace/exception/file keys'
+            } else {
+                Add-Fail ("GET /api/search 4xx JSON leaks keys: " + ($leakyKeys -join ', '))
+            }
+        } catch {
+            Add-Fail 'GET /api/search 4xx body is not parseable JSON'
+        }
+    }
+
     $history = Invoke-Get '/api/history'
     if ($history.Status -eq 401) {
         Add-Pass 'GET /api/history (anonymous) -> 401'

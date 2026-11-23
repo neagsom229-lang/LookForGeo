@@ -4,17 +4,9 @@ namespace App\Services\Gemini;
 
 class GeminiPrompt
 {
-    /**
-     * Full prompt is the default. The slim variant is opt-in via
-     * GEMINI_SLIM_SCHEMA and is NOT enabled until live geo:eval before/after
-     * accuracy and p50 evidence has been supplied by the operator.
-     */
+    /** The one full prompt: coordinates and candidates are always requested. */
     public function buildUltimateGeoPrompt($metadata)
     {
-        if ((bool) config('services.gemini.slim_schema', false)) {
-            return $this->slimPrompt($metadata);
-        }
-
         return $this->fullPrompt($metadata);
     }
 
@@ -128,37 +120,6 @@ The first entry in `candidates` should match your primary `landmark_name`/`city`
 - For images too generic to localize (blank wall, close-up object, sky only), say so plainly in `reasoning` and `negative_evidence` rather than inventing a specific-sounding but baseless answer.
 
 Now analyze the image and return ONLY the JSON.
-PROMPT;
-    }
-
-    /**
-     * Opt-in slim variant. Only fields with a real consumer are requested;
-     * the rest are backfilled by GeminiResultEnhancer's defaults.
-     */
-    private function slimPrompt($metadata): string
-    {
-        $exif = $this->formatExifForPrompt($metadata);
-
-        return <<<PROMPT
-You are an OSINT geolocation analyst. Identify where this photo was taken from visible evidence.
-
-Return ONLY valid JSON with exactly these keys:
-- landmark_name: specific place or "Unknown"
-- city, country: text or "Unknown"
-- region: state/province/region or "Unknown" (required by the UI and landmark cross-reference)
-- latitude, longitude: numbers or null
-- confidence: integer 0-100
-- reasoning: MAXIMUM 2 sentences naming the strongest visual evidence
-- description: 1 sentence describing the scene
-- vantage_point: ground|elevated|aerial|satellite|indoor
-- visual_clues: array of at most 5 short strings
-- tags: array of at most 5 short strings (required by the UI)
-- type: landmark|city|natural|architectural|historical|street|indoor
-- candidates: array of up to 3 objects {location, probability, reasoning (1 sentence)}; probability feeds the confidence calculator
-
-Use null for unknown coordinates and "Unknown" for unknown text. Do not repeat the prompt or add commentary.
-
-Metadata (may be empty): {$exif}
 PROMPT;
     }
 

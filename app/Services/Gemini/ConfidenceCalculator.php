@@ -48,6 +48,7 @@ class ConfidenceCalculator
 
         $this->checkExif($data, $metadata, $signals, $factors);
         $this->checkCountry($data, $signals, $factors);
+        $this->checkForwardGeocode($data, $signals, $factors);
         $this->checkVisualCues($data, $signals, $factors);
         $this->checkResolution($metadata, $signals, $factors);
         $this->checkCandidates($data, $signals, $factors);
@@ -112,7 +113,7 @@ class ConfidenceCalculator
             : 'EXIF GPS conflicts with the model location ('.round($distanceKm, 1).' km).';
     }
 
-    private function checkCountry(array $data, array &$signals, array &$factors): void
+    private function checkCountry(array &$data, array &$signals, array &$factors): void
     {
         $lat = $data['latitude'] ?? null;
         $lng = $data['longitude'] ?? null;
@@ -121,13 +122,21 @@ class ConfidenceCalculator
         if (! is_numeric($lat) || ! is_numeric($lng) || $country === '' || $country === 'unknown') {
             $signals['country_consistency'] = ['points' => 0, 'state' => 'unavailable'];
             $factors[] = 'No country / coordinates to verify with reverse geocoding.';
+            $this->recordGeocodeAttempt($data, $lat, $lng, 'skipped_no_coordinates', [
+                'reverse_country' => null,
+                'reason' => 'missing model coordinates or country',
+            ]);
 
             return;
         }
 
         $reverseName = null;
         $reverseCode = null;
-        if (config('services.gemini.confidence_reverse_geocode', true)) {
+        $attemptRecorded = false;
+        if (! config('services.gemini.confidence_reverse_geocode', true)) {
+            $this->recordGeocodeAttempt($data, $lat, $lng, 'disabled', ['reverse_country' => null]);
+            $attemptRecorded = true;
+        } else {
             try {
                 $place = $this->osm->reverseGeocode((float) $lat, (float) $lng);
                 if (is_array($place)) {
@@ -152,6 +161,20 @@ class ConfidenceCalculator
         if ($reverseCode === null && $reverseName === null && isset($data['matched_landmark'])) {
             $reverseCode = $statedCode;
             $reverseName = $country; // DB match already cross-referenced country
+        }
+
+        $outcome = $this->reverseOutcome();
+        if ($reverseName !== null) {
+            $outcome = isset($data['matched_landmark'])
+                && $this->reverseOutcome() === null
+                ? 'landmark_db_fallback'
+                : ($outcome ?: 'ok');
+        }
+        if (! $attemptRecorded) {
+            $this->recordGeocodeAttempt($data, $lat, $lng, $outcome ?: 'no_country_data', [
+                'reverse_country' => $reverseName,
+                'reverse_code' => $reverseCode,
+            ]);
         }
 
         // An empty stated country already returned above.
@@ -286,6 +309,90 @@ class ConfidenceCalculator
         }
 
         return 'Very Low';
+    }
+
+    private function recordGeocodeAttempt(array &$data, $lat, $lng, string $outcome, array $extra = []): void
+    {
+        $data['geocode_attempt'] = array_merge([
+            'coordinates_used' => [
+                is_numeric($lat) ? (float) $lat : null,
+                is_numeric($lng) ? (float) $lng : null,
+            ],
+            'outcome_category' => $outcome,
+        ], $extra);
+    }
+
+    /** The OSM service records the last geocode outcome; mocks may not. */
+    private function reverseOutcome(): ?string
+    {
+        try {
+            return $this->osm->lastOutcomeCategory();
+        } catch (\Throwable $e) {
+            // Mocked/older services may not expose the outcome.
+            return null;
+        }
+    }
+
+    /**
+     * Informational only: distance between the model coordinates and the
+     * place named by the model. Points stay 0 until real-photo geo:eval
+     * data justifies a weighting.
+     */
+    private function checkForwardGeocode(array $data, array &$signals, array &$factors): void
+    {
+        $signals['forward_geocode_distance'] = ['points' => 0, 'state' => 'unavailable'];
+        if (! config('services.gemini.confidence_forward_geocode', true)) {
+            $factors[] = 'Forward-geocode distance check is disabled.';
+
+            return;
+        }
+
+        $lat = $data['latitude'] ?? null;
+        $lng = $data['longitude'] ?? null;
+        if (! is_numeric($lat) || ! is_numeric($lng)) {
+            $factors[] = 'No coordinates for the forward-geocode distance check.';
+
+            return;
+        }
+
+        $query = trim(implode(', ', array_filter([
+            $data['landmark_name'] ?? null,
+            $data['city'] ?? null,
+            $data['country'] ?? null,
+        ], fn ($part) => is_string($part) && trim($part) !== '')));
+        if ($query === '') {
+            $factors[] = 'No place name for the forward-geocode distance check.';
+
+            return;
+        }
+
+        try {
+            $place = $this->osm->forwardGeocode(
+                (string) ($data['landmark_name'] ?? ''),
+                isset($data['city']) ? (string) $data['city'] : null,
+                isset($data['country']) ? (string) $data['country'] : null
+            );
+        } catch (\Throwable $e) {
+            $place = null;
+        }
+
+        if (! is_array($place) || ! isset($place['lat'], $place['lng'])) {
+            $factors[] = 'Forward geocode did not resolve a location for distance comparison.';
+
+            return;
+        }
+
+        $distanceKm = $this->haversine(
+            (float) $lat, (float) $lng, (float) $place['lat'], (float) $place['lng']
+        );
+        $signals['forward_geocode_distance'] = [
+            'points' => 0,
+            'state' => 'resolved',
+            'distance_km' => round($distanceKm, 1),
+            'query' => $query,
+        ];
+        $factors[] = 'Forward geocode of "'.$query.'" is '.round($distanceKm, 1)
+            .' km from the model coordinates (informational; points=0).';
     }
 
     /**

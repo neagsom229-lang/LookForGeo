@@ -506,10 +506,8 @@ class GeminiClient
      * SEND A SINGLE REQUEST TO GEMINI (no retry logic — that lives in the caller)
      */
     /**
-     * Full schema is the default. Slim is opt-in via GEMINI_SLIM_SCHEMA and
-     * keeps every field that has a real consumer (region, tags, type and
-     * candidate location/probability/reasoning). The remaining fields are
-     * backfilled by GeminiResultEnhancer's defaults.
+     * The one full response schema: every field with a consumer is
+     * requested, including coordinates and candidate probabilities.
      */
     private function analysisResponseSchema(): array
     {
@@ -552,19 +550,6 @@ class GeminiClient
             ],
             'required' => ['landmark_name', 'city', 'country', 'confidence', 'reasoning', 'description'],
         ];
-
-        if (! (bool) config('services.gemini.slim_schema', false)) {
-            return $base;
-        }
-
-        // Slim: drop only fields with no consumer. Keep the ones the UI,
-        // landmark cross-reference and confidence calculator read.
-        foreach (['negative_evidence', 'nearby_landmarks', 'wikipedia_url', 'nearest_airport'] as $key) {
-            unset($base['properties'][$key]);
-        }
-        foreach (['city', 'country', 'latitude', 'longitude'] as $key) {
-            unset($base['properties']['candidates']['items']['properties'][$key]);
-        }
 
         return $base;
     }

@@ -2079,6 +2079,11 @@
             })
             .then(async res => {
                 const contentType = res.headers.get('content-type');
+                // 419 gets a clean JSON body now; handle it before parsing so
+                // the user always sees the reload prompt.
+                if (res.status === 419) {
+                    throw new Error('Your session expired, reload the page');
+                }
                 if (!contentType || !contentType.includes('application/json')) {
                     if (res.status === 419) {
                         throw new Error('Session expired. Please refresh and try again.');
@@ -2160,6 +2165,11 @@
             })
             .then(async res => {
                 const contentType = res.headers.get('content-type');
+                // 419 gets a clean JSON body now; handle it before parsing so
+                // the user always sees the reload prompt.
+                if (res.status === 419) {
+                    throw new Error('Your session expired, reload the page');
+                }
                 if (!contentType || !contentType.includes('application/json')) {
                     if (res.status === 419) {
                         throw new Error('Session expired. Please refresh and try again.');
@@ -2211,6 +2221,10 @@
                         })
                         .then(async res => {
                             const contentType = res.headers.get('content-type');
+                            // A clean JSON 419 still needs the reload prompt.
+                            if (res.status === 419) {
+                                throw new Error('Your session expired, reload the page');
+                            }
                             if (!contentType || !contentType.includes('application/json')) {
                                 if (res.status === 419) {
                                     throw new Error('Session expired. Please refresh and try again.');

@@ -1,9 +1,21 @@
 #!/bin/sh
 set -e
 
-echo "⏳ Waiting for database connection..."
-until php artisan migrate --force; do
-  echo "Migration failed, retrying in 5 seconds..."
+echo "⏳ Waiting for database connection (max 12 attempts, 5s apart = at least 60s total wait)..."
+attempt=0
+while [ "$attempt" -lt 12 ]; do
+  attempt=$((attempt + 1))
+  # Print the real migration error to the Render log on every attempt.
+  if output=$(php artisan migrate --force 2>&1); then
+    printf '%s\n' "$output"
+    break
+  fi
+  printf '%s\n' "$output"
+  if [ "$attempt" -ge 12 ]; then
+    echo "ERROR: migrations still failing after 12 attempts; exiting non-zero so Render marks the deploy failed."
+    exit 1
+  fi
+  echo "Migration attempt $attempt/12 failed; retrying in 5 seconds..."
   sleep 5
 done
 echo "✅ Migrations completed."

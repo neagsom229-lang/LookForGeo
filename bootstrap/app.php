@@ -37,5 +37,20 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json(['message' => 'Unauthenticated.'], 401);
             }
         });
+
+        // A stale CSRF token gets one stable JSON message, never a debug
+        // trace, file path or exception class (even with APP_DEBUG=true).
+        $exceptions->render(function (\Throwable $e, $request) {
+            $isCsrf = $e instanceof \Illuminate\Session\TokenMismatchException
+                || ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpException
+                    && $e->getStatusCode() === 419);
+            if ($isCsrf && ($request->expectsJson() || $request->is('api/*'))) {
+                return response()->json([
+                    'success' => false,
+                    'code' => 'SESSION_EXPIRED',
+                    'message' => 'Your session expired, reload the page',
+                ], 419);
+            }
+        });
     })
     ->create();

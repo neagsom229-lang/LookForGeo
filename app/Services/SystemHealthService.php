@@ -23,6 +23,9 @@ class SystemHealthService
 
         return [
             'status' => $degraded ? 'degraded' : 'operational',
+            'started_at' => (string) config('app.started_at', ''),
+            'pending_migrations' => $this->pendingMigrations(),
+            'schema_ok' => $this->schemaOk(),
             'checks' => [
                 'database' => $database,
                 'queue' => $queue,
@@ -30,6 +33,34 @@ class SystemHealthService
                 'failed_jobs' => $this->failedJobs(),
             ],
         ];
+    }
+
+    /** Number of not-yet-applied migrations (-1 when it cannot be checked). */
+    private function pendingMigrations(): int
+    {
+        try {
+            $migrator = app('migrator');
+            $migrator->path(database_path('migrations'));
+            $migrator->setConnection(DB::connection()->getName());
+            $files = $migrator->getMigrationFiles($migrator->paths());
+            $ran = $migrator->getRepository()->getRan();
+
+            return count(array_diff(array_keys($files), $ran));
+        } catch (\Throwable $e) {
+            return -1;
+        }
+    }
+
+    /** Cheap check that the schema this build needs is actually present. */
+    private function schemaOk(): bool
+    {
+        try {
+            return Schema::hasTable('users')
+                && Schema::hasTable('geo_analyses')
+                && Schema::hasColumn('geo_analyses', 'image_hash');
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     private function database(): array

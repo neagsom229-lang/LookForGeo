@@ -7,15 +7,49 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 
 class OpenStreetMapService
 {
     /** Nominatim usage policy: identify the app and respect 1 req/s. */
-    private const REVERSE_USER_AGENT = 'TraceGeo/1.0 (https://lookforgeo.onrender.com; contact: admin@lookforgeo.onrender.com)';
+    private const NOMINATIM_CACHE_SECONDS = 600;
 
-    private const REVERSE_CACHE_SECONDS = 600;
+    private const NOMINATIM_LIMIT_KEY = 'nominatim_request';
 
-    private const REVERSE_MIN_INTERVAL_S = 1.0;
+    /** Outcome of the most recent geocode call, for explain/telemetry. */
+    private ?string $lastOutcome = null;
+
+    public function lastOutcomeCategory(): ?string
+    {
+        return $this->lastOutcome;
+    }
+
+    /** Contact comes from config/env; no personal address is committed. */
+    private function nominatimUserAgent(): string
+    {
+        $contact = trim((string) config('services.nominatim.contact', ''));
+        $url = trim((string) config('services.nominatim.app_url', 'https://lookforgeo.onrender.com'));
+
+        return sprintf('TraceGeo/1.0 (%s; contact: %s)', $url, $contact !== '' ? $contact : 'unset');
+    }
+
+    /** Cache-backed limiter works across processes and workers (no sleep). */
+    private function allowNominatim(string $operation): bool
+    {
+        if (RateLimiter::tooManyAttempts(self::NOMINATIM_LIMIT_KEY, 1)) {
+            $this->lastOutcome = 'rate_limit';
+            Log::warning('Nominatim request skipped', [
+                'category' => 'rate_limit',
+                'provider' => 'nominatim',
+                'operation' => $operation,
+            ]);
+
+            return false;
+        }
+        RateLimiter::hit(self::NOMINATIM_LIMIT_KEY, 1);
+
+        return true;
+    }
 
     /**
      * Geocode with multiple fallback sources
@@ -70,9 +104,12 @@ class OpenStreetMapService
             if (Cache::has($cacheKey)) {
                 return Cache::get($cacheKey);
             }
+            if (! $this->allowNominatim('geocode')) {
+                return null;
+            }
 
             $response = Http::timeout(10)
-                ->withHeaders(['User-Agent' => 'LandmarkApp/1.0'])
+                ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
                 ->get('https://nominatim.openstreetmap.org/search', [
                     'q' => $location,
                     'format' => 'json',
@@ -263,9 +300,11 @@ class OpenStreetMapService
         }
 
         try {
-            $this->throttleReverseRequest();
+            if (! $this->allowNominatim('reverse')) {
+                return null;
+            }
             $response = Http::timeout(10)
-                ->withHeaders(['User-Agent' => self::REVERSE_USER_AGENT])
+                ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
                 ->get('https://nominatim.openstreetmap.org/reverse', [
                     'lat' => $lat,
                     'lon' => $lng,
@@ -277,27 +316,28 @@ class OpenStreetMapService
             if ($response->successful()) {
                 $data = $response->json();
                 if (! is_array($data)) {
-                    $this->logReverseFailure('bad_response', ['status' => $response->status()]);
+                    $this->logNominatimFailure('reverse', 'bad_response', ['status' => $response->status()]);
 
                     return null;
                 }
                 // "Briefly": avoid hammering a free service while still
                 // refreshing stale country data.
-                Cache::put($cacheKey, $data, self::REVERSE_CACHE_SECONDS);
+                Cache::put($cacheKey, $data, self::NOMINATIM_CACHE_SECONDS);
+                $this->lastOutcome = 'ok';
 
                 return $data;
             }
 
-            $this->logReverseFailure(
+            $this->logNominatimFailure('reverse',
                 $response->status() === 429 ? 'rate_limit' : 'bad_response',
                 ['status' => $response->status()]
             );
         } catch (ConnectionException $e) {
-            $this->logReverseFailure('timeout', [
+            $this->logNominatimFailure('reverse', 'timeout', [
                 'message' => SecretSanitizer::redact($e->getMessage()),
             ]);
         } catch (\Throwable $e) {
-            $this->logReverseFailure('bad_response', [
+            $this->logNominatimFailure('reverse', 'bad_response', [
                 'message' => SecretSanitizer::redact($e->getMessage()),
             ]);
         }
@@ -305,29 +345,92 @@ class OpenStreetMapService
         return null;
     }
 
-    /** Keep at most one reverse request per second (Nominatim policy). */
-    private function throttleReverseRequest(): void
+    private function logNominatimFailure(string $operation, string $category, array $context): void
     {
-        $key = 'nominatim_reverse_last_at';
-        $last = (float) Cache::get($key, 0);
-        $wait = ($last + self::REVERSE_MIN_INTERVAL_S) - microtime(true);
-        if ($wait > 0) {
-            usleep((int) ($wait * 1_000_000));
-        }
-        Cache::put($key, microtime(true), 60);
-    }
-
-    private function logReverseFailure(string $category, array $context): void
-    {
-        Log::warning('Reverse geocode failed', array_merge([
+        $this->lastOutcome = $category;
+        Log::warning('Nominatim geocode failed', array_merge([
             'category' => $category,
             'provider' => 'nominatim',
+            'operation' => $operation,
         ], $context));
     }
 
     /**
      * Search for places with category filter
      */
+    /**
+     * Forward geocode a place name for an informational distance signal.
+     * Returns lat/lng plus the display name, or null on any failure.
+     */
+    public function forwardGeocode(string $landmark, ?string $city = null, ?string $country = null): ?array
+    {
+        $query = trim(implode(', ', array_filter([
+            $landmark, $city, $country,
+        ], fn ($part) => is_string($part) && trim($part) !== '')));
+        if ($query === '') {
+            $this->lastOutcome = 'skipped_no_query';
+
+            return null;
+        }
+
+        $cacheKey = 'forward_'.md5($query);
+        if (Cache::has($cacheKey)) {
+            $this->lastOutcome = 'ok';
+
+            return Cache::get($cacheKey);
+        }
+        if (! $this->allowNominatim('forward')) {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(10)
+                ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
+                ->get('https://nominatim.openstreetmap.org/search', [
+                    'q' => $query,
+                    'format' => 'json',
+                    'limit' => 1,
+                    'addressdetails' => 1,
+                ]);
+
+            if (! $response->successful()) {
+                $this->logNominatimFailure('forward', $response->status() === 429 ? 'rate_limit' : 'bad_response', [
+                    'status' => $response->status(),
+                ]);
+
+                return null;
+            }
+            $data = $response->json();
+            if (! is_array($data) || ! isset($data[0]['lat'], $data[0]['lon'])
+                || ! is_numeric($data[0]['lat']) || ! is_numeric($data[0]['lon'])) {
+                $this->logNominatimFailure('forward', 'bad_response', ['status' => $response->status()]);
+
+                return null;
+            }
+
+            $result = [
+                'lat' => (float) $data[0]['lat'],
+                'lng' => (float) $data[0]['lon'],
+                'display_name' => (string) ($data[0]['display_name'] ?? ''),
+                'query' => $query,
+            ];
+            Cache::put($cacheKey, $result, self::NOMINATIM_CACHE_SECONDS);
+            $this->lastOutcome = 'ok';
+
+            return $result;
+        } catch (ConnectionException $e) {
+            $this->logNominatimFailure('forward', 'timeout', [
+                'message' => SecretSanitizer::redact($e->getMessage()),
+            ]);
+        } catch (\Throwable $e) {
+            $this->logNominatimFailure('forward', 'bad_response', [
+                'message' => SecretSanitizer::redact($e->getMessage()),
+            ]);
+        }
+
+        return null;
+    }
+
     public function searchPlaces(string $query, string $category = ''): array
     {
         try {
@@ -336,9 +439,12 @@ class OpenStreetMapService
             if (Cache::has($cacheKey)) {
                 return Cache::get($cacheKey);
             }
+            if (! $this->allowNominatim('search')) {
+                return [];
+            }
 
             $response = Http::timeout(10)
-                ->withHeaders(['User-Agent' => 'LandmarkApp/1.0'])
+                ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
                 ->get('https://nominatim.openstreetmap.org/search', [
                     'q' => $query.($category ? ' '.$category : ''),
                     'format' => 'json',

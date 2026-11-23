@@ -18,10 +18,10 @@ updates:
     ignore:
       - dependency-name: laravel/tinker
         update-types:
-          - major
+          - version-update:semver-major
       - dependency-name: google/cloud-storage
         update-types:
-          - major
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /

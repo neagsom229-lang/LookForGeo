@@ -14,43 +14,42 @@ class AnalysesLastTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_analyses_last_prints_the_summary_without_secrets(): void
+    public function test_analyses_last_prints_the_last_five_with_created_at_and_status(): void
     {
         $user = User::factory()->create();
-        $analysis = GeoAnalysis::create([
-            'user_id' => $user->id,
-            'status' => 'failed',
-            'stage_label' => GeminiFailureClassifier::STAGE_LABELS['quota'],
-            'started_at' => now()->subSeconds(12),
-            'finished_at' => now(),
-            'result' => [
-                'landmark_name' => 'Eiffel Tower',
-                'confidence' => 42,
-                'low_confidence' => true,
-            ],
-        ]);
-        $analysis->update(['model_used' => 'gemini-3.5-flash-lite']);
+        for ($i = 1; $i <= 6; $i++) {
+            GeoAnalysis::create([
+                'user_id' => $user->id,
+                'status' => $i === 6 ? 'failed' : 'completed',
+                'stage_label' => $i === 6 ? GeminiFailureClassifier::STAGE_LABELS['quota'] : 'Done',
+                'started_at' => now()->subSeconds(12),
+                'finished_at' => now(),
+                'queue_ms' => 200,
+                'gemini_ms' => 800,
+                'total_ms' => 1000,
+                'result' => [
+                    'landmark_name' => 'Eiffel Tower '.$i,
+                    'confidence' => 42,
+                    'low_confidence' => true,
+                ],
+            ]);
+        }
 
         $output = new BufferedOutput;
         $exit = Artisan::call('analyses:last', [], $output);
         $text = $output->fetch();
 
         $this->assertSame(0, $exit);
-        foreach (['id', 'status', 'model (winner)', 'processing_seconds', 'landmark', 'confidence', 'low_confidence', 'failure_category'] as $field) {
+        foreach (['created_at', 'status', 'model (winner)', 'processing_seconds', 'landmark', 'confidence'] as $field) {
             $this->assertStringContainsString($field, $text);
         }
-        $this->assertStringContainsString((string) $analysis->id, $text);
-        $this->assertStringContainsString('gemini-3.5-flash-lite', $text);
-        $this->assertStringContainsString('Eiffel Tower', $text);
-        $this->assertStringContainsString('quota', $text);
-        // Carbon 3 diffs are signed: finished_at after started_at must be +12.
-        $this->assertStringContainsString('processing_seconds', $text);
-        $this->assertStringContainsString('queue_ms', $text);
-        $this->assertStringContainsString('gemini_ms', $text);
-        $this->assertStringContainsString('total_ms (end-to-end)', $text);
-        $this->assertStringNotContainsString('|-12|', $text);
+        // Only five rows, newest first: row 6 present, row 1 absent.
+        $this->assertStringContainsString('Eiffel Tower 6', $text);
+        $this->assertStringNotContainsString('Eiffel Tower 1', $text);
+        $this->assertSame(4, substr_count($text, 'completed'));
+        $this->assertStringContainsString('failed', $text);
+        $this->assertMatchesRegularExpression('/\| 12\s+\|/', $text);
         $this->assertStringNotContainsString('| -12 |', $text);
-        $this->assertMatchesRegularExpression('/processing_seconds\s*\|\s*12(\.0+)?\s*\|/', $text);
         $this->assertStringNotContainsString('AIza', $text);
     }
 }

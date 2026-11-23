@@ -25,6 +25,19 @@ run_composer() {
   fi
 }
 
+echo "pre-push: checking vendor ..."
+if command -v php >/dev/null 2>&1; then
+  php scripts/check-vendor.php
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "pre-push: vendor check FAILED. Push blocked." >&2
+    exit "$status"
+  fi
+else
+  echo "pre-push: php not found; run composer install. Push blocked." >&2
+  exit 1
+fi
+
 echo "pre-push: running composer test ..."
 run_composer test
 status=$?

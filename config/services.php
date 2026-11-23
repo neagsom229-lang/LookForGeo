@@ -75,9 +75,6 @@ return [
         // Start the fallback in parallel if the primary has not answered by
         // this many seconds. 0 disables hedging.
         'hedge_after' => (float) env('GEMINI_HEDGE_AFTER', 18),
-        // Opt-in only: keep the full prompt/schema until live geo:eval
-        // before/after accuracy and p50 evidence has been supplied.
-        'slim_schema' => (bool) env('GEMINI_SLIM_SCHEMA', false),
         'retries' => (int) env('GEMINI_RETRIES', 1),
         'max_total_time' => (int) env('GEMINI_TOTAL_BUDGET', 110),
         'min_attempt_seconds' => (int) env('GEMINI_MIN_ATTEMPT_SECONDS', 15),
@@ -103,6 +100,9 @@ return [
         // Optional reverse-geocode check for calibrated confidence. Off in
         // phpunit so tests never make an un-faked network call.
         'confidence_reverse_geocode' => env('GEMINI_CONFIDENCE_REVERSE_GEOCODE', true),
+        // Informational only: points stay 0 until real-photo geo:eval data
+        // justifies a weight. Off in phpunit to keep tests hermetic.
+        'confidence_forward_geocode' => env('GEMINI_CONFIDENCE_FORWARD_GEOCODE', true),
         // Cost guard: per-user daily quota and a global kill switch.
         // 0 means "no global limit"; quotas are counted for non-cached uploads.
         'daily_limit_per_user' => (int) env('GEMINI_DAILY_PER_USER', 50),
@@ -112,6 +112,24 @@ return [
         'health_probe' => env('GEMINI_HEALTH_PROBE', true),
         // Override to point at a fake endpoint (smoke tests). Default is the real REST base path.
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | NOMINATIM (OpenStreetMap geocoding)
+    |--------------------------------------------------------------------------
+    */
+    'health' => [
+        // Optional admin token: exposes raw counts on /api/health only when
+        // the X-Admin-Token header matches. Never committed as a value.
+        'admin_token' => env('HEALTH_ADMIN_TOKEN', ''),
+    ],
+
+    'nominatim' => [
+        // Contact identifier required by the Nominatim usage policy. No
+        // personal address is committed; deploy owners set it in Render.
+        'contact' => env('NOMINATIM_CONTACT', ''),
+        'app_url' => env('NOMINATIM_APP_URL', 'https://lookforgeo.onrender.com'),
     ],
 
     /*
