@@ -6,7 +6,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -49,7 +48,7 @@ class SystemHealthService
         } catch (\Throwable $e) {
             // 503 degraded — never leak exception text to the client
             \Log::warning('health_check_fatal', [
-                'request_id' => request()->getHttpMethod() . ' ' . request()->getPathInfo(),
+                'request_id' => request()->method().' '.request()->path(),
                 'error' => get_class($e),
             ]);
 

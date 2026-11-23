@@ -18,9 +18,11 @@ class AnalysisApiController extends Controller
     {
         $report = $health->checks();
 
+        $status = $report['status'] ?? 'operational';
+
         $payload = [
             'success' => true,
-            'status' => $report['status'],
+            'status' => $status,
             'version' => '1.0.0',
             'commit' => substr((string) config('app.deploy_commit'), 0, 7),
             'started_at' => $report['started_at'],
@@ -30,6 +32,10 @@ class AnalysisApiController extends Controller
             'timestamp' => now()->toISOString(),
             'checks' => $report['checks'],
         ];
+
+        if ($status === 'degraded') {
+            return response()->json($payload, 503);
+        }
 
         $adminToken = trim((string) config('services.health.admin_token', ''));
         $provided = (string) $request->header('X-Admin-Token', '');
@@ -42,7 +48,7 @@ class AnalysisApiController extends Controller
                     $error = $check['error'] ?? 'unknown error';
                     $payload['diagnostics'][$checkName] = [
                         'error' => SecretSanitizer::redact($error),
-                        'truncated' => strlen($error) > 80 ? substr($error, 0, 77) . '...' : $error,
+                        'truncated' => strlen($error) > 80 ? substr($error, 0, 77).'...' : $error,
                     ];
                 }
             }

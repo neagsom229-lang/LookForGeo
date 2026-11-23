@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Logging\FatalErrorHandler;
 use App\Logging\SecretLogProcessor;
 use App\Services\GeocodingService;
 use App\Services\LandmarkRecognitionService;
@@ -76,5 +77,9 @@ class AppServiceProvider extends ServiceProvider
         } catch (\Throwable $e) {
             // Never let log wiring break boot; call-site redaction still applies.
         }
+
+        // Register the fatal-error shutdown handler — one JSON line to stderr,
+        // never throws, no container or Log facade dependency.
+        FatalErrorHandler::register();
     }
 }

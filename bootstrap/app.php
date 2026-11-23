@@ -7,7 +7,11 @@ use App\Http\Middleware\RequestId;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
-use Illuminate\Foundation\Configuration\Middleware; // ✅ mandatory
+use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Session\TokenMismatchException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+
+ // ✅ mandatory
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -40,20 +44,20 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // A stale CSRF token gets one stable JSON message, never a debug
         // trace, file path or exception class (even with APP_DEBUG=true).
-        $exceptions->render(function (\Throwable $e, $request) {
-            $isCsrf = $e instanceof \Illuminate\Session\TokenMismatchException
-                || ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpException
+        $exceptions->render(function (Throwable $e, $request) {
+            $isCsrf = $e instanceof TokenMismatchException
+                || ($e instanceof HttpException
                     && $e->getStatusCode() === 419);
             if ($isCsrf && ($request->expectsJson() || $request->is('api/*'))) {
                 // 419 root cause: collect session cookie/decryption/storage/token info
                 // (no values logged — presence/absence only, to avoid leaking data)
                 $sessionCookieArrived = $request->cookies->has('tracegeo_session');
-                $cookieDecrypted = $sessionCookieArrived && !hash_hmac('sha256', $request->cookie('tracegeo_session'), env('APP_KEY')) ? false : true;
+                $cookieDecrypted = $sessionCookieArrived && ! hash_hmac('sha256', $request->cookie('tracegeo_session'), env('APP_KEY')) ? false : true;
                 $sessionExistsInStorage = true; // would check DB session store in production
                 $tokenHeaderPresent = $request->header('X-CSRF-TOKEN') !== null;
 
                 // Log only presence/absence (no values)
-                \Log::warning('419 root cause', [
+                Log::warning('419 root cause', [
                     'session_cookie_arrived' => $sessionCookieArrived,
                     'cookie_decrypted' => $cookieDecrypted,
                     'session_exists_in_storage' => $sessionExistsInStorage,

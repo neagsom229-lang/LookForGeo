@@ -9,7 +9,7 @@ $installedPath = $root.'/vendor/composer/installed.json';
 
 foreach ([$lockPath, $installedPath] as $path) {
     if (! is_file($path)) {
-        fwrite(STDERR, "run composer install (missing ".basename($path).")\n");
+        fwrite(STDERR, 'run composer install (missing '.basename($path).")\n");
         exit(1);
     }
 }
@@ -62,5 +62,5 @@ if ($problems !== []) {
     exit(1);
 }
 
-echo "vendor in sync with composer.lock (".count($want)." packages)\n";
+echo 'vendor in sync with composer.lock ('.count($want)." packages)\n";
 exit(0);
