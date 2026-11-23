@@ -5,9 +5,11 @@ namespace App\Http\Middleware;
 use Closure;
 
 /**
- * HSTS is only emitted for production requests. A one-year max-age matches
- * the browser preload requirement; includeSubDomains covers any subdomain
- * of the configured APP_URL.
+ * HSTS is emitted for production requests over HTTPS. A one-year max-age
+ * matches industry best practice; includeSubDomains covers any subdomain
+ * of the configured APP_URL. The "preload" directive is omitted because
+ * it was not explicitly chosen for this project — adding it later is a
+ * simple config change if the browser preload list is desired.
  */
 class ForceHsts
 {
@@ -23,7 +25,7 @@ class ForceHsts
         if (config('app.env') === 'production' && $isHttps) {
             $response->headers->set(
                 'Strict-Transport-Security',
-                'max-age=31536000; includeSubDomains; preload'
+                'max-age=31536000; includeSubDomains'
             );
         }
 

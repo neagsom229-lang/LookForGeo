@@ -51,6 +51,10 @@ jobs:
           for i in $(seq 1 60); do
             last_body=$(curl -sS https://lookforgeo.onrender.com/api/health || true)
             last_code=$(curl -sS -o /dev/null -w '%{http_code}' https://lookforgeo.onrender.com/api/health || true)
+            # Strip HTML/CSS and truncate to 20 lines for log safety
+            if echo "$last_body" | grep -qi '<html\|<css\|<head\|<body'; then
+              last_body=$(echo "$last_body" | sed 's/<[^>]*>//g' | fold -w 80 | head -20 | paste -sd' ')
+            fi
             commit=$(printf '%s' "$last_body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',''))" 2>/dev/null || true)
             echo "attempt=$i health_http=$last_code health_commit=$commit wanted=$wanted"
             if [ "$commit" = "$wanted" ]; then
@@ -60,6 +64,10 @@ jobs:
             sleep 10
           done
           echo "TIMEOUT: deployed commit never matched $wanted within 10 minutes"
+          # Strip HTML/CSS and truncate to 20 lines for log safety
+          if echo "$last_body" | grep -qi '<html\|<css\|<head\|<body'; then
+            last_body=$(echo "$last_body" | sed 's/<[^>]*>//g' | fold -w 80 | head -20 | paste -sd' ')
+          fi
           echo "last_health_http=$last_code"
           echo "last_health_json=$last_body"
           exit 1
@@ -71,6 +79,10 @@ jobs:
           for i in $(seq 1 60); do
             last_body=$(curl -sS https://lookforgeo.onrender.com/api/health || true)
             last_code=$(curl -sS -o /dev/null -w '%{http_code}' https://lookforgeo.onrender.com/api/health || true)
+            # Strip HTML/CSS and truncate to 20 lines for log safety
+            if echo "$last_body" | grep -qi '<html\|<css\|<head\|<body'; then
+              last_body=$(echo "$last_body" | sed 's/<[^>]*>//g' | fold -w 80 | head -20 | paste -sd' ')
+            fi
             echo "attempt=$i health_http=$last_code"
             if [ "$last_code" = "200" ]; then
               echo "health_http=200"
@@ -79,6 +91,10 @@ jobs:
             sleep 10
           done
           echo "TIMEOUT: health check never returned 200 within 10 minutes"
+          # Strip HTML/CSS and truncate to 20 lines for log safety
+          if echo "$last_body" | grep -qi '<html\|<css\|<head\|<body'; then
+            last_body=$(echo "$last_body" | sed 's/<[^>]*>//g' | fold -w 80 | head -20 | paste -sd' ')
+          fi
           echo "last_health_http=$last_code"
           echo "last_health_json=$last_body"
           exit 1

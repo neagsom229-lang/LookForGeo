@@ -6,12 +6,16 @@ services:
     plan: free
     healthCheckPath: /api/health
     envVars:
+      - key: APP_NAME
+        value: TraceGeo
       - key: APP_ENV
         value: production
       - key: APP_DEBUG
         value: false
       - key: APP_URL
         value: https://lookforgeo.onrender.com
+      - key: SESSION_COOKIE
+        value: tracegeo_session
       - key: DATABASE_URL
         sync: false
       - key: DB_CONNECTION

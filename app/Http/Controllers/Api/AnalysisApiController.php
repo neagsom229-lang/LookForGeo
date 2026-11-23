@@ -7,6 +7,7 @@ use App\Http\Requests\StoreAnalysisImageRequest;
 use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
 use App\Services\AnalysisCostGuard;
+use App\Services\Gemini\SecretSanitizer;
 use App\Services\SystemHealthService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -33,7 +34,21 @@ class AnalysisApiController extends Controller
         $adminToken = trim((string) config('services.health.admin_token', ''));
         $provided = (string) $request->header('X-Admin-Token', '');
         if ($adminToken !== '' && hash_equals($adminToken, $provided)) {
-            $payload['pending_migrations'] = (int) $report['pending_migrations'];
+            // Include sanitized, truncated error strings for each failed check
+            $payload['diagnostics'] = [];
+            foreach ($report['checks'] as $checkName => $check) {
+                $ok = $check['ok'] ?? true;
+                if (! $ok) {
+                    $error = $check['error'] ?? 'unknown error';
+                    $payload['diagnostics'][$checkName] = [
+                        'error' => SecretSanitizer::redact($error),
+                        'truncated' => strlen($error) > 80 ? substr($error, 0, 77) . '...' : $error,
+                    ];
+                }
+            }
+            // Admin-token: expose pending migration count (0 when unknown)
+            $pending = $report['pending_migrations'] ?? 0;
+            $payload['pending_migrations'] = (int) $pending;
         }
 
         return response()->json($payload);

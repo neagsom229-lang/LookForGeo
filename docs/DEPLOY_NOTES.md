@@ -198,6 +198,9 @@ accept the override for that model.
 
 `SESSION_SECURE_COOKIE` is not set: `config/session.php` defaults it to true
 when `APP_ENV=production`. HSTS is emitted by middleware only over HTTPS.
+- The `preload` directive has been removed from the HSTS header (it was not
+  explicitly chosen for this project; re-adding it later is a simple config
+  change if the browser preload list is desired).
 
 ## 2. Migration and deploy order
 

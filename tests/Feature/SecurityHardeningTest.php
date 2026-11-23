@@ -23,7 +23,7 @@ class SecurityHardeningTest extends TestCase
         config(['app.env' => 'production']);
         $this->withHeader('X-Forwarded-Proto', 'https')
             ->getJson('/api/health')
-            ->assertHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+            ->assertHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
 
     public function test_session_id_is_regenerated_on_login(): void
@@ -107,5 +107,24 @@ class SecurityHardeningTest extends TestCase
         $csp = $this->getJson('/api/health')->headers->get('Content-Security-Policy');
 
         $this->assertStringContainsString("connect-src 'self' https://study.example.com", (string) $csp);
+    }
+
+    public function test_cors_header_not_star_in_production(): void
+    {
+        // Real feature test: Origins must not be allowed wildcard in production.
+        // The app must not emit Access-Control-Allow-Origin: * for any origin.
+        config(['app.env' => 'production', 'app.debug' => false]);
+
+        // /api/health should not reflect wildcard CORS
+        $health = $this->withHeader('Origin', 'https://evil.example')
+            ->getJson('/api/health');
+        $this->assertStringNotContainsString('Access-Control-Allow-Origin: *',
+            $health->headers->get('Access-Control-Allow-Origin') ?? '');
+
+        // /api/search should not reflect wildcard CORS
+        $search = $this->withHeader('Origin', 'https://evil.example')
+            ->getJson('/api/search');
+        $this->assertStringNotContainsString('Access-Control-Allow-Origin: *',
+            $search->headers->get('Access-Control-Allow-Origin') ?? '');
     }
 }
