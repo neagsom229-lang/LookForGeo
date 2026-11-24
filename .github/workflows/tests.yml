@@ -27,6 +27,18 @@ jobs:
       # Dev dependencies ARE required here: `composer test` runs phpunit,
       # which lives in require-dev. A --no-dev install removes phpunit and
       # the job would fail with "phpunit: command not found".
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-
+
       - name: Install dependencies
         run: composer install --optimize-autoloader --no-interaction
 
@@ -72,6 +84,18 @@ jobs:
           extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
           coverage: none
 
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-
+
       - name: Install dependencies
         run: composer install --optimize-autoloader --no-interaction
 
@@ -97,6 +121,18 @@ jobs:
           coverage: none
 
       # `php artisan test` also needs phpunit from require-dev.
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-
+
       - name: Install dependencies
         run: composer install --optimize-autoloader --no-interaction
 
@@ -114,6 +150,18 @@ jobs:
           php-version: '8.2'
           extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
           coverage: none
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-
 
       - name: Install dependencies
         run: composer install --optimize-autoloader --no-interaction
@@ -162,6 +210,18 @@ jobs:
           php-version: '8.2'
           coverage: none
 
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-
+
       - name: Install dependencies
         run: composer install --optimize-autoloader --no-interaction
 
@@ -200,6 +260,18 @@ jobs:
           php-version: '8.2'
           extensions: mbstring, pdo_sqlite, sqlite3, curl, gd, exif, pcntl, bcmath
           coverage: none
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ matrix.php || '8.2' }}-composer-
 
       - name: Install dependencies
         run: composer install --optimize-autoloader --no-interaction

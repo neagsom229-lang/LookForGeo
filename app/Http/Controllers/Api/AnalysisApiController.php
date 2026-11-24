@@ -15,28 +15,24 @@ class AnalysisApiController extends Controller
 {
     public function health(Request $request, SystemHealthService $health)
     {
-        $report = $health->checks();
+        $report = $health->readiness();
+        $status = $report['status'] === 'operational' ? 'operational' : 'degraded';
 
-        $payload = [
-            'success' => true,
-            'status' => $report['status'],
-            'version' => '1.0.0',
-            'commit' => substr((string) config('app.deploy_commit'), 0, 7),
-            'started_at' => $report['started_at'],
-            // Public shape: booleans only, no migration counts.
-            'schema_ok' => (bool) $report['schema_ok'],
-            'pending_migrations_present' => (int) $report['pending_migrations'] > 0,
-            'timestamp' => now()->toISOString(),
-            'checks' => $report['checks'],
-        ];
-
+        $public = ['status' => $status];
         $adminToken = trim((string) config('services.health.admin_token', ''));
         $provided = (string) $request->header('X-Admin-Token', '');
-        if ($adminToken !== '' && hash_equals($adminToken, $provided)) {
-            $payload['pending_migrations'] = (int) $report['pending_migrations'];
+        $isAdmin = $adminToken !== '' && hash_equals($adminToken, $provided);
+
+        if (! $isAdmin) {
+            return response()->json($public, $status === 'operational' ? 200 : 503);
         }
 
-        return response()->json($payload);
+        $payload = $public + [
+            'checks' => $report['checks'],
+            'info' => $report['info'],
+        ];
+
+        return response()->json($payload, $status === 'operational' ? 200 : 503);
     }
 
     public function history(Request $request)

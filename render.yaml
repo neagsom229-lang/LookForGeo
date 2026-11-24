@@ -1,17 +1,21 @@
-services:
+﻿services:
   - type: web
     name: LookForGeo
     env: docker
     dockerfilePath: ./Dockerfile
     plan: free
-    healthCheckPath: /api/health
+    healthCheckPath: /up
     envVars:
+      - key: APP_NAME
+        value: TraceGeo
       - key: APP_ENV
         value: production
       - key: APP_DEBUG
         value: false
       - key: APP_URL
         value: https://lookforgeo.onrender.com
+      - key: SESSION_COOKIE
+        value: tracegeo_session
       - key: DATABASE_URL
         sync: false
       - key: DB_CONNECTION
@@ -50,7 +54,7 @@ services:
       - key: GEMINI_CONFIDENCE_REVERSE_GEOCODE
         value: true
       - key: GEMINI_HEALTH_PROBE
-        value: true
+        value: false
       - key: HEALTH_ADMIN_TOKEN
         sync: false
       - key: NOMINATIM_CONTACT
@@ -74,7 +78,7 @@ services:
         value: 100
       - key: GEMINI_ESCALATION_TIMEOUT
         value: 25
-      # Secret keys — set actual values in Render Dashboard
+      # Secret keys â€” set actual values in Render Dashboard
       - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_MAPS_EMBED_KEY
@@ -136,7 +140,7 @@ services:
       - key: GEMINI_CONFIDENCE_REVERSE_GEOCODE
         value: true
       - key: GEMINI_HEALTH_PROBE
-        value: true
+        value: false
       - key: HEALTH_ADMIN_TOKEN
         sync: false
       - key: NOMINATIM_CONTACT
@@ -166,3 +170,4 @@ services:
         sync: false
       - key: CLOUDINARY_URL
         sync: false
+

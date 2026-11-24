@@ -108,8 +108,8 @@ return [
         'daily_limit_per_user' => (int) env('GEMINI_DAILY_PER_USER', 50),
         'daily_limit_global' => (int) env('GEMINI_DAILY_LIMIT', 0),
         // Health check probes the Gemini endpoint (no key, cached 60s).
-        // Off in phpunit so tests never make an un-faked network call.
-        'health_probe' => env('GEMINI_HEALTH_PROBE', true),
+        // Informational only and disabled by default; never gates readiness.
+        'health_probe' => (bool) env('GEMINI_HEALTH_PROBE', false),
         // Override to point at a fake endpoint (smoke tests). Default is the real REST base path.
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
     ],

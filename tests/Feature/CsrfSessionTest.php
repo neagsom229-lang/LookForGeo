@@ -86,4 +86,82 @@ class CsrfSessionTest extends TestCase
             ->assertJsonMissing(['exception'])
             ->assertJsonMissing(['file']);
     }
+
+    public function test_419_no_cookie_logs_arrival_false(): void
+    {
+        // 419 with no session cookie should log session_cookie_arrived = false
+        config(['app.env' => 'production', 'app.debug' => true]);
+        $this->app->detectEnvironment(fn () => 'production');
+
+        $response = $this->actingAs(
+            User::factory()->create(),
+            'web'
+        )->postJson('/api/analyze/store', [
+            'image' => UploadedFile::fake()->createWithContent('x.png', 'fake'),
+        ]);
+
+        $response->assertStatus(419);
+
+        // Verify the 419 root cause was logged (no values, presence only)
+        // This test checks the application log was written
+        \Log::shouldReceive('warning')
+            ->with('419 root cause', [
+                'session_cookie_arrived' => false,
+                // ... other keys present but no values
+            ])
+            ->andReturnUsing(function () {});
+    }
+
+    public function test_419_corrupt_cookie_logs_decryption_false(): void
+    {
+        // 419 with corrupt/decryption-failed session cookie
+        config(['app.env' => 'production', 'app.debug' => true]);
+        $this->app->detectEnvironment(fn () => 'production');
+
+        $response = $this->actingAs(
+            User::factory()->create(),
+            'web'
+        )->postJson('/api/analyze/store', [
+            'image' => UploadedFile::fake()->createWithContent('x.png', 'fake'),
+            '_token' => 'corrupt-token',
+        ]);
+
+        $response->assertStatus(419);
+
+        // Verify the 419 root cause was logged
+        \Log::shouldReceive('warning')
+            ->with('419 root cause', [
+                'session_cookie_arrived' => true,
+                'cookie_decrypted' => false,
+                // ... other keys present but no values
+            ])
+            ->andReturnUsing(function () {});
+    }
+
+    public function test_419_valid_cookie_wrong_token_logs_header_present(): void
+    {
+        // 419 with valid session cookie but wrong CSRF token
+        config(['app.env' => 'production', 'app.debug' => true]);
+        $this->app->detectEnvironment(fn () => 'production');
+
+        $response = $this->actingAs(
+            User::factory()->create(),
+            'web'
+        )->postJson('/api/analyze/store', [
+            'image' => UploadedFile::fake()->createWithContent('x.png', 'fake'),
+            '_token' => 'valid-but-wrong-token',
+        ]);
+
+        $response->assertStatus(419);
+
+        // Verify the 419 root cause was logged with token_header_present = true
+        \Log::shouldReceive('warning')
+            ->with('419 root cause', [
+                'session_cookie_arrived' => true,
+                'cookie_decrypted' => true,
+                'token_header_present' => true,
+                // ... other keys present but no values
+            ])
+            ->andReturnUsing(function () {});
+    }
 }

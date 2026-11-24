@@ -55,6 +55,6 @@ signed by the server. See `app/Http/Controllers/AnalysisController.php` and
 
 - Production session cookies are `Secure` (`SESSION_SECURE_COOKIE` defaults to
   true when `APP_ENV=production`), `HttpOnly`, `SameSite=Lax`.
-- Production responses carry HSTS `max-age=31536000; includeSubDomains; preload`
+- Production responses carry HSTS `max-age=31536000; includeSubDomains`
   (only over HTTPS).
 - CSP `connect-src` is derived from `APP_URL`, never a hardcoded host.

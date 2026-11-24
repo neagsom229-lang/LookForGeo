@@ -149,12 +149,20 @@ function Test-CommonBody {
 try {
     Write-Host ("Probing " + $base + " (GET only)")
 
-    $health = Invoke-Get '/api/health'
-    if ($health.Status -eq 200) {
-        Add-Pass 'GET /api/health -> 200'
+    $live = Invoke-Get '/up'
+    if ($live.Status -eq 200) {
+        Add-Pass 'GET /up -> 200'
     }
     else {
-        Add-Fail ("GET /api/health -> " + $health.Status + ' (expected 200)')
+        Add-Fail ("GET /up -> " + $live.Status + ' (expected 200)')
+    }
+
+    $health = Invoke-Get '/api/health'
+    if ($health.Status -eq 200 -or $health.Status -eq 503) {
+        Add-Pass ("GET /api/health -> " + $health.Status)
+    }
+    else {
+        Add-Fail ("GET /api/health -> " + $health.Status + ' (expected 200 or 503)')
     }
 
     if ($health.ContentType -match 'application/json') {
@@ -172,18 +180,11 @@ try {
         Add-Fail 'GET /api/health body is not valid JSON'
     }
 
-    if ($null -ne $healthJson -and $healthJson.commit) {
-        Write-Host ("PASS  deploy commit=" + $healthJson.commit)
+    if ($null -ne $healthJson -and ($healthJson.status -eq 'operational' -or $healthJson.status -eq 'degraded')) {
+        Add-Pass ("GET /api/health reports status=" + $healthJson.status)
     }
     else {
-        Write-Host "INFO  deploy commit not reported by /api/health"
-    }
-
-    if ($null -ne $healthJson -and $healthJson.status -eq 'operational') {
-        Add-Pass 'GET /api/health reports status=operational'
-    }
-    else {
-        Add-Fail 'GET /api/health does not report status=operational'
+        Add-Fail 'GET /api/health does not report status operational|degraded'
     }
 
     if ($health.Csp) {

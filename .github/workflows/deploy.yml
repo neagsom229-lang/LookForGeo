@@ -1,8 +1,4 @@
-name: Deploy and probe
-
-# Runs after a merge to main (or manually). The Render deploy hook URL is a
-# secret and is never printed. The only request this repository makes to the
-# live site is the read-only GET-only probe script.
+name: Deploy and smoke
 
 on:
   push:
@@ -10,7 +6,6 @@ on:
       - main
   workflow_dispatch:
 
-# Never run two deploys/probes at once; a second push queues behind the first.
 concurrency:
   group: deploy-lookforgeo
   cancel-in-progress: false
@@ -20,17 +15,15 @@ permissions:
   issues: write
 
 jobs:
-  deploy-and-probe:
-    name: Deploy then read-only probe
+  deploy-and-smoke:
+    name: Deploy then smoke
     runs-on: ubuntu-latest
     env:
       RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
-      PUSHED_SHA: ${{ github.sha }}
+      BASE_URL: https://lookforgeo.onrender.com
     steps:
       - uses: actions/checkout@v4
 
-      # No secret configured (e.g. fork or first setup): do not fail the run
-      # and do not open an issue. The read-only probe below still runs.
       - name: Trigger Render deploy
         if: env.RENDER_DEPLOY_HOOK_URL != ''
         run: |
@@ -38,64 +31,60 @@ jobs:
 
       - name: Deploy hook not configured
         if: env.RENDER_DEPLOY_HOOK_URL == ''
-        run: echo "RENDER_DEPLOY_HOOK_URL not set - skipping deploy hook; read-only probe still runs."
+        run: echo "RENDER_DEPLOY_HOOK_URL not set - skipping deploy hook; smoke still runs."
 
-      # Max 10 minutes (60 x 10s). Keep the last observed health body and
-      # HTTP code so a timeout is diagnosable from the workflow log.
       - name: Wait for deployed commit
-        if: env.RENDER_DEPLOY_HOOK_URL != ''
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
-          wanted="${PUSHED_SHA:0:7}"
-          last_body=""
-          last_code=""
+          expected="${EXPECTED_SHA:0:7}"
           for i in $(seq 1 60); do
-            last_body=$(curl -sS https://lookforgeo.onrender.com/api/health || true)
-            last_code=$(curl -sS -o /dev/null -w '%{http_code}' https://lookforgeo.onrender.com/api/health || true)
-            commit=$(printf '%s' "$last_body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',''))" 2>/dev/null || true)
-            echo "attempt=$i health_http=$last_code health_commit=$commit wanted=$wanted"
-            if [ "$commit" = "$wanted" ]; then
-              echo "deployed commit matched within 10 minutes"
+            headers=$(curl -sS -D - -o /dev/null "$BASE_URL/up" || true)
+            code=$(printf '%s' "$headers" | awk 'toupper($1) ~ /^HTTP\// {print $2; exit}')
+            commit=$(printf '%s' "$headers" | awk -F': ' 'tolower($1)=="x-app-commit" {gsub("\r","",$2); print $2; exit}')
+            echo "attempt=$i up_http=${code:-unknown} commit=${commit:-none} expected=$expected"
+            if [ "$code" = "200" ] && [ "$commit" = "$expected" ]; then
               exit 0
             fi
             sleep 10
           done
-          echo "TIMEOUT: deployed commit never matched $wanted within 10 minutes"
-          echo "last_health_http=$last_code"
-          echo "last_health_json=$last_body"
+          echo "TIMEOUT: deployed commit never matched $expected within 10 minutes"
           exit 1
 
-      - name: Wait for health endpoint
+      - name: Post-deploy smoke /api/health
         run: |
-          last_body=""
-          last_code=""
-          for i in $(seq 1 60); do
-            last_body=$(curl -sS https://lookforgeo.onrender.com/api/health || true)
-            last_code=$(curl -sS -o /dev/null -w '%{http_code}' https://lookforgeo.onrender.com/api/health || true)
-            echo "attempt=$i health_http=$last_code"
-            if [ "$last_code" = "200" ]; then
-              echo "health_http=200"
+          for i in $(seq 1 5); do
+            body=$(curl -sS "$BASE_URL/api/health" || true)
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/health" || true)
+            status=$(printf '%s' "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+            echo "attempt=$i health_http=$code health_status=${status:-none}"
+            if [ "$code" = "200" ] && [ "$status" = "operational" ]; then
               exit 0
+            fi
+            if [ "$code" = "503" ]; then
+              echo "FAIL: health degraded"
+              exit 1
+            fi
+            if [ "$code" != "200" ]; then
+              echo "FAIL: expected JSON 200"
+              exit 1
             fi
             sleep 10
           done
-          echo "TIMEOUT: health check never returned 200 within 10 minutes"
-          echo "last_health_http=$last_code"
-          echo "last_health_json=$last_body"
+          echo "FAIL: /api/health did not become operational"
           exit 1
 
-      - name: Run read-only production probe
+      - name: Read-only production probe
         shell: pwsh
         run: ./scripts/probe-prod.ps1 -BaseUrl https://lookforgeo.onrender.com
 
-      # Dedupe: update the existing open deploy-probe issue instead of
-      # opening a new one on every failed run.
       - name: Notify on failure (dedupe)
         if: failure()
         uses: actions/github-script@v7
         with:
           script: |
-            const title = 'Deploy probe failed for ' + context.sha.substring(0, 7);
-            const body = 'Render deploy or the read-only production probe failed. '
+            const title = 'Deploy smoke failed for ' + context.sha.substring(0, 7);
+            const body = 'Deploy or post-deploy smoke failed. '
               + 'See the workflow run for details: '
               + context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo
               + '/actions/runs/' + context.runId + '.';
@@ -107,15 +96,15 @@ jobs:
               per_page: 100
             });
             const existing = issues.data.find(issue =>
-              issue.title.startsWith('Deploy probe failed for ')
+              issue.title.startsWith('Deploy smoke failed for ')
               && !issue.pull_request);
             if (existing) {
               await github.rest.issues.update({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: existing.number,
-                title: title,
-                body: body
+                title,
+                body
               });
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -128,8 +117,8 @@ jobs:
               const created = await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                title: title,
-                body: body,
+                title,
+                body,
                 labels: ['ci']
               });
               core.info('Opened issue #' + created.data.number);

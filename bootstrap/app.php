@@ -7,7 +7,11 @@ use App\Http\Middleware\RequestId;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
-use Illuminate\Foundation\Configuration\Middleware; // ✅ mandatory
+use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Session\TokenMismatchException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+
+ // ✅ mandatory
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -40,9 +44,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // A stale CSRF token gets one stable JSON message, never a debug
         // trace, file path or exception class (even with APP_DEBUG=true).
-        $exceptions->render(function (\Throwable $e, $request) {
-            $isCsrf = $e instanceof \Illuminate\Session\TokenMismatchException
-                || ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpException
+        $exceptions->render(function (Throwable $e, $request) {
+            $isCsrf = $e instanceof TokenMismatchException
+                || ($e instanceof HttpException
                     && $e->getStatusCode() === 419);
             if ($isCsrf && ($request->expectsJson() || $request->is('api/*'))) {
                 return response()->json([
