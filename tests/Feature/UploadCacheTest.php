@@ -22,6 +22,7 @@ class UploadCacheTest extends TestCase
     {
         parent::setUp();
         Storage::fake('public');
+        Storage::disk('public')->makeDirectory('analyses');
         Http::fake([
             'generativelanguage.googleapis.com/*' => Http::response([
                 'candidates' => [[

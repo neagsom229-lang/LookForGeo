@@ -11,24 +11,47 @@ use Tests\TestCase;
 
 class HealthCheckTest extends TestCase
 {
-    private function emptySqlitePath(): string
+    /** @var list<string> */
+    private array $tempSqliteFiles = [];
+
+    protected function tearDown(): void
     {
-        $dir = storage_path('framework/testing');
-        if (! is_dir($dir)) {
-            mkdir($dir, 0777, true);
+        foreach (array_unique(array_merge(['empty'], array_keys(config('database.connections', [])))) as $connection) {
+            if (is_string($connection)) {
+                try {
+                    DB::purge($connection);
+                } catch (\Throwable $e) {
+                }
+            }
         }
 
-        $path = $dir.'/health-empty-'.bin2hex(random_bytes(4)).'.sqlite';
-        touch($path);
+        foreach ($this->tempSqliteFiles as $path) {
+            if (is_file($path)) {
+                @unlink($path);
+            }
+        }
+        $this->tempSqliteFiles = [];
+
+        parent::tearDown();
+    }
+
+    private function emptySqlitePath(): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'lg-health-');
+        if ($path === false) {
+            $this->fail('Could not create temp sqlite file');
+        }
+        $this->tempSqliteFiles[] = $path;
 
         return $path;
     }
 
     private function configureEmptySqlite(string $connection = 'empty'): void
     {
+        $path = $this->emptySqlitePath();
         config(["database.connections.$connection" => [
             'driver' => 'sqlite',
-            'database' => $this->emptySqlitePath(),
+            'database' => $path,
             'prefix' => '',
             'foreign_key_constraints' => false,
         ]]);
@@ -39,11 +62,21 @@ class HealthCheckTest extends TestCase
 
     public function test_public_health_is_minimal(): void
     {
+        Http::preventStrayRequests();
         config(['services.gemini.health_probe' => false]);
 
         $this->getJson('/api/health')
             ->assertOk()
             ->assertExactJson(['status' => 'operational']);
+    }
+
+    public function test_up_returns_commit_header(): void
+    {
+        config(['app.deploy_commit' => 'abcdef1234567890']);
+
+        $this->get('/up')
+            ->assertOk()
+            ->assertHeader('X-App-Commit', 'abcdef1');
     }
 
     public function test_admin_health_requires_valid_token(): void
@@ -113,6 +146,7 @@ class HealthCheckTest extends TestCase
 
     public function test_gemini_probe_failure_does_not_degrade_readiness(): void
     {
+        Http::preventStrayRequests();
         config(['services.gemini.health_probe' => true]);
         Cache::forget('health:gemini-reachability');
         Http::fake([
