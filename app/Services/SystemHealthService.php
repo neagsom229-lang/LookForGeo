@@ -243,6 +243,10 @@ class SystemHealthService
     private function pendingMigrations(): int
     {
         try {
+            if ($this->isUnmigratedTestDatabase()) {
+                return 0;
+            }
+
             $migrator = app('migrator');
             $migrator->path(database_path('migrations'));
             $migrator->setConnection(DB::connection()->getName());
