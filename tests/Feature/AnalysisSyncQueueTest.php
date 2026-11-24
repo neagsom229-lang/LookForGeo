@@ -38,8 +38,12 @@ class AnalysisSyncQueueTest extends TestCase
             'services.gemini.fallback_model' => null,
             'services.gemini.hedge_after' => 0,
             'services.gemini.escalation_model' => '',
+            'services.gemini.retry_backoff_ms' => 0,
+            'services.gemini.timeout' => 5,
+            'services.gemini.total_budget' => 10,
         ]);
 
+        Http::preventStrayRequests();
         Http::fake([
             'generativelanguage.googleapis.com/*' => Http::response([
                 'candidates' => [[

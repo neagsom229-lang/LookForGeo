@@ -11,7 +11,7 @@ mkdir -p "$tmp/bin"
 
 # Keep everything up to (but not including) the success marker, then add a
 # marker we can assert on.
-awk '/Migrations completed/{exit} {print}' "$root/entrypoint.sh" > "$tmp/entrypoint-test.sh"
+awk '/Migrations completed/{exit} {print}' "$root/entrypoint.sh" | tr -d '\r' > "$tmp/entrypoint-test.sh"
 printf "echo 'MIGRATIONS_OK'\n" >> "$tmp/entrypoint-test.sh"
 
 cat > "$tmp/bin/php" <<'STUB'
