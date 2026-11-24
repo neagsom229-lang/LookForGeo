@@ -83,10 +83,10 @@ class SecretLeakTest extends TestCase
             'image_path' => 'analyses/leak.png',
         ]);
 
-        // Isolate the terminal-failure sanitization path; the one automatic
-        // requeue for overload/timeout is covered in AutoRequeueTest.
-        config(['services.analysis.auto_requeue' => false]);
-        AnalyzeImageJob::dispatch($analysis->id, null, 'leak.png');
+        // Simulate final attempt so transient timeout takes terminal path.
+        $job = new AnalyzeImageJob($analysis->id, null, 'leak.png');
+        $job->tries = 1;
+        $job->handle(app(\App\Services\GeminiService::class));
 
         // --- DB error column: sanitized, no key ---
         $analysis->refresh();

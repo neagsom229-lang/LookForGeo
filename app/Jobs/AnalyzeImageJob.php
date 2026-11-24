@@ -76,10 +76,11 @@ class AnalyzeImageJob implements ShouldQueue
 
     private function transientReleaseDelay(): int
     {
-        $delays = [30, 90, 180];
+        $delays = (array) config('services.analysis.transient_release_delays', [30, 90, 180]);
+        $delays = array_values(array_map('intval', $delays ?: [30, 90, 180]));
         $index = max(0, $this->attempts() - 1);
 
-        return $delays[$index] ?? 180;
+        return (int) ($delays[$index] ?? end($delays) ?: 180);
     }
 
     private function isTransientCategory(?string $category): bool

@@ -65,8 +65,10 @@ class GeminiFailureDiagnosticsTest extends TestCase
 
         $result = $this->runPipeline();
 
-        $result['status']->assertJsonPath('status', 'failed')
-            ->assertJsonPath('error', AnalysisController::FAILED_USER_MESSAGE);
+        // Transient timeout is released for retry; final-attempt failure is
+        // covered by the job releasing until attempts are exhausted.
+        $result['status']->assertJsonPath('status', 'processing')
+            ->assertJsonPath('stage_label', 'Waiting for AI service');
         $this->assertAttemptLog(function (array $context) {
             return ($context['exception_class'] ?? null) === ConnectionException::class
                 && $context['model'] === 'gemini-3.5-flash-lite'
@@ -82,9 +84,8 @@ class GeminiFailureDiagnosticsTest extends TestCase
 
         $result = $this->runPipeline();
 
-        $result['status']->assertJsonPath('status', 'failed')
-            ->assertJsonPath('error', GeminiFailureClassifier::MESSAGES['overload'])
-            ->assertJsonPath('failure_category', 'overload');
+        $result['status']->assertJsonPath('status', 'processing')
+            ->assertJsonPath('stage_label', 'Waiting for AI service');
         $this->assertAttemptLog(function (array $context) {
             return ($context['http_status'] ?? null) === 503
                 && $context['model'] === 'gemini-3.5-flash-lite'
@@ -99,16 +100,12 @@ class GeminiFailureDiagnosticsTest extends TestCase
 
         $result = $this->runPipeline();
 
-        $result['status']->assertJsonPath('status', 'failed')
-            ->assertJsonPath('error', GeminiFailureClassifier::MESSAGES['quota'])
-            ->assertJsonPath('failure_category', 'quota');
-        $failed = GeoAnalysis::find($result['id']);
-        $this->assertSame(
-            GeminiFailureClassifier::STAGE_LABELS['quota'],
-            $failed->stage_label
-        );
-        // No model answered, so model_used must stay null on failure.
-        $this->assertNull($failed->model_used);
+        // Transient quota is released for retry on non-final attempt.
+        $result['status']->assertJsonPath('status', 'processing')
+            ->assertJsonPath('stage_label', 'Waiting for AI service');
+        $analysis = GeoAnalysis::find($result['id']);
+        $this->assertNull($analysis->finished_at);
+        $this->assertNull($analysis->model_used);
     }
 
     public function test_400_schema_or_thinking_rejection_is_logged_with_status(): void

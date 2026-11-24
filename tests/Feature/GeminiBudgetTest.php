@@ -8,8 +8,9 @@ use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
- * The single retry layer: one retry on the primary model, then one fallback
- * attempt, sharing a 90s budget, with no request started in the final 15s.
+ * Retry layer: one retry on the primary for retryable non-quota/overload errors,
+ * then one fallback attempt. 503/UNAVAILABLE and 429/quota switch to fallback
+ * immediately (honoring Retry-After) to avoid burning same-model budget.
  */
 class GeminiBudgetTest extends TestCase
 {
@@ -29,7 +30,7 @@ class GeminiBudgetTest extends TestCase
         ]);
     }
 
-    public function test_one_retry_on_primary_then_one_fallback(): void
+    public function test_503_switches_to_fallback_immediately(): void
     {
         Http::fake(function ($request) {
             if (str_contains($request->url(), 'gemini-3.6-flash')) {
@@ -48,8 +49,8 @@ class GeminiBudgetTest extends TestCase
         $result = app(GeminiClient::class)->analyzeWithFallback('img', 'prompt');
 
         $this->assertSame('Fallback Result', $result['landmark_name']);
-        // Primary twice (initial + one retry), fallback once. Never 2 retries.
-        Http::assertSentCount(3);
+        // 503/UNAVAILABLE should not burn a same-model retry; fallback wins.
+        Http::assertSentCount(2);
     }
 
     public function test_payload_has_no_deprecated_sampling_fields_and_uses_low_thinking(): void
@@ -218,7 +219,7 @@ class GeminiBudgetTest extends TestCase
     public function test_retry_callback_receives_increasing_numbers(): void
     {
         Http::fake(function ($request) {
-            return Http::response(['error' => 'unavailable'], 503);
+            return Http::response(['error' => 'timeout'], 504);
         });
 
         $retries = [];
@@ -226,7 +227,7 @@ class GeminiBudgetTest extends TestCase
             $retries[] = $number;
         });
 
-        // Retry 1 on primary, retry 2 before fallback.
+        // 504 server_error is same-model retryable once on primary, then fallback.
         $this->assertSame([1, 2], $retries);
     }
 }
