@@ -12,7 +12,8 @@
 param(
     [string]$BaseUrl = 'https://lookforgeo.onrender.com',
     [int]$TimeoutSec = 30,
-    [switch]$AllowHttp
+    [switch]$AllowHttp,
+    [switch]$Admin
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,6 +30,18 @@ if ($parsed.Scheme -ne 'https' -and -not ($AllowHttp -and $parsed.Scheme -eq 'ht
 }
 
 $script:failures = New-Object System.Collections.Generic.List[string]
+$script:adminToken = $null
+
+if ($Admin) {
+    $secure = Read-Host -Prompt 'HEALTH_ADMIN_TOKEN' -AsSecureString
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        $script:adminToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    }
+    finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+}
 
 function Add-Pass {
     param([string]$Message)
@@ -51,10 +64,16 @@ $client.Timeout = [System.TimeSpan]::FromSeconds($TimeoutSec)
 $client.DefaultRequestHeaders.UserAgent.ParseAdd('TraceGeo-Probe/1.0')
 
 function Invoke-Get {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [hashtable]$Headers = @{}
+    )
 
     $uri = $base + $Path
     $request = New-Object -TypeName System.Net.Http.HttpRequestMessage -ArgumentList @([System.Net.Http.HttpMethod]::Get, $uri)
+    foreach ($k in $Headers.Keys) {
+        $request.Headers.TryAddWithoutValidation([string]$k, [string]$Headers[$k]) | Out-Null
+    }
     $response = $null
 
     try {
@@ -187,6 +206,27 @@ try {
         Add-Fail 'GET /api/health does not report status operational|degraded'
     }
 
+    if ($script:adminToken) {
+        $adminHealth = Invoke-Get '/api/health' @{ 'X-Admin-Token' = $script:adminToken }
+        $adminJson = $null
+        try { $adminJson = $adminHealth.Body | ConvertFrom-Json } catch { Add-Fail 'GET /api/health (admin) body is not valid JSON' }
+        if ($null -ne $adminJson) {
+            $names = @($adminJson.PSObject.Properties.Name)
+            foreach ($k in @('failed_checks', 'checks', 'info')) {
+                if ($names -contains $k) { Add-Pass ("GET /api/health (admin) has " + $k) }
+                else { Add-Fail ("GET /api/health (admin) missing " + $k) }
+            }
+            if ($null -ne $adminJson.checks) {
+                foreach ($c in @('database','schema','cache','queue')) {
+                    $check = $adminJson.checks.PSObject.Properties[$c].Value
+                    if ($null -ne $check -and ($check.PSObject.Properties.Name -contains 'ok')) { Add-Pass ("GET /api/health (admin) checks.$c.ok present") }
+                    else { Add-Fail ("GET /api/health (admin) checks.$c.ok missing") }
+                }
+            }
+        }
+        Test-CommonBody '/api/health (admin)' $adminHealth.Body
+    }
+
     if ($health.Csp) {
         Add-Pass 'Content-Security-Policy header is present'
     }
@@ -265,6 +305,7 @@ catch {
     Add-Fail $_.Exception.Message
 }
 finally {
+    $script:adminToken = $null
     $client.Dispose()
     $handler.Dispose()
 }

@@ -41,14 +41,29 @@ class SystemHealthService
 
             $pendingMigrations = $this->pendingMigrations();
 
+            $failedChecks = [];
+            foreach ($checks as $name => $check) {
+                if (($check['ok'] ?? false) !== true) {
+                    $failedChecks[] = $name;
+                }
+            }
+
+            $queueCheck = $checks['queue'] ?? [];
+
             return [
                 'status' => $this->status($checks),
                 'checks' => $checks,
+                'failed_checks' => $failedChecks,
                 'info' => [
                     'migrations_pending' => $pendingMigrations > 0,
                     'pending_migrations_count' => $pendingMigrations,
                     'failed_jobs' => $this->failedJobs(),
                     'gemini' => $this->gemini(),
+                    'worker' => [
+                        'queue_backlog' => $queueCheck['backlog'] ?? null,
+                        'queue_oldest_seconds' => $queueCheck['oldest_seconds'] ?? null,
+                        'warning' => $queueCheck['warning'] ?? null,
+                    ],
                 ],
                 'started_at' => (string) config('app.started_at', ''),
             ];
@@ -113,7 +128,7 @@ class SystemHealthService
                         return ['ok' => true, 'note' => 'test database not migrated'];
                     }
 
-                    return ['ok' => false, 'error' => 'Required table missing: '.$table];
+                    return ['ok' => false, 'missing_tables' => [$table], 'error' => 'Required table missing: '.$table];
                 }
             }
 
@@ -170,7 +185,7 @@ class SystemHealthService
                             return ['ok' => true, 'note' => 'test database not migrated'];
                         }
 
-                        return ['ok' => false, 'error' => 'Cache table missing'];
+                        return ['ok' => false, 'missing_tables' => [$required], 'error' => 'Cache table missing'];
                     }
                 }
             }
@@ -189,7 +204,10 @@ class SystemHealthService
     }
 
     /**
-     * Database queue requires jobs and failed_jobs tables.
+     * Database queue requires jobs and failed_jobs tables. A missing table or
+     * unavailable queue is a web-readiness failure (the app cannot enqueue).
+     * Backlog age is worker health, reported as a warning in admin info, and
+     * must not 503 the web readiness probe.
      *
      * @return array<string, mixed>
      */
@@ -206,33 +224,39 @@ class SystemHealthService
             $schema = Schema::connection($connection);
             $jobsTable = (string) config('queue.connections.database.table', 'jobs');
             $failedTable = (string) config('queue.failed.table', 'failed_jobs');
+            $missing = [];
 
             foreach ([$jobsTable, $failedTable] as $required) {
                 if (! $schema->hasTable($required)) {
-                    if ($this->isUnmigratedTestDatabase($connection)) {
-                        return ['ok' => true, 'backlog' => null, 'oldest_seconds' => null, 'note' => 'test database not migrated'];
-                    }
-
-                    return [
-                        'ok' => false,
-                        'backlog' => null,
-                        'oldest_seconds' => null,
-                        'error' => 'Queue table missing',
-                    ];
+                    $missing[] = $required;
                 }
+            }
+
+            if ($missing !== []) {
+                if ($this->isUnmigratedTestDatabase($connection)) {
+                    return ['ok' => true, 'backlog' => null, 'oldest_seconds' => null, 'note' => 'test database not migrated'];
+                }
+
+                return [
+                    'ok' => false,
+                    'backlog' => null,
+                    'oldest_seconds' => null,
+                    'missing_tables' => $missing,
+                    'error' => 'Queue table missing',
+                ];
             }
 
             $db = DB::connection($connection);
             $backlog = (int) $db->table($jobsTable)->count();
             $oldest = $db->table($jobsTable)->min('created_at');
             $oldestSeconds = $oldest ? max(0, now()->getTimestamp() - (int) $oldest) : null;
-            $ok = $oldestSeconds === null || $oldestSeconds < 600;
+            $stale = $oldestSeconds !== null && $oldestSeconds >= 600;
 
             return [
-                'ok' => $ok,
+                'ok' => true,
                 'backlog' => $backlog,
                 'oldest_seconds' => $oldestSeconds,
-                'error' => $ok ? null : 'Queue backlog older than 10 minutes',
+                'warning' => $stale ? 'Queue backlog older than 10 minutes' : null,
             ];
         } catch (Throwable $e) {
             return ['ok' => false, 'backlog' => null, 'oldest_seconds' => null, 'error' => 'Queue check failed'];
@@ -243,10 +267,6 @@ class SystemHealthService
     private function pendingMigrations(): int
     {
         try {
-            if ($this->isUnmigratedTestDatabase()) {
-                return 0;
-            }
-
             $migrator = app('migrator');
             $migrator->path(database_path('migrations'));
             $migrator->setConnection(DB::connection()->getName());
@@ -325,11 +345,17 @@ class SystemHealthService
                 'cache' => ['ok' => false, 'error' => 'Health check failed'],
                 'queue' => ['ok' => false, 'error' => 'Health check failed'],
             ],
+            'failed_checks' => ['database', 'schema', 'cache', 'queue'],
             'info' => [
                 'migrations_pending' => false,
                 'pending_migrations_count' => -1,
                 'failed_jobs' => ['count' => null],
                 'gemini' => ['ok' => null, 'state' => 'unknown'],
+                'worker' => [
+                    'queue_backlog' => null,
+                    'queue_oldest_seconds' => null,
+                    'warning' => null,
+                ],
             ],
             'started_at' => (string) config('app.started_at', ''),
         ];

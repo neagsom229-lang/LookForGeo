@@ -513,4 +513,162 @@ class HealthCheckTest extends TestCase
         config(['queue.default' => 'database', 'queue.connections.database.connection' => 'empty', 'cache.default' => 'database', 'cache.stores.database.connection' => 'empty', 'session.driver' => 'database', 'session.connection' => 'empty', 'services.gemini.health_probe' => false]);
         $this->getJson('/api/health')->assertStatus(503)->assertExactJson(['status' => 'degraded']);
     }
+
+    public function test_admin_health_includes_failed_checks_and_no_raw_exception_text(): void
+    {
+        $this->configureEmptySqlite();
+        Schema::connection('empty')->create('cache', function ($table) {
+            $table->string('key')->primary();
+            $table->mediumText('value');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('cache_locks', function ($table) {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('jobs', function ($table) {
+            $table->bigIncrements('id');
+            $table->string('queue')->index();
+            $table->longText('payload');
+            $table->unsignedTinyInteger('attempts');
+            $table->unsignedInteger('reserved_at')->nullable();
+            $table->unsignedInteger('available_at');
+            $table->unsignedInteger('created_at');
+        });
+        Schema::connection('empty')->create('users', function ($table) {
+            $table->id();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('geo_analyses', function ($table) {
+            $table->id();
+            $table->string('image_hash')->nullable();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('sessions', function ($table) {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
+
+        config([
+            'queue.default' => 'database',
+            'queue.connections.database.connection' => 'empty',
+            'queue.failed.table' => 'failed_jobs',
+            'cache.default' => 'database',
+            'cache.stores.database.connection' => 'empty',
+            'session.driver' => 'database',
+            'session.connection' => 'empty',
+            'services.health.admin_token' => 'test-admin-token',
+            'services.gemini.health_probe' => false,
+        ]);
+
+        $response = $this->withHeader('X-Admin-Token', 'test-admin-token')->getJson('/api/health');
+
+        $response->assertStatus(503)
+            ->assertJsonPath('status', 'degraded')
+            ->assertJsonPath('failed_checks.0', 'queue')
+            ->assertJsonPath('checks.queue.ok', false)
+            ->assertJsonPath('checks.queue.missing_tables.0', 'failed_jobs')
+            ->assertJsonPath('checks.database.ok', true)
+            ->assertJsonPath('checks.schema.ok', true)
+            ->assertJsonPath('checks.cache.ok', true);
+
+        $this->assertIsArray($response->json('failed_checks'));
+        $this->assertArrayHasKey('queue_backlog', $response->json('info.worker'));
+        $this->assertArrayHasKey('queue_oldest_seconds', $response->json('info.worker'));
+
+        $raw = json_encode($response->json());
+        $this->assertIsString($raw);
+        $this->assertStringNotContainsString('Exception', $raw);
+        $this->assertStringNotContainsString('Stack trace', $raw);
+        $this->assertStringNotContainsString('SQLSTATE', $raw);
+    }
+
+    public function test_stalled_queue_worker_does_not_degrade_web_readiness(): void
+    {
+        $this->configureEmptySqlite();
+        Schema::connection('empty')->create('cache', function ($table) {
+            $table->string('key')->primary();
+            $table->mediumText('value');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('cache_locks', function ($table) {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('jobs', function ($table) {
+            $table->bigIncrements('id');
+            $table->string('queue')->index();
+            $table->longText('payload');
+            $table->unsignedTinyInteger('attempts');
+            $table->unsignedInteger('reserved_at')->nullable();
+            $table->unsignedInteger('available_at');
+            $table->unsignedInteger('created_at');
+        });
+        Schema::connection('empty')->create('failed_jobs', function ($table) {
+            $table->id();
+            $table->text('connection');
+            $table->text('queue');
+            $table->longText('payload');
+            $table->longText('exception');
+            $table->timestamp('failed_at')->useCurrent();
+        });
+        Schema::connection('empty')->create('users', function ($table) {
+            $table->id();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('geo_analyses', function ($table) {
+            $table->id();
+            $table->string('image_hash')->nullable();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('sessions', function ($table) {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
+
+        DB::connection('empty')->table('jobs')->insert([
+            'queue' => 'default',
+            'payload' => '{}',
+            'attempts' => 0,
+            'reserved_at' => null,
+            'available_at' => now()->subMinutes(20)->getTimestamp(),
+            'created_at' => now()->subMinutes(20)->getTimestamp(),
+        ]);
+
+        config([
+            'queue.default' => 'database',
+            'queue.connections.database.connection' => 'empty',
+            'cache.default' => 'database',
+            'cache.stores.database.connection' => 'empty',
+            'session.driver' => 'database',
+            'session.connection' => 'empty',
+            'services.health.admin_token' => 'test-admin-token',
+            'services.gemini.health_probe' => false,
+        ]);
+
+        $public = $this->getJson('/api/health');
+        $public->assertStatus(200)->assertExactJson(['status' => 'operational']);
+
+        $admin = $this->withHeader('X-Admin-Token', 'test-admin-token')->getJson('/api/health');
+        $admin->assertStatus(200)
+            ->assertJsonPath('status', 'operational')
+            ->assertJsonPath('checks.queue.ok', true)
+            ->assertJsonPath('failed_checks', []);
+
+        $this->assertSame(1, $admin->json('checks.queue.backlog'));
+        $this->assertGreaterThanOrEqual(600, $admin->json('checks.queue.oldest_seconds'));
+        $this->assertSame('Queue backlog older than 10 minutes', $admin->json('checks.queue.warning'));
+        $this->assertSame('Queue backlog older than 10 minutes', $admin->json('info.worker.warning'));
+        $this->assertSame(1, $admin->json('info.worker.queue_backlog'));
+    }
 }
