@@ -28,6 +28,7 @@ class AnalysisApiController extends Controller
         }
 
         $payload = $public + [
+            'failed_checks' => $report['failed_checks'],
             'checks' => $report['checks'],
             'info' => $report['info'],
         ];

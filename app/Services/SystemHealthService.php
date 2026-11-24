@@ -25,6 +25,7 @@ class SystemHealthService
      * @return array{
      *     status: string,
      *     checks: array<string, array<string, mixed>>,
+     *     failed_checks: list<string>,
      *     info: array<string, mixed>,
      *     started_at: string
      * }
@@ -32,23 +33,42 @@ class SystemHealthService
     public function readiness(): array
     {
         try {
+            $database = $this->database();
+            $databaseDown = ($database['ok'] ?? false) !== true;
+
             $checks = [
-                'database' => $this->database(),
-                'schema' => $this->schema(),
-                'cache' => $this->cache(),
-                'queue' => $this->queue(),
+                'database' => $database,
+                'schema' => $databaseDown ? ['ok' => null, 'skipped' => 'database_down'] : $this->schema(),
+                'cache' => $databaseDown ? ['ok' => null, 'skipped' => 'database_down'] : $this->cache(),
+                'queue' => $databaseDown ? ['ok' => null, 'skipped' => 'database_down'] : $this->queue(),
             ];
 
-            $pendingMigrations = $this->pendingMigrations();
+            $pendingMigrations = $databaseDown ? -1 : $this->pendingMigrations();
+
+            $failedChecks = [];
+            foreach ($checks as $name => $check) {
+                if (($check['ok'] ?? null) === false) {
+                    $failedChecks[] = $name;
+                }
+            }
+
+            $queueCheck = $checks['queue'];
+            $migrationsPending = $pendingMigrations === -1 ? null : $pendingMigrations > 0;
 
             return [
                 'status' => $this->status($checks),
                 'checks' => $checks,
+                'failed_checks' => $failedChecks,
                 'info' => [
-                    'migrations_pending' => $pendingMigrations > 0,
+                    'migrations_pending' => $migrationsPending,
                     'pending_migrations_count' => $pendingMigrations,
-                    'failed_jobs' => $this->failedJobs(),
+                    'failed_jobs' => $databaseDown ? ['count' => null, 'skipped' => 'database_down'] : $this->failedJobs(),
                     'gemini' => $this->gemini(),
+                    'worker' => [
+                        'queue_backlog' => $queueCheck['backlog'] ?? null,
+                        'queue_oldest_seconds' => $queueCheck['oldest_seconds'] ?? null,
+                        'warning' => $queueCheck['warning'] ?? null,
+                    ],
                 ],
                 'started_at' => (string) config('app.started_at', ''),
             ];
@@ -88,8 +108,73 @@ class SystemHealthService
 
             return ['ok' => true];
         } catch (Throwable $e) {
-            return ['ok' => false, 'error' => 'Database unavailable'];
+            return [
+                'ok' => false,
+                'error' => 'Database unavailable',
+                'reason' => $this->databaseFailureReason($e),
+            ];
         }
+    }
+
+    /**
+     * Map DB failures to safe admin-only categories. Never expose raw message,
+     * host, user, or URL.
+     */
+    private function databaseFailureReason(Throwable $e): string
+    {
+        $sqlState = (string) $e->getCode();
+        $message = strtolower($e->getMessage());
+        $sqlStateFromErrorInfo = '';
+        if ($e instanceof \PDOException && isset($e->errorInfo[0]) && is_string($e->errorInfo[0])) {
+            $sqlStateFromErrorInfo = $e->errorInfo[0];
+        }
+
+        $states = array_filter([$sqlState, $sqlStateFromErrorInfo]);
+
+        foreach ($states as $state) {
+            if ($state === '28000' || $state === '28P01') {
+                return 'auth_failed';
+            }
+            if ($state === '53300') {
+                return 'too_many_connections';
+            }
+            if ($state === '3D000') {
+                return 'database_missing';
+            }
+        }
+
+        if (str_contains($message, 'connection refused') || str_contains($message, 'actively refused')) {
+            return 'connection_refused';
+        }
+        if (str_contains($message, 'timed out') || str_contains($message, 'timeout')) {
+            return 'timeout';
+        }
+        if (str_contains($message, 'password authentication failed')
+            || str_contains($message, 'access denied')
+            || str_contains($message, 'authentication failed')) {
+            return 'auth_failed';
+        }
+        if (str_contains($message, 'ssl')) {
+            return 'ssl_error';
+        }
+        if (str_contains($message, 'could not translate host name')
+            || str_contains($message, 'getaddrinfo')
+            || str_contains($message, 'name or service not known')
+            || str_contains($message, 'unknown host')
+            || str_contains($message, 'no such host')) {
+            return 'dns_error';
+        }
+        if (str_contains($message, 'too many connections')) {
+            return 'too_many_connections';
+        }
+        if (str_contains($message, 'does not exist') && str_contains($message, 'database')) {
+            return 'database_missing';
+        }
+        if (str_contains($message, 'unknown database')) {
+            return 'database_missing';
+        }
+
+        return 'unknown';
     }
 
     /**
@@ -113,7 +198,7 @@ class SystemHealthService
                         return ['ok' => true, 'note' => 'test database not migrated'];
                     }
 
-                    return ['ok' => false, 'error' => 'Required table missing: '.$table];
+                    return ['ok' => false, 'missing_tables' => [$table], 'error' => 'Required table missing: '.$table];
                 }
             }
 
@@ -170,7 +255,7 @@ class SystemHealthService
                             return ['ok' => true, 'note' => 'test database not migrated'];
                         }
 
-                        return ['ok' => false, 'error' => 'Cache table missing'];
+                        return ['ok' => false, 'missing_tables' => [$required], 'error' => 'Cache table missing'];
                     }
                 }
             }
@@ -189,7 +274,10 @@ class SystemHealthService
     }
 
     /**
-     * Database queue requires jobs and failed_jobs tables.
+     * Database queue requires jobs and failed_jobs tables. A missing table or
+     * unavailable queue is a web-readiness failure (the app cannot enqueue).
+     * Backlog age is worker health, reported as a warning in admin info, and
+     * must not 503 the web readiness probe.
      *
      * @return array<string, mixed>
      */
@@ -206,33 +294,39 @@ class SystemHealthService
             $schema = Schema::connection($connection);
             $jobsTable = (string) config('queue.connections.database.table', 'jobs');
             $failedTable = (string) config('queue.failed.table', 'failed_jobs');
+            $missing = [];
 
             foreach ([$jobsTable, $failedTable] as $required) {
                 if (! $schema->hasTable($required)) {
-                    if ($this->isUnmigratedTestDatabase($connection)) {
-                        return ['ok' => true, 'backlog' => null, 'oldest_seconds' => null, 'note' => 'test database not migrated'];
-                    }
-
-                    return [
-                        'ok' => false,
-                        'backlog' => null,
-                        'oldest_seconds' => null,
-                        'error' => 'Queue table missing',
-                    ];
+                    $missing[] = $required;
                 }
+            }
+
+            if ($missing !== []) {
+                if ($this->isUnmigratedTestDatabase($connection)) {
+                    return ['ok' => true, 'backlog' => null, 'oldest_seconds' => null, 'note' => 'test database not migrated'];
+                }
+
+                return [
+                    'ok' => false,
+                    'backlog' => null,
+                    'oldest_seconds' => null,
+                    'missing_tables' => $missing,
+                    'error' => 'Queue table missing',
+                ];
             }
 
             $db = DB::connection($connection);
             $backlog = (int) $db->table($jobsTable)->count();
             $oldest = $db->table($jobsTable)->min('created_at');
             $oldestSeconds = $oldest ? max(0, now()->getTimestamp() - (int) $oldest) : null;
-            $ok = $oldestSeconds === null || $oldestSeconds < 600;
+            $stale = $oldestSeconds !== null && $oldestSeconds >= 600;
 
             return [
-                'ok' => $ok,
+                'ok' => true,
                 'backlog' => $backlog,
                 'oldest_seconds' => $oldestSeconds,
-                'error' => $ok ? null : 'Queue backlog older than 10 minutes',
+                'warning' => $stale ? 'Queue backlog older than 10 minutes' : null,
             ];
         } catch (Throwable $e) {
             return ['ok' => false, 'backlog' => null, 'oldest_seconds' => null, 'error' => 'Queue check failed'];
@@ -307,6 +401,7 @@ class SystemHealthService
      * @return array{
      *     status: string,
      *     checks: array<string, array<string, mixed>>,
+     *     failed_checks: list<string>,
      *     info: array<string, mixed>,
      *     started_at: string
      * }
@@ -321,11 +416,17 @@ class SystemHealthService
                 'cache' => ['ok' => false, 'error' => 'Health check failed'],
                 'queue' => ['ok' => false, 'error' => 'Health check failed'],
             ],
+            'failed_checks' => ['database', 'schema', 'cache', 'queue'],
             'info' => [
                 'migrations_pending' => false,
                 'pending_migrations_count' => -1,
                 'failed_jobs' => ['count' => null],
                 'gemini' => ['ok' => null, 'state' => 'unknown'],
+                'worker' => [
+                    'queue_backlog' => null,
+                    'queue_oldest_seconds' => null,
+                    'warning' => null,
+                ],
             ],
             'started_at' => (string) config('app.started_at', ''),
         ];
