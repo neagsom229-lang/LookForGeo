@@ -80,7 +80,7 @@ jobs:
 
       - name: Notify on failure (dedupe)
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const title = 'Deploy smoke failed for ' + context.sha.substring(0, 7);
