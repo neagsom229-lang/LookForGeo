@@ -49,6 +49,7 @@
     "test:decoy": "php scripts/test-decoy.php",
     "test:all": ["@test", "@test:slow"],
     "pint-changed": "php scripts/pint-changed.php",
+    "quick": "php scripts/quick.php",
     "ci": ["@test:all", "@test:decoy", "@pint-changed", "@analyse"],
     "dev": [
         "Composer\\Config::disableProcessTimeout",

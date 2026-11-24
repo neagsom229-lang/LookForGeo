@@ -26,8 +26,14 @@ class NoEmojiProcessor
 
     private function strip(string $value): string
     {
+        // Normalize invalid UTF-8 so JSON formatting never throws.
+        $normalized = function_exists('mb_scrub') ? mb_scrub($value, 'UTF-8') : $value;
+        $normalized = mb_convert_encoding($normalized, 'UTF-8', 'UTF-8');
+
         // Emoji / pictographs / variation selectors / regional indicators.
-        return (string) preg_replace('/[\x{1F000}-\x{1FAFF}\x{1F1E6}-\x{1F1FF}\x{2600}-\x{27BF}\x{FE0F}]/u', '', $value);
+        $stripped = preg_replace('/[\x{1F000}-\x{1FAFF}\x{1F1E6}-\x{1F1FF}\x{2600}-\x{27BF}\x{FE0F}]/u', '', $normalized);
+
+        return is_string($stripped) ? $stripped : $normalized;
     }
 
     private function stripStrings(array $values): array

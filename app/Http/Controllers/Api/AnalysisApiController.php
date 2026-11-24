@@ -7,7 +7,6 @@ use App\Http\Requests\StoreAnalysisImageRequest;
 use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
 use App\Services\AnalysisCostGuard;
-use App\Services\Gemini\SecretSanitizer;
 use App\Services\SystemHealthService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -16,48 +15,27 @@ class AnalysisApiController extends Controller
 {
     public function health(Request $request, SystemHealthService $health)
     {
-        $report = $health->checks();
+        $report = $health->readiness();
+        $status = $report['status'] === 'operational' ? 'operational' : 'degraded';
 
-        $status = $report['status'] ?? 'operational';
-
-        $payload = [
-            'success' => true,
+        $public = [
             'status' => $status,
-            'version' => '1.0.0',
-            'commit' => substr((string) config('app.deploy_commit'), 0, 7),
-            'started_at' => $report['started_at'],
-            // Public shape: booleans only, no migration counts.
-            'schema_ok' => (bool) $report['schema_ok'],
-            'pending_migrations_present' => (int) $report['pending_migrations'] > 0,
-            'timestamp' => now()->toISOString(),
-            'checks' => $report['checks'],
+            'migrations_pending' => (bool) ($report['info']['migrations_pending'] ?? false),
         ];
-
-        if ($status === 'degraded') {
-            return response()->json($payload, 503);
-        }
-
         $adminToken = trim((string) config('services.health.admin_token', ''));
         $provided = (string) $request->header('X-Admin-Token', '');
-        if ($adminToken !== '' && hash_equals($adminToken, $provided)) {
-            // Include sanitized, truncated error strings for each failed check
-            $payload['diagnostics'] = [];
-            foreach ($report['checks'] as $checkName => $check) {
-                $ok = $check['ok'] ?? true;
-                if (! $ok) {
-                    $error = $check['error'] ?? 'unknown error';
-                    $payload['diagnostics'][$checkName] = [
-                        'error' => SecretSanitizer::redact($error),
-                        'truncated' => strlen($error) > 80 ? substr($error, 0, 77).'...' : $error,
-                    ];
-                }
-            }
-            // Admin-token: expose pending migration count (0 when unknown)
-            $pending = $report['pending_migrations'] ?? 0;
-            $payload['pending_migrations'] = (int) $pending;
+        $isAdmin = $adminToken !== '' && hash_equals($adminToken, $provided);
+
+        if (! $isAdmin) {
+            return response()->json($public, $status === 'operational' ? 200 : 503);
         }
 
-        return response()->json($payload);
+        $payload = $public + [
+            'checks' => $report['checks'],
+            'info' => $report['info'],
+        ];
+
+        return response()->json($payload, $status === 'operational' ? 200 : 503);
     }
 
     public function history(Request $request)

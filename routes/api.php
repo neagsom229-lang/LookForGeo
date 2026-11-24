@@ -8,9 +8,10 @@ use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
 
 // ============================================================
-// PUBLIC HEALTH CHECK (Works without any token!)
+// PUBLIC HEALTH CHECKS
 // ============================================================
 Route::get('/health', [AnalysisApiController::class, 'health']);
+Route::get('/health/live', fn () => response()->json(['status' => 'ok']));
 
 // ============================================================
 // AUTH ROUTES (Public)

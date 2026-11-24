@@ -1,4 +1,4 @@
-# Deploy notes — `fix/local-workflow` pre-deploy gate
+﻿# Deploy notes â€” `fix/local-workflow` pre-deploy gate
 
 Branch: `fix/local-workflow`. Base: `origin/main`. Nothing here has been pushed
 or deployed. This document is the handover for the deploy owner.
@@ -27,7 +27,7 @@ Values below are the non-secret defaults committed in `render.yaml`.
 | `GEMINI_DAILY_LIMIT` | `0` | `0` | default | Global kill switch, 0 = off |
 | `ANALYSIS_REAP_MINUTES` | `10` | `10` | default | Reap-on-read window |
 | `GEMINI_CONFIDENCE_REVERSE_GEOCODE` | `true` | `true` | default | Country-consistency signal |
-| `GEMINI_HEALTH_PROBE` | `true` | `true` | default | 60 s cached reachability check |
+| `GEMINI_HEALTH_PROBE` | `false` | `false` | default | Informational Gemini reachability probe; never gates readiness |
 | `GEMINI_THINKING_LEVEL` | `low` | `low` | default | Lowest sensible Gemini 3.x level |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | `gemini-3.5-flash-lite` | default | Primary; change only after probing |
 | `GEMINI_FALLBACK_MODEL` | `gemini-3.1-flash-lite` | `gemini-3.1-flash-lite` | default | Fallback; configurable via env |
@@ -98,7 +98,7 @@ semantics. `model_used` stays null on failure, and `analyses:stats` excludes
 failures from the per-model latency table (failures get their own count and
 category breakdown).
 
-**Calibration bug (0 % for famous landmarks) — proposal only, weights UNCHANGED:**
+**Calibration bug (0 % for famous landmarks) â€” proposal only, weights UNCHANGED:**
 `ConfidenceCalibrationMatrixTest` prints an inputs-to-score table with realistic
 outputs and no EXIF. Two consistent answers score 0 %: Statue of Liberty when
 reverse geocoding reports the wrong country (-20) on a low-res image (-10), and
@@ -127,7 +127,7 @@ coordinates and candidates; `ResultShapeTest` verifies an end-to-end completed
 analysis stores them.
 
 **Why country_consistency was "unavailable" on real analyses:** the signal is
-computed inside `GeminiResultEnhancer` → `ConfidenceCalculator::checkCountry`.
+computed inside `GeminiResultEnhancer` â†’ `ConfidenceCalculator::checkCountry`.
 It needs **model coordinates and a country name**; with null coordinates (the
 slim-schema analyses) it returns `unavailable` before calling Nominatim. It is
 also `unavailable` when `GEMINI_CONFIDENCE_REVERSE_GEOCODE=false`, or when
@@ -210,9 +210,9 @@ when `APP_ENV=production`. HSTS is emitted by middleware only over HTTPS.
 - The migration is **additive and nullable**. The worker can start against the
   previous schema; it does not read the new column.
 - The web container's `entrypoint.sh` runs `php artisan migrate --force` in a
-  retry loop **before** Apache starts. `healthCheckPath: /api/health` is set on
-  the web service, so Render only marks the deploy live after migrations and
-  HTTP are healthy.
+  retry loop **before** Apache starts. `healthCheckPath: /up` is set on
+  the web service so Render uses DB-free liveness. Readiness is `GET /api/health`
+  (JSON 200/503, public body `{status}`; full diagnostics require `X-Admin-Token`).
 - Order: deploy web first (it migrates), then the worker. If they deploy in
   parallel, the worker is still safe because nothing it reads changed shape.
 - CI proves the upgrade path in the `pgsql-upgrade` job: migrate `origin/main`
@@ -226,8 +226,8 @@ when `APP_ENV=production`. HSTS is emitted by middleware only over HTTPS.
   upload" response is gone. The UI polls `/api/analyze/{id}/status`.
 - **Reap on read**: a `pending`/`processing` row older than
   `ANALYSIS_REAP_MINUTES` (default 10) is failed when its status is read,
-  with the message “This analysis waited too long for a worker and was stopped.
-  Use Retry analysis to try again.” No Render scheduler is required. The
+  with the message â€œThis analysis waited too long for a worker and was stopped.
+  Use Retry analysis to try again.â€ No Render scheduler is required. The
   `analyses:reap-stuck` command remains for manual/bulk use.
 - **Cost guard**: 50 analyses per user per day (configurable) plus a 10/min
   per-user burst throttle on the upload route. Identical repeat uploads by the
@@ -244,7 +244,7 @@ when `APP_ENV=production`. HSTS is emitted by middleware only over HTTPS.
   `GEMINI_CIRCUIT_FAILURES` / `GEMINI_CIRCUIT_OPEN_SECONDS`.
 - **Confidence**: the model's self-reported number is never used as the score.
   Calibrated confidence from checkable signals is **capped at 95**, below 50 is
-  “low confidence”, and up to three alternatives are shown.
+  â€œlow confidenceâ€, and up to three alternatives are shown.
 - **Removed routes**: `/api/identify-gps`, `/api/extract-exif`, `/api/nearby`
   had no controller methods and returned 500 for authenticated callers; they
   now return 404.
@@ -253,11 +253,24 @@ when `APP_ENV=production`. HSTS is emitted by middleware only over HTTPS.
 - **Logs**: production emits JSON on stderr with a request id, no emoji and
   secrets redacted. HSTS + Secure cookies in production.
 
-## 4. Live gate (run by the deploy owner)
+## 4. Uptime monitor
+
+Add an external uptime monitor (Render, UptimeRobot, Better Stack, etc.) on:
+
+- URL: `https://lookforgeo.onrender.com/api/health/live`
+- Method: `GET`
+- Expected: HTTP `200`
+- Interval: 1-5 minutes
+
+This endpoint is liveness-only (no DB/cache/queue). Keep readiness smoke checks on
+`GET /api/health`, which returns JSON `200` with `{"status":"operational"}` or JSON `503`
+with `{"status":"degraded"}`.
+
+## 5. Live gate (run by the deploy owner)
 
 Do not run this from a developer machine against production data. Place the
 real key in the application's `.env` once (it is already there on the deploy
-host) — **do not type it into the shell**. Artisan reads `.env` itself. Then
+host) â€” **do not type it into the shell**. Artisan reads `.env` itself. Then
 run:
 
 ```powershell
@@ -276,7 +289,7 @@ Pass criteria:
 Optional deeper checks: `composer eval:live -- --limit=10` and
 `scripts/measure-latency.ps1 -Live -Iterations 10`.
 
-## 5. Rebase plan after the hotfix merges
+## 6. Rebase plan after the hotfix merges
 
 1. `hotfix/auth-gates` contains the minimal Phase A security fix based on
    `origin/main`. Let the owner merge it to `main` first.
@@ -285,7 +298,7 @@ Optional deeper checks: `composer eval:live -- --limit=10` and
 3. Expect conflicts in `routes/api.php`, `routes/web.php`,
    `app/Http/Controllers/AnalysisController.php`, `bootstrap/app.php`,
    `.gitleaks.toml`, `phpunit.xml`, `.github/workflows/tests.yml` and
-   `scripts/probe-prod.ps1` — the hotfix has narrower variants of the same
+   `scripts/probe-prod.ps1` â€” the hotfix has narrower variants of the same
    changes.
 4. Resolution rule: keep the hotfix's security intent (auth on `/identify` and
    `/search`, 401 JSON without `Accept`, no `/api/test-apis`, ownership checks,
@@ -296,11 +309,11 @@ Optional deeper checks: `composer eval:live -- --limit=10` and
    `scripts/Lint.ps1`, `gitleaks detect`, `scripts/smoke.ps1`, `composer eval`.
 6. Never push directly to `main`.
 
-## 6. Rollback
+## 7. Rollback
 
-1. Render dashboard → the affected service → **Rollback to previous deploy**
+1. Render dashboard â†’ the affected service â†’ **Rollback to previous deploy**
    (web and worker separately; roll back web first if both are unhealthy).
-2. Keep rotated secrets — do **not** restore a leaked key.
+2. Keep rotated secrets â€” do **not** restore a leaked key.
 3. The `image_hash` column is additive and nullable: rolling back code to the
    previous deploy does not require dropping it. If a full schema rollback is
    required later, drop the index and column manually.
@@ -311,3 +324,4 @@ Optional deeper checks: `composer eval:live -- --limit=10` and
    caused the rollback, set `GEMINI_DAILY_LIMIT=0` before redeploying.
 6. Open an issue with the failed deploy URL, the probe output (redacted) and
    the first relevant log line (request id, no secrets).
+
