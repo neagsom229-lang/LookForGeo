@@ -368,19 +368,34 @@ class SystemHealthService
     }
 
     /**
-     * Informational only and disabled by default. The array store keeps this
-     * probe working even when the database cache is the thing that is down.
+     * Informational only. Never gates readiness and never exposes API keys.
      *
      * @return array<string, mixed>
      */
     private function gemini(): array
     {
+        $lastObserved = Cache::get('gemini:last_observed_status');
+        $base = [
+            'configured_models' => array_values(array_filter([
+                (string) config('services.gemini.model'),
+                (string) config('services.gemini.fallback_model'),
+                (string) config('services.gemini.escalation_model'),
+            ], fn ($m) => trim((string) $m) !== '')),
+            'last_observed_status' => is_array($lastObserved) ? [
+                'category' => $lastObserved['category'] ?? null,
+                'http_status' => $lastObserved['http_status'] ?? null,
+                'google_status' => $lastObserved['google_status'] ?? null,
+                'model' => $lastObserved['model'] ?? null,
+                'at' => $lastObserved['at'] ?? null,
+            ] : null,
+        ];
+
         if (! (bool) config('services.gemini.health_probe', false)) {
-            return ['ok' => null, 'state' => 'disabled'];
+            return array_merge($base, ['ok' => null, 'state' => 'disabled']);
         }
 
         try {
-            return (array) Cache::store('array')->remember('health:gemini-reachability', 60, function () {
+            $probe = (array) Cache::store('array')->remember('health:gemini-reachability', 60, function () {
                 $url = rtrim((string) config('services.gemini.base_url'), '/').'/models';
 
                 try {
@@ -392,8 +407,10 @@ class SystemHealthService
                     return ['ok' => false, 'error' => 'Gemini endpoint unreachable'];
                 }
             });
+
+            return array_merge($base, $probe);
         } catch (Throwable $e) {
-            return ['ok' => false, 'error' => 'Gemini health check failed'];
+            return array_merge($base, ['ok' => false, 'error' => 'Gemini health check failed']);
         }
     }
 
@@ -421,7 +438,16 @@ class SystemHealthService
                 'migrations_pending' => false,
                 'pending_migrations_count' => -1,
                 'failed_jobs' => ['count' => null],
-                'gemini' => ['ok' => null, 'state' => 'unknown'],
+                'gemini' => [
+                    'configured_models' => array_values(array_filter([
+                        (string) config('services.gemini.model'),
+                        (string) config('services.gemini.fallback_model'),
+                        (string) config('services.gemini.escalation_model'),
+                    ], fn ($m) => trim((string) $m) !== '')),
+                    'last_observed_status' => null,
+                    'ok' => null,
+                    'state' => 'unknown',
+                ],
                 'worker' => [
                     'queue_backlog' => null,
                     'queue_oldest_seconds' => null,
