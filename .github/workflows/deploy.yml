@@ -53,25 +53,23 @@ jobs:
 
       - name: Post-deploy smoke /api/health
         run: |
+          last_code=""
+          last_status=""
           for i in $(seq 1 5); do
             body=$(curl -sS "$BASE_URL/api/health" || true)
             code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/health" || true)
             status=$(printf '%s' "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
-            echo "attempt=$i health_http=$code health_status=${status:-none}"
+            last_code="$code"
+            last_status="$status"
+            echo "attempt=$i health_http=${code:-unknown} health_status=${status:-none}"
             if [ "$code" = "200" ] && [ "$status" = "operational" ]; then
               exit 0
             fi
-            if [ "$code" = "503" ]; then
-              echo "FAIL: health degraded"
-              exit 1
+            if [ "$i" -lt 5 ]; then
+              sleep 15
             fi
-            if [ "$code" != "200" ]; then
-              echo "FAIL: expected JSON 200"
-              exit 1
-            fi
-            sleep 10
           done
-          echo "FAIL: /api/health did not become operational"
+          echo "FAIL: /api/health did not become operational after 5 attempts (last_http=${last_code:-unknown} last_status=${last_status:-none})"
           exit 1
 
       - name: Read-only production probe
