@@ -222,6 +222,10 @@ try {
                     if ($null -ne $check -and ($check.PSObject.Properties.Name -contains 'ok')) { Add-Pass ("GET /api/health (admin) checks.$c.ok present") }
                     else { Add-Fail ("GET /api/health (admin) checks.$c.ok missing") }
                 }
+                $dbCheck = $adminJson.checks.PSObject.Properties['database'].Value
+                if ($null -ne $dbCheck -and ($dbCheck.PSObject.Properties.Name -contains 'reason')) {
+                    Add-Pass ("GET /api/health (admin) checks.database.reason=" + [string]$dbCheck.reason)
+                }
             }
         }
         Test-CommonBody '/api/health (admin)' $adminHealth.Body

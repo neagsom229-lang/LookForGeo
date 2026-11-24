@@ -752,4 +752,37 @@ class HealthCheckTest extends TestCase
             ->assertJsonPath('checks.queue.skipped', 'database_down')
             ->assertJsonPath('info.failed_jobs.skipped', 'database_down');
     }
+
+    #[DataProvider('realPostgresFailureCategories')]
+    public function test_database_failure_reason_maps_real_postgres_messages(string $sqlState, int $driverCode, string $message, string $expected): void
+    {
+        $e = new \PDOException($message, $driverCode);
+        $e->errorInfo = [$sqlState, $driverCode, $message];
+
+        DB::partialMock()->shouldReceive('connection')->andThrow($e);
+        config(['services.health.admin_token' => 'test-admin-token', 'services.gemini.health_probe' => false]);
+
+        $admin = $this->withHeader('X-Admin-Token', 'test-admin-token')->getJson('/api/health');
+        $admin->assertStatus(503)
+            ->assertJsonPath('checks.database.reason', $expected);
+
+        $raw = json_encode($admin->json());
+        $this->assertIsString($raw);
+        $this->assertStringNotContainsString('secret-host', $raw);
+        $this->assertStringNotContainsString('secret_user', $raw);
+    }
+
+    public static function realPostgresFailureCategories(): array
+    {
+        return [
+            'host_not_found' => ['08006', 7, 'SQLSTATE[08006] [7] could not translate host name "secret-host" to address: Name or service not known', 'dns_error'],
+            'connection_refused' => ['08006', 7, 'SQLSTATE[08006] [7] connection to server at "secret-host", port 5432 failed: Connection refused', 'connection_refused'],
+            'timeout_expired' => ['08006', 7, 'SQLSTATE[08006] [7] connection to server at "secret-host", port 5432 failed: timeout expired', 'timeout'],
+            'password_auth_failed' => ['08006', 7, 'SQLSTATE[08006] [7] FATAL:  password authentication failed for user "secret_user"', 'auth_failed'],
+            'ssl_required' => ['08006', 7, 'SQLSTATE[08006] [7] FATAL:  SSL/TLS required', 'ssl_error'],
+            'ssl_error' => ['08006', 7, 'SQLSTATE[08006] [7] SSL error: certificate verify failed', 'ssl_error'],
+            'remaining_connection_slots' => ['53300', 7, 'SQLSTATE[53300] [7] FATAL:  remaining connection slots are reserved for non-replication superuser connections', 'too_many_connections'],
+            'database_does_not_exist' => ['3D000', 7, 'SQLSTATE[3D000] [7] FATAL:  database "secret_db" does not exist', 'database_missing'],
+        ];
+    }
 }
