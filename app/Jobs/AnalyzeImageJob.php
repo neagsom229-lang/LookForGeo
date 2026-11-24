@@ -76,11 +76,19 @@ class AnalyzeImageJob implements ShouldQueue
 
     private function transientReleaseDelay(): int
     {
-        $delays = (array) config('services.analysis.transient_release_delays', [30, 90, 180]);
-        $delays = array_values(array_map('intval', $delays ?: [30, 90, 180]));
+        $delays = array_values(array_map('intval', (array) config('services.analysis.transient_release_delays', [30, 90, 180])));
+        if ($delays === []) {
+            $delays = [30, 90, 180];
+        }
         $index = max(0, $this->attempts() - 1);
 
-        return (int) ($delays[$index] ?? end($delays) ?: 180);
+        // Note: a delay of 0 is valid (tests use it), so never coalesce on
+        // falsiness here -- `??` then `?:` would turn 0 into the fallback.
+        if (array_key_exists($index, $delays)) {
+            return max(0, $delays[$index]);
+        }
+
+        return max(0, (int) end($delays));
     }
 
     private function isTransientCategory(?string $category): bool
