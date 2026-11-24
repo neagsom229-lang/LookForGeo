@@ -349,6 +349,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     let analysisComplete = false;
     let isExploring = false;
     let lastProgress = 0;
+    let lastProgressTime = Date.now();
 
     // ========== HELPERS ==========
     function isValidCoord(lat, lng) {
@@ -1079,9 +1080,13 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             3: 'Running Bayesian evidence fusion…',
             4: 'Pinpointing location…',
         };
+        const p = Math.min(progress || 0, 100);
         if (DOM.pcHeadline) DOM.pcHeadline.textContent = label || labels[stage] || 'Analyzing…';
-        if (DOM.pcFill) DOM.pcFill.style.width = Math.min(progress || 0, 100) + '%';
-        lastProgress = progress || 0;
+        if (DOM.pcFill) DOM.pcFill.style.width = p + '%';
+        if (p > lastProgress) {
+            lastProgressTime = Date.now();
+        }
+        lastProgress = p;
         renderSub(lastProgress);
         document.querySelectorAll('.pc-steps .pcs').forEach(el => {
             const idx = parseInt(el.dataset.step, 10);
@@ -1151,6 +1156,16 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 const stage = data.stage || 0;
 
                 updateProgressCard(stage, progress, data.stage_label);
+
+                if (data.status === 'delayed') {
+                    showError(data.message || 'Analysis is taking longer than expected. Please retry.', currentAnalysisId);
+                    return;
+                }
+
+                if (Date.now() - lastProgressTime > 120000) {
+                    showError('Analysis is taking longer than expected. Use Retry analysis below.', currentAnalysisId);
+                    return;
+                }
 
                 if (progress > 8 && !isExploring && !analysisComplete) {
                     isExploring = true;
@@ -1810,6 +1825,8 @@ TraceGeo OSINT Intelligence`;
         if (imageUrl) sessionStorage.setItem('uploadedImage', imageUrl);
         pollAttempts = 0;
         startTime = Date.now();
+        lastProgress = 0;
+        lastProgressTime = Date.now();
         analysisComplete = false;
         isExploring = false;
 
