@@ -33,33 +33,46 @@ jobs:
         if: env.RENDER_DEPLOY_HOOK_URL == ''
         run: echo "RENDER_DEPLOY_HOOK_URL not set - skipping deploy hook; smoke still runs."
 
-      - name: Wait for liveness
+      - name: Wait for deployed commit
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
+          expected="${EXPECTED_SHA:0:7}"
           for i in $(seq 1 60); do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/up" || true)
-            echo "attempt=$i liveness_http=$code"
-            if [ "$code" = "200" ]; then
+            headers=$(curl -sS -D - -o /dev/null "$BASE_URL/up" || true)
+            code=$(printf '%s' "$headers" | awk 'toupper($1) ~ /^HTTP\// {print $2; exit}')
+            commit=$(printf '%s' "$headers" | awk -F': ' 'tolower($1)=="x-app-commit" {gsub("\r","",$2); print $2; exit}')
+            echo "attempt=$i up_http=${code:-unknown} commit=${commit:-none} expected=$expected"
+            if [ "$code" = "200" ] && [ "$commit" = "$expected" ]; then
               exit 0
             fi
             sleep 10
           done
-          echo "TIMEOUT: /up never returned 200"
+          echo "TIMEOUT: deployed commit never matched $expected within 10 minutes"
           exit 1
 
       - name: Post-deploy smoke /api/health
         run: |
-          body=$(curl -sS "$BASE_URL/api/health" || true)
-          code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/health" || true)
-          status=$(printf '%s' "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
-          echo "health_http=$code health_status=$status"
-          if [ "$code" != "200" ] && [ "$code" != "503" ]; then
-            echo "FAIL: expected JSON 200 or 503"
-            exit 1
-          fi
-          if [ "$status" != "operational" ] && [ "$status" != "degraded" ]; then
-            echo "FAIL: expected status operational or degraded"
-            exit 1
-          fi
+          for i in $(seq 1 5); do
+            body=$(curl -sS "$BASE_URL/api/health" || true)
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/health" || true)
+            status=$(printf '%s' "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+            echo "attempt=$i health_http=$code health_status=${status:-none}"
+            if [ "$code" = "200" ] && [ "$status" = "operational" ]; then
+              exit 0
+            fi
+            if [ "$code" = "503" ]; then
+              echo "FAIL: health degraded"
+              exit 1
+            fi
+            if [ "$code" != "200" ]; then
+              echo "FAIL: expected JSON 200"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "FAIL: /api/health did not become operational"
+          exit 1
 
       - name: Read-only production probe
         shell: pwsh

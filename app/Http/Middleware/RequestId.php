@@ -25,6 +25,12 @@ class RequestId
 
         $response = $next($request);
         $response->headers->set('X-Request-ID', $id);
+        if ($request->is('up')) {
+            $commit = substr((string) config('app.deploy_commit', ''), 0, 7);
+            if ($commit !== '') {
+                $response->headers->set('X-App-Commit', $commit);
+            }
+        }
 
         return $response;
     }

@@ -49,22 +49,6 @@ return Application::configure(basePath: dirname(__DIR__))
                 || ($e instanceof HttpException
                     && $e->getStatusCode() === 419);
             if ($isCsrf && ($request->expectsJson() || $request->is('api/*'))) {
-                // 419 root cause: collect session cookie/decryption/storage/token info
-                // (no values logged — presence/absence only, to avoid leaking data)
-                $sessionCookieArrived = $request->cookies->has('tracegeo_session');
-                $cookieDecrypted = $sessionCookieArrived && ! hash_hmac('sha256', $request->cookie('tracegeo_session'), env('APP_KEY')) ? false : true;
-                $sessionExistsInStorage = true; // would check DB session store in production
-                $tokenHeaderPresent = $request->header('X-CSRF-TOKEN') !== null;
-
-                // Log only presence/absence (no values)
-                Log::warning('419 root cause', [
-                    'session_cookie_arrived' => $sessionCookieArrived,
-                    'cookie_decrypted' => $cookieDecrypted,
-                    'session_exists_in_storage' => $sessionExistsInStorage,
-                    'token_header_present' => $tokenHeaderPresent,
-                    'path' => $request->getPathInfo(),
-                ]);
-
                 return response()->json([
                     'success' => false,
                     'code' => 'SESSION_EXPIRED',

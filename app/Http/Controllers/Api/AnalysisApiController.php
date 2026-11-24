@@ -18,10 +18,7 @@ class AnalysisApiController extends Controller
         $report = $health->readiness();
         $status = $report['status'] === 'operational' ? 'operational' : 'degraded';
 
-        $public = [
-            'status' => $status,
-            'migrations_pending' => (bool) ($report['info']['migrations_pending'] ?? false),
-        ];
+        $public = ['status' => $status];
         $adminToken = trim((string) config('services.health.admin_token', ''));
         $provided = (string) $request->header('X-Admin-Token', '');
         $isAdmin = $adminToken !== '' && hash_equals($adminToken, $provided);

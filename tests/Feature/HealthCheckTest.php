@@ -18,10 +18,7 @@ class HealthCheckTest extends TestCase
             mkdir($dir, 0777, true);
         }
 
-        $path = $dir.'/health-empty.sqlite';
-        if (file_exists($path)) {
-            @unlink($path);
-        }
+        $path = $dir.'/health-empty-'.bin2hex(random_bytes(4)).'.sqlite';
         touch($path);
 
         return $path;
@@ -46,7 +43,7 @@ class HealthCheckTest extends TestCase
 
         $this->getJson('/api/health')
             ->assertOk()
-            ->assertExactJson(['status' => 'operational', 'migrations_pending' => false]);
+            ->assertExactJson(['status' => 'operational']);
     }
 
     public function test_admin_health_requires_valid_token(): void
@@ -58,7 +55,7 @@ class HealthCheckTest extends TestCase
 
         $this->getJson('/api/health', ['X-Admin-Token' => 'wrong'])
             ->assertOk()
-            ->assertExactJson(['status' => 'operational', 'migrations_pending' => false]);
+            ->assertExactJson(['status' => 'operational']);
 
         $this->getJson('/api/health', ['X-Admin-Token' => 'admin-secret'])
             ->assertOk()
@@ -160,7 +157,7 @@ class HealthCheckTest extends TestCase
         $response = $this->getJson('/api/health');
 
         $response->assertStatus(503)
-            ->assertExactJson(['status' => 'degraded', 'migrations_pending' => false]);
+            ->assertExactJson(['status' => 'degraded']);
     }
 
     public function test_health_returns_503_when_jobs_table_missing(): void
@@ -208,7 +205,7 @@ class HealthCheckTest extends TestCase
         $response = $this->getJson('/api/health');
 
         $response->assertStatus(503)
-            ->assertExactJson(['status' => 'degraded', 'migrations_pending' => false]);
+            ->assertExactJson(['status' => 'degraded']);
     }
 
     public function test_health_returns_503_when_cache_table_missing(): void
@@ -255,6 +252,231 @@ class HealthCheckTest extends TestCase
         $response = $this->getJson('/api/health');
 
         $response->assertStatus(503)
-            ->assertExactJson(['status' => 'degraded', 'migrations_pending' => false]);
+            ->assertExactJson(['status' => 'degraded']);
+    }
+
+    public function test_health_returns_503_when_sessions_table_missing(): void
+    {
+        $this->configureEmptySqlite();
+        Schema::connection('empty')->create('cache', function ($table) {
+            $table->string('key')->primary();
+            $table->mediumText('value');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('cache_locks', function ($table) {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('jobs', function ($table) {
+            $table->bigIncrements('id');
+            $table->string('queue')->index();
+            $table->longText('payload');
+            $table->unsignedTinyInteger('attempts');
+            $table->unsignedInteger('reserved_at')->nullable();
+            $table->unsignedInteger('available_at');
+            $table->unsignedInteger('created_at');
+        });
+        Schema::connection('empty')->create('failed_jobs', function ($table) {
+            $table->id();
+            $table->text('connection');
+            $table->text('queue');
+            $table->longText('payload');
+            $table->longText('exception');
+            $table->timestamp('failed_at')->useCurrent();
+        });
+        Schema::connection('empty')->create('users', function ($table) {
+            $table->id();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('geo_analyses', function ($table) {
+            $table->id();
+            $table->string('image_hash')->nullable();
+            $table->timestamps();
+        });
+        config(['queue.default' => 'database', 'queue.connections.database.connection' => 'empty', 'cache.default' => 'database', 'cache.stores.database.connection' => 'empty', 'session.driver' => 'database', 'session.connection' => 'empty', 'services.gemini.health_probe' => false]);
+        $this->getJson('/api/health')->assertStatus(503)->assertExactJson(['status' => 'degraded']);
+    }
+
+    public function test_health_returns_503_when_cache_locks_table_missing(): void
+    {
+        $this->configureEmptySqlite();
+        Schema::connection('empty')->create('cache', function ($table) {
+            $table->string('key')->primary();
+            $table->mediumText('value');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('jobs', function ($table) {
+            $table->bigIncrements('id');
+            $table->string('queue')->index();
+            $table->longText('payload');
+            $table->unsignedTinyInteger('attempts');
+            $table->unsignedInteger('reserved_at')->nullable();
+            $table->unsignedInteger('available_at');
+            $table->unsignedInteger('created_at');
+        });
+        Schema::connection('empty')->create('failed_jobs', function ($table) {
+            $table->id();
+            $table->text('connection');
+            $table->text('queue');
+            $table->longText('payload');
+            $table->longText('exception');
+            $table->timestamp('failed_at')->useCurrent();
+        });
+        Schema::connection('empty')->create('users', function ($table) {
+            $table->id();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('geo_analyses', function ($table) {
+            $table->id();
+            $table->string('image_hash')->nullable();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('sessions', function ($table) {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
+        config(['queue.default' => 'database', 'queue.connections.database.connection' => 'empty', 'cache.default' => 'database', 'cache.stores.database.connection' => 'empty', 'session.driver' => 'database', 'session.connection' => 'empty', 'services.gemini.health_probe' => false]);
+        $this->getJson('/api/health')->assertStatus(503)->assertExactJson(['status' => 'degraded']);
+    }
+
+    public function test_health_returns_503_when_failed_jobs_table_missing(): void
+    {
+        $this->configureEmptySqlite();
+        Schema::connection('empty')->create('cache', function ($table) {
+            $table->string('key')->primary();
+            $table->mediumText('value');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('cache_locks', function ($table) {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('jobs', function ($table) {
+            $table->bigIncrements('id');
+            $table->string('queue')->index();
+            $table->longText('payload');
+            $table->unsignedTinyInteger('attempts');
+            $table->unsignedInteger('reserved_at')->nullable();
+            $table->unsignedInteger('available_at');
+            $table->unsignedInteger('created_at');
+        });
+        Schema::connection('empty')->create('users', function ($table) {
+            $table->id();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('geo_analyses', function ($table) {
+            $table->id();
+            $table->string('image_hash')->nullable();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('sessions', function ($table) {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
+        config(['queue.default' => 'database', 'queue.connections.database.connection' => 'empty', 'cache.default' => 'database', 'cache.stores.database.connection' => 'empty', 'session.driver' => 'database', 'session.connection' => 'empty', 'services.gemini.health_probe' => false]);
+        $this->getJson('/api/health')->assertStatus(503)->assertExactJson(['status' => 'degraded']);
+    }
+
+    public function test_health_returns_503_when_users_table_missing(): void
+    {
+        $this->configureEmptySqlite();
+        Schema::connection('empty')->create('cache', function ($table) {
+            $table->string('key')->primary();
+            $table->mediumText('value');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('cache_locks', function ($table) {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('jobs', function ($table) {
+            $table->bigIncrements('id');
+            $table->string('queue')->index();
+            $table->longText('payload');
+            $table->unsignedTinyInteger('attempts');
+            $table->unsignedInteger('reserved_at')->nullable();
+            $table->unsignedInteger('available_at');
+            $table->unsignedInteger('created_at');
+        });
+        Schema::connection('empty')->create('failed_jobs', function ($table) {
+            $table->id();
+            $table->text('connection');
+            $table->text('queue');
+            $table->longText('payload');
+            $table->longText('exception');
+            $table->timestamp('failed_at')->useCurrent();
+        });
+        Schema::connection('empty')->create('geo_analyses', function ($table) {
+            $table->id();
+            $table->string('image_hash')->nullable();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('sessions', function ($table) {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
+        config(['queue.default' => 'database', 'queue.connections.database.connection' => 'empty', 'cache.default' => 'database', 'cache.stores.database.connection' => 'empty', 'session.driver' => 'database', 'session.connection' => 'empty', 'services.gemini.health_probe' => false]);
+        $this->getJson('/api/health')->assertStatus(503)->assertExactJson(['status' => 'degraded']);
+    }
+
+    public function test_health_returns_503_when_geo_analyses_table_missing(): void
+    {
+        $this->configureEmptySqlite();
+        Schema::connection('empty')->create('cache', function ($table) {
+            $table->string('key')->primary();
+            $table->mediumText('value');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('cache_locks', function ($table) {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->integer('expiration');
+        });
+        Schema::connection('empty')->create('jobs', function ($table) {
+            $table->bigIncrements('id');
+            $table->string('queue')->index();
+            $table->longText('payload');
+            $table->unsignedTinyInteger('attempts');
+            $table->unsignedInteger('reserved_at')->nullable();
+            $table->unsignedInteger('available_at');
+            $table->unsignedInteger('created_at');
+        });
+        Schema::connection('empty')->create('failed_jobs', function ($table) {
+            $table->id();
+            $table->text('connection');
+            $table->text('queue');
+            $table->longText('payload');
+            $table->longText('exception');
+            $table->timestamp('failed_at')->useCurrent();
+        });
+        Schema::connection('empty')->create('users', function ($table) {
+            $table->id();
+            $table->timestamps();
+        });
+        Schema::connection('empty')->create('sessions', function ($table) {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
+        config(['queue.default' => 'database', 'queue.connections.database.connection' => 'empty', 'cache.default' => 'database', 'cache.stores.database.connection' => 'empty', 'session.driver' => 'database', 'session.connection' => 'empty', 'services.gemini.health_probe' => false]);
+        $this->getJson('/api/health')->assertStatus(503)->assertExactJson(['status' => 'degraded']);
     }
 }

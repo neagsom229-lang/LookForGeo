@@ -131,30 +131,52 @@ class SystemHealthService
         }
     }
 
-    private function isUnmigratedTestDatabase(): bool
+    private function isUnmigratedTestDatabase(?string $connection = null): bool
     {
         if (! app()->runningUnitTests()) {
             return false;
         }
 
-        return config('database.default') === 'sqlite'
-            && config('database.connections.sqlite.database') === ':memory:'
-            && ! Schema::hasTable('migrations');
+        $connection ??= (string) config('database.default');
+        $config = (array) config("database.connections.{$connection}", []);
+
+        return ($config['driver'] ?? '') === 'sqlite'
+            && ($config['database'] ?? null) === ':memory:'
+            && ! Schema::connection($connection)->hasTable('migrations');
     }
 
     /**
      * The cache is load-bearing: rate limits, circuit breakers and repeat
-     * uploads all use it. A database cache with no `cache` table must be a
-     * 503, not an exception.
+     * uploads all use it. Database cache requires cache and cache_locks tables.
      *
      * @return array<string, mixed>
      */
     private function cache(): array
     {
         try {
-            $store = Cache::store((string) config('cache.default'));
-            $key = 'health:cache-probe';
+            $default = (string) config('cache.default');
+            $storeConfig = (array) config("cache.stores.{$default}", []);
+            $driver = (string) ($storeConfig['driver'] ?? $default);
 
+            if ($driver === 'database') {
+                $connection = $storeConfig['connection'] ?? null;
+                $schema = Schema::connection($connection);
+                $table = (string) ($storeConfig['table'] ?? 'cache');
+                $lockTable = (string) ($storeConfig['lock_table'] ?? 'cache_locks');
+
+                foreach ([$table, $lockTable] as $required) {
+                    if (! $schema->hasTable($required)) {
+                        if ($this->isUnmigratedTestDatabase($connection)) {
+                            return ['ok' => true, 'note' => 'test database not migrated'];
+                        }
+
+                        return ['ok' => false, 'error' => 'Cache table missing'];
+                    }
+                }
+            }
+
+            $store = Cache::store($default);
+            $key = 'health:cache-probe';
             $store->put($key, 'ok', 5);
             $ok = $store->get($key) === 'ok';
 
@@ -167,35 +189,42 @@ class SystemHealthService
     }
 
     /**
-     * The database queue needs its jobs table. A missing jobs table means
-     * uploads are accepted but never analysed.
+     * Database queue requires jobs and failed_jobs tables.
      *
      * @return array<string, mixed>
      */
     private function queue(): array
     {
-        $connection = (string) config('queue.default');
+        $default = (string) config('queue.default');
 
-        if ($connection !== 'database') {
-            // sync / redis / sqs do not need the jobs table; nothing to probe
-            // here without creating side effects.
-            return ['ok' => true, 'backlog' => null, 'oldest_seconds' => null, 'state' => $connection];
+        if ($default !== 'database') {
+            return ['ok' => true, 'backlog' => null, 'oldest_seconds' => null, 'state' => $default];
         }
 
         try {
-            $table = (string) config('queue.connections.database.table', 'jobs');
+            $connection = config('queue.connections.database.connection');
+            $schema = Schema::connection($connection);
+            $jobsTable = (string) config('queue.connections.database.table', 'jobs');
+            $failedTable = (string) config('queue.failed.table', 'failed_jobs');
 
-            if (! Schema::hasTable($table)) {
-                return [
-                    'ok' => false,
-                    'backlog' => null,
-                    'oldest_seconds' => null,
-                    'error' => 'Queue table missing: '.$table,
-                ];
+            foreach ([$jobsTable, $failedTable] as $required) {
+                if (! $schema->hasTable($required)) {
+                    if ($this->isUnmigratedTestDatabase($connection)) {
+                        return ['ok' => true, 'backlog' => null, 'oldest_seconds' => null, 'note' => 'test database not migrated'];
+                    }
+
+                    return [
+                        'ok' => false,
+                        'backlog' => null,
+                        'oldest_seconds' => null,
+                        'error' => 'Queue table missing',
+                    ];
+                }
             }
 
-            $backlog = (int) DB::table($table)->count();
-            $oldest = DB::table($table)->min('created_at');
+            $db = DB::connection($connection);
+            $backlog = (int) $db->table($jobsTable)->count();
+            $oldest = $db->table($jobsTable)->min('created_at');
             $oldestSeconds = $oldest ? max(0, now()->getTimestamp() - (int) $oldest) : null;
             $ok = $oldestSeconds === null || $oldestSeconds < 600;
 
