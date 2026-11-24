@@ -321,7 +321,7 @@ class AnalysisController extends Controller
                     && (int) ($analysis->stage ?? 0) === 0
                     && (int) ($analysis->progress ?? 0) <= 10);
 
-            if ($looksQueued && $queuedSince) {
+            if (! $reaped && $looksQueued && $queuedSince) {
                 // Carbon 3 diffInSeconds() is signed (negative for past dates).
                 $queuedSeconds = (int) abs(now()->diffInSeconds($queuedSince));
                 if ($queuedSeconds >= 20) {
@@ -330,6 +330,11 @@ class AnalysisController extends Controller
                     if (app()->environment(['local', 'testing'])) {
                         $response['hint'] = 'queue worker not running? run composer dev';
                     }
+                }
+                if ($queuedSeconds > 180) {
+                    $response['status'] = 'delayed';
+                    $response['delayed'] = true;
+                    $response['message'] = 'Analysis is taking longer than expected. Please retry in a moment.';
                 }
             }
 

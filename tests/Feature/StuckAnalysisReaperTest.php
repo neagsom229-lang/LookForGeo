@@ -99,4 +99,25 @@ class StuckAnalysisReaperTest extends TestCase
         $this->assertSame('pending', $stuck->fresh()->status);
         Queue::assertPushed(AnalyzeImageJob::class);
     }
+
+    public function test_status_returns_delayed_when_pending_more_than_three_minutes(): void
+    {
+        $user = User::factory()->create();
+        $analysis = $this->analysisFor($user, [
+            'status' => 'pending',
+            'stage' => 0,
+            'stage_label' => 'Uploaded',
+            'progress' => 10,
+            'started_at' => now()->subMinutes(4),
+            'created_at' => now()->subMinutes(4),
+        ]);
+
+        $this->actingAs($user, 'web')
+            ->getJson("/api/analyze/{$analysis->id}/status")
+            ->assertOk()
+            ->assertJsonPath('status', 'delayed')
+            ->assertJsonPath('delayed', true);
+
+        $this->assertSame('pending', $analysis->fresh()->status);
+    }
 }
