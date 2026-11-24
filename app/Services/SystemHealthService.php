@@ -25,6 +25,7 @@ class SystemHealthService
      * @return array{
      *     status: string,
      *     checks: array<string, array<string, mixed>>,
+     *     failed_checks: list<string>,
      *     info: array<string, mixed>,
      *     started_at: string
      * }
@@ -32,32 +33,36 @@ class SystemHealthService
     public function readiness(): array
     {
         try {
+            $database = $this->database();
+            $databaseDown = ($database['ok'] ?? false) !== true;
+
             $checks = [
-                'database' => $this->database(),
-                'schema' => $this->schema(),
-                'cache' => $this->cache(),
-                'queue' => $this->queue(),
+                'database' => $database,
+                'schema' => $databaseDown ? ['ok' => null, 'skipped' => 'database_down'] : $this->schema(),
+                'cache' => $databaseDown ? ['ok' => null, 'skipped' => 'database_down'] : $this->cache(),
+                'queue' => $databaseDown ? ['ok' => null, 'skipped' => 'database_down'] : $this->queue(),
             ];
 
-            $pendingMigrations = $this->pendingMigrations();
+            $pendingMigrations = $databaseDown ? -1 : $this->pendingMigrations();
 
             $failedChecks = [];
             foreach ($checks as $name => $check) {
-                if (($check['ok'] ?? false) !== true) {
+                if (($check['ok'] ?? null) === false) {
                     $failedChecks[] = $name;
                 }
             }
 
-            $queueCheck = $checks['queue'] ?? [];
+            $queueCheck = $checks['queue'];
+            $migrationsPending = $pendingMigrations === -1 ? null : $pendingMigrations > 0;
 
             return [
                 'status' => $this->status($checks),
                 'checks' => $checks,
                 'failed_checks' => $failedChecks,
                 'info' => [
-                    'migrations_pending' => $pendingMigrations > 0,
+                    'migrations_pending' => $migrationsPending,
                     'pending_migrations_count' => $pendingMigrations,
-                    'failed_jobs' => $this->failedJobs(),
+                    'failed_jobs' => $databaseDown ? ['count' => null, 'skipped' => 'database_down'] : $this->failedJobs(),
                     'gemini' => $this->gemini(),
                     'worker' => [
                         'queue_backlog' => $queueCheck['backlog'] ?? null,
@@ -103,8 +108,73 @@ class SystemHealthService
 
             return ['ok' => true];
         } catch (Throwable $e) {
-            return ['ok' => false, 'error' => 'Database unavailable'];
+            return [
+                'ok' => false,
+                'error' => 'Database unavailable',
+                'reason' => $this->databaseFailureReason($e),
+            ];
         }
+    }
+
+    /**
+     * Map DB failures to safe admin-only categories. Never expose raw message,
+     * host, user, or URL.
+     */
+    private function databaseFailureReason(Throwable $e): string
+    {
+        $sqlState = (string) $e->getCode();
+        $message = strtolower($e->getMessage());
+        $sqlStateFromErrorInfo = '';
+        if ($e instanceof \PDOException && isset($e->errorInfo[0]) && is_string($e->errorInfo[0])) {
+            $sqlStateFromErrorInfo = $e->errorInfo[0];
+        }
+
+        $states = array_filter([$sqlState, $sqlStateFromErrorInfo]);
+
+        foreach ($states as $state) {
+            if ($state === '28000' || $state === '28P01') {
+                return 'auth_failed';
+            }
+            if ($state === '53300') {
+                return 'too_many_connections';
+            }
+            if ($state === '3D000') {
+                return 'database_missing';
+            }
+        }
+
+        if (str_contains($message, 'connection refused') || str_contains($message, 'actively refused')) {
+            return 'connection_refused';
+        }
+        if (str_contains($message, 'timed out') || str_contains($message, 'timeout')) {
+            return 'timeout';
+        }
+        if (str_contains($message, 'password authentication failed')
+            || str_contains($message, 'access denied')
+            || str_contains($message, 'authentication failed')) {
+            return 'auth_failed';
+        }
+        if (str_contains($message, 'ssl')) {
+            return 'ssl_error';
+        }
+        if (str_contains($message, 'could not translate host name')
+            || str_contains($message, 'getaddrinfo')
+            || str_contains($message, 'name or service not known')
+            || str_contains($message, 'unknown host')
+            || str_contains($message, 'no such host')) {
+            return 'dns_error';
+        }
+        if (str_contains($message, 'too many connections')) {
+            return 'too_many_connections';
+        }
+        if (str_contains($message, 'does not exist') && str_contains($message, 'database')) {
+            return 'database_missing';
+        }
+        if (str_contains($message, 'unknown database')) {
+            return 'database_missing';
+        }
+
+        return 'unknown';
     }
 
     /**
@@ -331,6 +401,7 @@ class SystemHealthService
      * @return array{
      *     status: string,
      *     checks: array<string, array<string, mixed>>,
+     *     failed_checks: list<string>,
      *     info: array<string, mixed>,
      *     started_at: string
      * }

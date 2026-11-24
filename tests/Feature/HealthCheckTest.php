@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class HealthCheckTest extends TestCase
@@ -670,5 +671,85 @@ class HealthCheckTest extends TestCase
         $this->assertSame('Queue backlog older than 10 minutes', $admin->json('checks.queue.warning'));
         $this->assertSame('Queue backlog older than 10 minutes', $admin->json('info.worker.warning'));
         $this->assertSame(1, $admin->json('info.worker.queue_backlog'));
+    }
+
+    #[DataProvider('databaseFailureCategories')]
+    public function test_database_failure_reason_is_classified_in_admin_payload(string $sqlState, int $driverCode, string $message, string $expected): void
+    {
+        $e = new \PDOException($message, $driverCode);
+        $e->errorInfo = [$sqlState, $driverCode, $message];
+
+        DB::partialMock()->shouldReceive('connection')->andThrow($e);
+
+        config(['services.health.admin_token' => 'test-admin-token', 'services.gemini.health_probe' => false]);
+
+        $public = $this->getJson('/api/health');
+        $public->assertStatus(503)->assertExactJson(['status' => 'degraded']);
+
+        $admin = $this->withHeader('X-Admin-Token', 'test-admin-token')->getJson('/api/health');
+        $admin->assertStatus(503)
+            ->assertJsonPath('checks.database.ok', false)
+            ->assertJsonPath('checks.database.reason', $expected)
+            ->assertJsonPath('failed_checks', ['database']);
+
+        $raw = json_encode($admin->json());
+        $this->assertIsString($raw);
+        $this->assertStringNotContainsString('secret-host', $raw);
+        $this->assertStringNotContainsString('secret_user', $raw);
+        $this->assertStringNotContainsString('postgres://', $raw);
+    }
+
+    public static function databaseFailureCategories(): array
+    {
+        return [
+            'connection_refused' => ['HY000', 2002, 'SQLSTATE[HY000] [2002] Connection refused for user secret_user@secret-host', 'connection_refused'],
+            'timeout' => ['HY000', 2002, 'SQLSTATE[HY000] [2002] Operation timed out after 5000 milliseconds', 'timeout'],
+            'auth_failed' => ['28P01', 7, 'SQLSTATE[28P01] FATAL: password authentication failed for user "secret_user"', 'auth_failed'],
+            'ssl_error' => ['08006', 0, 'SQLSTATE[08006] SSL connection has been closed unexpectedly', 'ssl_error'],
+            'dns_error' => ['08006', 0, 'SQLSTATE[08006] could not translate host name "secret-host" to address', 'dns_error'],
+            'too_many_connections' => ['53300', 0, 'SQLSTATE[53300] FATAL: too many connections for role "secret_user"', 'too_many_connections'],
+            'database_missing' => ['3D000', 0, 'SQLSTATE[3D000] FATAL: database "secret_db" does not exist', 'database_missing'],
+            'unknown' => ['XXXXX', 0, 'SQLSTATE[XXXXX] something unexpected happened', 'unknown'],
+        ];
+    }
+
+    public function test_migrations_pending_is_null_when_count_unknown(): void
+    {
+        $e = new \PDOException('SQLSTATE[HY000] [2002] Connection refused', 2002);
+        $e->errorInfo = ['HY000', 2002, 'Connection refused'];
+
+        DB::partialMock()->shouldReceive('connection')->andThrow($e);
+        config(['services.health.admin_token' => 'test-admin-token', 'services.gemini.health_probe' => false]);
+
+        $admin = $this->withHeader('X-Admin-Token', 'test-admin-token')->getJson('/api/health');
+        $admin->assertStatus(503)
+            ->assertJsonPath('info.migrations_pending', null)
+            ->assertJsonPath('info.pending_migrations_count', -1);
+    }
+
+    public function test_database_down_marks_dependent_checks_skipped_and_public_still_degraded(): void
+    {
+        $e = new \PDOException('SQLSTATE[HY000] [2002] Connection refused', 2002);
+        $e->errorInfo = ['HY000', 2002, 'Connection refused'];
+
+        DB::partialMock()->shouldReceive('connection')->andThrow($e);
+        config(['services.health.admin_token' => 'test-admin-token', 'services.gemini.health_probe' => false]);
+
+        $public = $this->getJson('/api/health');
+        $public->assertStatus(503)->assertExactJson(['status' => 'degraded']);
+
+        $admin = $this->withHeader('X-Admin-Token', 'test-admin-token')->getJson('/api/health');
+        $admin->assertStatus(503)
+            ->assertJsonPath('status', 'degraded')
+            ->assertJsonPath('failed_checks', ['database'])
+            ->assertJsonPath('checks.database.ok', false)
+            ->assertJsonPath('checks.database.reason', 'connection_refused')
+            ->assertJsonPath('checks.schema.ok', null)
+            ->assertJsonPath('checks.schema.skipped', 'database_down')
+            ->assertJsonPath('checks.cache.ok', null)
+            ->assertJsonPath('checks.cache.skipped', 'database_down')
+            ->assertJsonPath('checks.queue.ok', null)
+            ->assertJsonPath('checks.queue.skipped', 'database_down')
+            ->assertJsonPath('info.failed_jobs.skipped', 'database_down');
     }
 }
