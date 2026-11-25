@@ -252,6 +252,14 @@ jobs:
   larastan:
     name: Larastan (level 5, baseline ratchet)
     runs-on: ubuntu-latest
+    # Larastan boots the Laravel console kernel. Without a .env the defaults
+    # point at pgsql/database cache, which crashes bootstrap when pdo_pgsql
+    # is absent. Pin hermetic, in-process drivers so analysis needs no .env.
+    env:
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
     steps:
       - uses: actions/checkout@v4
 

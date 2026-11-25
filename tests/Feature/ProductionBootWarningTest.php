@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Providers\AppServiceProvider;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Mockery;
 use Tests\TestCase;
@@ -35,6 +37,33 @@ class ProductionBootWarningTest extends TestCase
         $log->shouldHaveReceived('warning')->once()->with(Mockery::on(function ($message) {
             return str_contains((string) $message, 'NOMINATIM_CONTACT is empty');
         }));
+    }
+
+    /** Larastan boots with CACHE_STORE=database and no cache table: no throw. */
+    public function test_nominatim_warning_never_throws_with_broken_cache_store(): void
+    {
+        $path = (string) tempnam(sys_get_temp_dir(), 'lg-boot-cache-');
+        config([
+            'cache.default' => 'database',
+            'database.connections.lgboot' => [
+                'driver' => 'sqlite',
+                'database' => $path,
+                'prefix' => '',
+                'foreign_key_constraints' => false,
+            ],
+            'database.default' => 'lgboot',
+            'services.nominatim.contact' => '',
+        ]);
+        DB::purge('lgboot');
+        DB::setDefaultConnection('lgboot');
+        Cache::clearResolvedInstance('cache');
+
+        try {
+            (new AppServiceProvider(app()))->warnIfNominatimContactMissing();
+            $this->assertTrue(true);
+        } finally {
+            @unlink($path);
+        }
     }
 
     public function test_configured_contact_does_not_warn(): void
