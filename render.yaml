@@ -24,6 +24,9 @@
         value: database
       - key: SESSION_DRIVER
         value: database
+      # HTTPS is terminated by Render/Cloudflare; the cookie must be Secure.
+      - key: SESSION_SECURE_COOKIE
+        value: true
       # This is CRITICAL: The queue worker inside Docker will read from the database!
       - key: QUEUE_CONNECTION
         value: database
