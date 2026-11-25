@@ -384,7 +384,7 @@ class OpenStreetMapService
         }
 
         try {
-            $response = Http::timeout(10)
+            $response = Http::timeout(5)
                 ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
                 ->get('https://nominatim.openstreetmap.org/search', [
                     'q' => $query,
@@ -394,7 +394,7 @@ class OpenStreetMapService
                 ]);
 
             if (! $response->successful()) {
-                $this->logNominatimFailure('forward', $response->status() === 429 ? 'rate_limit' : 'bad_response', [
+                $this->logNominatimFailure('forward', $response->status() === 429 ? 'rate_limit' : 'http_error', [
                     'status' => $response->status(),
                 ]);
 
@@ -403,7 +403,8 @@ class OpenStreetMapService
             $data = $response->json();
             if (! is_array($data) || ! isset($data[0]['lat'], $data[0]['lon'])
                 || ! is_numeric($data[0]['lat']) || ! is_numeric($data[0]['lon'])) {
-                $this->logNominatimFailure('forward', 'bad_response', ['status' => $response->status()]);
+                // No usable place: report "empty", never invent coordinates.
+                $this->logNominatimFailure('forward', 'empty', ['status' => $response->status()]);
 
                 return null;
             }

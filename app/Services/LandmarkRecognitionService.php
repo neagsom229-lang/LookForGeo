@@ -39,43 +39,14 @@ class LandmarkRecognitionService
 
     private string $defaultModel = 'gemini-3.6-flash';
 
-    private array $knownLandmarks = [];
-
     public function __construct(GeocodingService $geocoder)
     {
         $this->geocoder = $geocoder;
-        $this->loadKnownLandmarks();
     }
 
-    private function loadKnownLandmarks(): void
-    {
-        $this->knownLandmarks = [
-            'kep crab market' => ['lat' => 10.4837, 'lng' => 104.2942],
-            'phnom chisor' => ['lat' => 11.0347, 'lng' => 104.7872],
-            'angkor wat' => ['lat' => 13.4125, 'lng' => 103.8670],
-            'phnom penh' => ['lat' => 11.5564, 'lng' => 104.9282],
-            'siem reap' => ['lat' => 13.3631, 'lng' => 103.8565],
-            'sihanoukville' => ['lat' => 10.6256, 'lng' => 103.5230],
-            'battambang' => ['lat' => 13.1027, 'lng' => 103.1982],
-            'eiffel tower' => ['lat' => 48.8584, 'lng' => 2.2945],
-            'statue of liberty' => ['lat' => 40.6892, 'lng' => -74.0445],
-            'big ben' => ['lat' => 51.5007, 'lng' => -0.1246],
-            'taj mahal' => ['lat' => 27.1751, 'lng' => 78.0421],
-            'colosseum' => ['lat' => 41.8902, 'lng' => 12.4922],
-            'sydney opera house' => ['lat' => -33.8568, 'lng' => 151.2153],
-            'great wall of china' => ['lat' => 40.4319, 'lng' => 116.5704],
-            'pyramids of giza' => ['lat' => 29.9792, 'lng' => 31.1342],
-            'machu picchu' => ['lat' => -13.1631, 'lng' => -72.5450],
-            'christ the redeemer' => ['lat' => -22.9519, 'lng' => -43.2105],
-            'bangkok' => ['lat' => 13.7563, 'lng' => 100.5018],
-            'paris' => ['lat' => 48.8566, 'lng' => 2.3522],
-            'london' => ['lat' => 51.5074, 'lng' => -0.1278],
-            'new york' => ['lat' => 40.7128, 'lng' => -74.0060],
-            'tokyo' => ['lat' => 35.6762, 'lng' => 139.6503],
-            'sydney' => ['lat' => -33.8688, 'lng' => 151.2093],
-            'rome' => ['lat' => 41.9028, 'lng' => 12.4964],
-        ];
-    }
+    // No hardcoded landmark coordinates: a curated constant table used to
+    // silently replace a missing model answer with a famous place. Place
+    // lookup is delegated to GeocodingService (Nominatim, cached, rate-limited).
 
     /**
      * ✅ Get working model with fallback
@@ -498,24 +469,6 @@ class LandmarkRecognitionService
         $aiLat = $result['latitude'] ?? null;
         $aiLng = $result['longitude'] ?? null;
 
-        if ($name) {
-            $nameLower = strtolower(trim($name));
-            foreach ($this->knownLandmarks as $key => $coords) {
-                if (strpos($nameLower, $key) !== false || strpos($key, $nameLower) !== false) {
-                    Log::info('LandmarkRecognitionService: Found in known landmarks cache', [
-                        'name' => $name,
-                        'key' => $key,
-                    ]);
-                    $result['latitude'] = $coords['lat'];
-                    $result['longitude'] = $coords['lng'];
-                    $result['coordinate_source'] = 'known_landmark';
-                    $result['confidence'] = min(($result['confidence'] ?? 50) + 5, 98);
-
-                    return $result;
-                }
-            }
-        }
-
         $query = trim(implode(', ', array_filter([$name, $city, $country])));
 
         if (empty($query) && $city && $country) {
@@ -571,8 +524,9 @@ class LandmarkRecognitionService
             return $result;
         }
 
-        $result['latitude'] = 0;
-        $result['longitude'] = 0;
+        // Honest absence: never (0, 0) or a famous fallback coordinate.
+        $result['latitude'] = null;
+        $result['longitude'] = null;
         $result['coordinate_source'] = 'unknown';
         $result['confidence'] = max(($result['confidence'] ?? 50) - 30, 5);
 

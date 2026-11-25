@@ -331,14 +331,29 @@ class AnalysisController extends Controller
                     $result = json_decode($result, true);
                 }
                 $response['result'] = $result;
+
+                // Never pass a string / NaN / out-of-range value to the client:
+                // a coordinate is either a finite number in range or explicit
+                // null. The UI decides what to show when it is null.
+                $coordinate = static function ($value, float $max): ?float {
+                    if (! is_numeric($value) || ! is_finite((float) $value) || abs((float) $value) > $max) {
+                        return null;
+                    }
+
+                    return (float) $value;
+                };
+                $latitude = $coordinate($result['latitude'] ?? null, 90.0);
+                $longitude = $coordinate($result['longitude'] ?? null, 180.0);
+
                 $response['data'] = [
                     'id' => $analysis->id,
                     'landmark_name' => $result['landmark_name'] ?? 'Unknown',
                     'city' => $result['city'] ?? null,
                     'country' => $result['country'] ?? null,
-                    'latitude' => $result['latitude'] ?? null,
-                    'longitude' => $result['longitude'] ?? null,
-                    'coordinates_missing' => (bool) ($result['coordinates_missing'] ?? false),
+                    'latitude' => $latitude,
+                    'longitude' => $longitude,
+                    'coordinates_missing' => (bool) ($result['coordinates_missing'] ?? false)
+                        || $latitude === null || $longitude === null,
                     'confidence' => $result['confidence'] ?? 0,
                     'description' => $result['description'] ?? null,
                     'image_url' => $analysis->image_url,

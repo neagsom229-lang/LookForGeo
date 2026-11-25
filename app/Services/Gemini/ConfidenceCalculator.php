@@ -64,7 +64,15 @@ class ConfidenceCalculator
             && abs((float) $lat) <= 90 && abs((float) $lng) <= 180;
         $data['coordinates_missing'] = ! $hasCoordinates;
         if (! $hasCoordinates) {
-            $score = min($score, self::NO_COORDINATE_CAP);
+            // A named landmark was genuinely identified: present it at the
+            // honest cap, not at 0/5 just because there is no pin to verify.
+            // An "Unknown Location" answer stays low.
+            $name = strtolower(trim((string) ($data['landmark_name'] ?? '')));
+            $identified = $name !== ''
+                && ! in_array($name, ['unknown', 'unknown location', 'n/a', 'none'], true);
+            $score = $identified
+                ? self::NO_COORDINATE_CAP
+                : min($score, self::NO_COORDINATE_CAP);
             $factors[] = 'Coordinates missing: location could not be pinned; confidence capped at '.self::NO_COORDINATE_CAP.'.';
         }
 

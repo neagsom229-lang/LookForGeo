@@ -434,7 +434,7 @@
                 <p><strong>Response:</strong></p>
                 <div class="code-block">
                     { "success": true, "data": [ { "id": 1, "landmark": "Eiffel Tower", "confidence": 95, "coordinates": {
-                    "lat": 48.8584, "lng": 2.2945 }, "image": "https://...", "created_at": "..." } ], "pagination": { "current_page": 1, "last_page": 1 } }
+                    "lat": null, "lng": null }, "image": "https://...", "created_at": "..." } ], "pagination": { "current_page": 1, "last_page": 1 } }
                 </div>
             </div>
 

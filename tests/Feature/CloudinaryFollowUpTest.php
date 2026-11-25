@@ -17,6 +17,14 @@ class CloudinaryFollowUpTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // This suite fakes '*' and counts calls; missing-coordinate geocoding
+        // is covered in MissingCoordinatesTest.
+        config(['services.gemini.forward_geocode_missing' => false]);
+    }
+
     private function makeAnalysis(User $user): GeoAnalysis
     {
         Storage::fake('public');

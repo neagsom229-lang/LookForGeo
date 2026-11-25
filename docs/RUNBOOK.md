@@ -40,3 +40,22 @@
 ## Safety
 - Do not paste tokens/secrets into logs, PRs, or chat. Use `scripts/rotate-token.ps1`.
 - `/api/health` public response is minimal `{status}`; admin details require valid `X-Admin-Token`.
+
+## Google Maps Embed API key (browser key)
+- Configured by `GOOGLE_MAPS_EMBED_KEY` (`render.yaml`, `sync: false`) -> `config/services.php` `services.google_maps.embed_key`.
+- Injected into the browser on purpose: `resources/views/analysis.blade.php` writes `window.__EMBED_KEY__`, and `public/js/analysis.js` uses it to build the Maps Embed iframe. A Maps **Embed** key is designed to be visible in client code; it is not a server secret. Never print or paste its value.
+- It must be restricted so a visible key cannot be reused on another site:
+  1. Google Cloud Console > APIs & Services > Credentials > open the key.
+  2. **Application restrictions** > HTTP referrers > add only `lookforgeo.onrender.com/*` and `*.onrender.com/*` (plus localhost only for local dev). Save.
+  3. **API restrictions** > Restrict key > select **Maps Embed API** only (and Street View Static/Maps JavaScript only if separately used). Save.
+  4. Verify from a different origin that the iframe returns a referrer/API restriction error; verify the app still loads Street View.
+- Budget alert:
+  1. Google Cloud Console > Billing > Budgets & alerts > create a budget for the Maps platform project.
+  2. Set a monthly amount, alert at 50% / 90% / 100%, email the on-call group, and enable "Email billing account owners".
+  3. APIs & Services > Dashboard > Maps Embed API > set a daily request quota cap as a second guardrail.
+- Rotate (no key printed):
+  1. Create a NEW restricted key in Google Cloud Console; do not delete the old one yet.
+  2. Render Dashboard > Service > Environment > edit `GOOGLE_MAPS_EMBED_KEY` > paste the new value (clipboard only) > Save.
+  3. Redeploy and confirm Street View loads on `/analysis`.
+  4. Watch Maps Embed usage for ~24h, then delete the old key in Google Cloud Console.
+  5. If misuse is seen, delete the old key first and rotate immediately; record the incident and check the budget alert.

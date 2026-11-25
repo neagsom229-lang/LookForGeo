@@ -22,6 +22,9 @@ class GeminiHedgeTest extends TestCase
             'services.gemini.max_total_time' => 10,
             'services.gemini.min_attempt_seconds' => 5,
             'services.gemini.hedge_after' => 1,
+            // This suite counts Gemini HTTP calls; the missing-coordinate
+            // Nominatim fallback is covered in MissingCoordinatesTest.
+            'services.gemini.forward_geocode_missing' => false,
         ]);
     }
 
@@ -55,7 +58,7 @@ class GeminiHedgeTest extends TestCase
 
     public function test_slow_primary_loses_to_the_fallback(): void
     {
-        Log::spy();
+        $log = Log::spy();
         $attempts = 0;
         Http::fake(function ($request) use (&$attempts) {
             $attempts++;
@@ -76,7 +79,7 @@ class GeminiHedgeTest extends TestCase
         $this->assertSame('gemini-3.5-flash-lite', $result['abandoned_primary']);
         $this->assertArrayHasKey('primary_abandoned_ms', $result);
         $this->assertSame(2, $attempts);
-        Log::shouldHaveReceived('info')->with('Gemini primary timeout + fallback', Mockery::on(function ($context) {
+        $log->shouldHaveReceived('info')->with('Gemini primary timeout + fallback', Mockery::on(function ($context) {
             return ($context['hedged'] ?? false) === true
                 && ($context['winner'] ?? null) === 'gemini-3.1-flash-lite'
                 && isset($context['ms']);

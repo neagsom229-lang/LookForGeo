@@ -111,6 +111,9 @@ return [
         // Informational only: points stay 0 until real-photo geo:eval data
         // justifies a weight. Off in phpunit to keep tests hermetic.
         'confidence_forward_geocode' => env('GEMINI_CONFIDENCE_FORWARD_GEOCODE', true),
+        // Last-resort Nominatim lookup when the model found a place but no
+        // coordinates. Never invents a location; keeps null on any failure.
+        'forward_geocode_missing' => env('GEMINI_FORWARD_GEOCODE_MISSING', true),
         // Cost guard: per-user daily quota and a global kill switch.
         // 0 means "no global limit"; quotas are counted for non-cached uploads.
         'daily_limit_per_user' => (int) env('GEMINI_DAILY_PER_USER', 50),

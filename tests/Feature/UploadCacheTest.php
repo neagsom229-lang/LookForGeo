@@ -24,6 +24,7 @@ class UploadCacheTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        config(['services.gemini.forward_geocode_missing' => false]);
         Storage::fake('public');
         Storage::disk('public')->makeDirectory('analyses');
         Http::fake([
