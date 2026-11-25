@@ -6,6 +6,7 @@ use App\Http\Middleware\RequireSessionCookieForCsrfToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Mockery;
 use Tests\TestCase;
@@ -73,7 +74,7 @@ class CsrfHardeningTest extends TestCase
         $this->assertSame(401, $response->getStatusCode());
         $this->assertSame('NO_SESSION', $response->getData(true)['code']);
         $this->assertFalse($called);
-        $this->assertSame(0, \Illuminate\Support\Facades\DB::table('sessions')->count());
+        $this->assertSame(0, DB::table('sessions')->count());
     }
 
     public function test_csrf_token_endpoint_is_throttled_to_30_per_minute(): void
