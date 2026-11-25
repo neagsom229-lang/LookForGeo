@@ -7,6 +7,7 @@
     <title>TraceGeo — Locate a Photo's Origin</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
 <script src="/js/csrf-retry.js"></script>
+<script src="/js/home-upload.js"></script>
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <link
@@ -1808,16 +1809,9 @@
 
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
-        // Shared helper in /js/csrf-retry.js returns {kind, response}.
-        function uploadFetch(url, options) {
-            return uploadFetch(url, options).then(result => {
-                if (result.kind === 'login') {
-                    showToast('Please log in again.', 'error');
-                    throw new Error('Please log in again.');
-                }
-                return result.response;
-            });
-        }
+        // Wrapper lives in /js/home-upload.js; helper is namespaced under
+        // window.CsrfRetry, so no self-recursive call is possible here.
+        const uploadFetch = window.HomeUpload.createUploadFetch();
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // ============================================
