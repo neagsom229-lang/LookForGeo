@@ -128,7 +128,7 @@ class AppServiceProvider extends ServiceProvider
             if (method_exists($logger->getLogger(), 'pushProcessor')) {
                 $logger->pushProcessor(new SecretLogProcessor);
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             // Never let log wiring break boot; call-site redaction still applies.
         }
 
