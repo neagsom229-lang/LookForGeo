@@ -119,6 +119,67 @@ class GeoAnalysis extends Model
             ->first();
     }
 
+    /**
+     * In-flight twin lookup for the repeat-upload guard. Same user + same
+     * bytes still being analysed returns the running row, so a double submit
+     * (or a refresh-and-reupload) reuses it instead of dispatching a second
+     * paid job. Scoped by user_id: never attach to another user's run.
+     *
+     * The row must be younger than the stuck-analysis reap window: without
+     * that, a processing row whose worker died would pin every future upload
+     * of those bytes to a corpse the reaper has not swept yet.
+     */
+    public static function findRunningForUser(string $hash, int $userId): ?self
+    {
+        $window = max(1, (int) config('services.analysis.reap_stuck_minutes', 10));
+
+        return self::where('user_id', $userId)
+            ->where('image_hash', $hash)
+            ->whereIn('status', ['pending', 'processing'])
+            ->where('created_at', '>=', now()->subMinutes($window))
+            ->latest('created_at')
+            ->latest('id')
+            ->first();
+    }
+
+    /** Lock key for the duplicate-upload guard (one in-flight upload per user+bytes). */
+    public static function uploadLockKey(string $hash, int $userId): string
+    {
+        return 'analysis:upload:'.$userId.':'.$hash;
+    }
+
+    /**
+     * A 'pending' row untouched (updated_at) for longer than the full job
+     * budget is stale: a retry / re-upload must not pin the user to that
+     * corpse. Fail it so the upload path creates a fresh analysis instead.
+     * updated_at -- not created_at -- is the basis: a job released at
+     * 30/90/180s is still legitimately in flight minutes after upload.
+     */
+    public static function reusableRunning(?self $running): ?self
+    {
+        if ($running === null) {
+            return null;
+        }
+
+        $staleSeconds = max(60, (int) config('services.analysis.stale_pending_seconds', 1200));
+        $lastTouch = $running->updated_at ?? $running->created_at;
+
+        if ($running->status === 'pending'
+            && $lastTouch !== null
+            && $lastTouch->lt(now()->subSeconds($staleSeconds))) {
+            $running->update([
+                'status' => 'failed',
+                'stage_label' => 'Failed',
+                'error' => 'No queue worker picked up the upload in time.',
+                'finished_at' => now(),
+            ]);
+
+            return null;
+        }
+
+        return $running;
+    }
+
     // ============================================
     // ACCESSORS (from result JSON)
     // ============================================

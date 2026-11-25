@@ -8,7 +8,9 @@ use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
 use App\Services\AnalysisCostGuard;
 use App\Services\SystemHealthService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 class AnalysisApiController extends Controller
@@ -76,11 +78,27 @@ class AnalysisApiController extends Controller
     public function analyze(StoreAnalysisImageRequest $request)
     {
         $file = $request->file('image');
+        $imageHash = hash_file('sha256', $file->getRealPath());
+        $userId = (int) $request->user()->id;
+        $wait = max(0, (int) config('services.analysis.upload_lock_wait_seconds', 5));
 
+        try {
+            // Same lock key as the session upload endpoint.
+            return Cache::lock(GeoAnalysis::uploadLockKey($imageHash, $userId), 10)
+                ->block($wait, fn () => $this->analyzeWithinLock($request, $file, $imageHash, $userId));
+        } catch (LockTimeoutException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Another upload of this image is in progress. Try again shortly.',
+            ], 409);
+        }
+    }
+
+    private function analyzeWithinLock(StoreAnalysisImageRequest $request, $file, string $imageHash, int $userId)
+    {
         // Repeat-upload cache (same rule as the session endpoint): identical
         // bytes from this user return the completed row with zero AI cost.
-        $imageHash = hash_file('sha256', $file->getRealPath());
-        $cached = GeoAnalysis::findCachedForUser($imageHash, (int) $request->user()->id);
+        $cached = GeoAnalysis::findCachedForUser($imageHash, $userId);
         if ($cached) {
             return response()->json([
                 'success' => true,
@@ -92,6 +110,30 @@ class AnalysisApiController extends Controller
                     'status' => 'completed',
                     'image_url' => $cached->image_url,
                     'result' => $cached->result,
+                ],
+            ], 200);
+        }
+
+        // Same-image guard: bytes this user already has in flight return the
+        // running analysis instead of a second job (and a second Gemini cost).
+        $running = GeoAnalysis::reusableRunning(
+            GeoAnalysis::findRunningForUser($imageHash, $userId)
+        );
+        if ($running) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Analysis already in progress for this image.',
+                'id' => $running->id,
+                'cached' => true,
+                'running' => true,
+                'data' => [
+                    'id' => $running->id,
+                    'running' => true,
+                    'status' => $running->status,
+                    'progress' => (int) ($running->progress ?? 10),
+                    'stage_label' => $running->stage_label,
+                    'image_url' => $running->image_url,
+                    'result' => null,
                 ],
             ], 200);
         }

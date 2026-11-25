@@ -195,10 +195,11 @@ class AnalyzeImageJob implements ShouldQueue
                 }
             );
 
-            // Transient errors are retried INSIDE GeminiClient (one retry on
-            // the primary, then one fallback). There is no release(45) here:
-            // a failed AI result is terminal, shown to the user with a Retry
-            // button. Queue-level retries were no-ops and delayed visibility.
+            // GeminiClient retries one primary + one fallback inside the
+            // request. If the result is still transient, release the job back
+            // to the queue (30/90/180s, honoring Retry-After) while keeping
+            // status 'processing' and the "Waiting for AI service" label.
+            // Only the last of the 4 tries marks the analysis failed.
 
             // Check for other AI errors (including is_error flag)
             if (isset($aiResult['is_error']) && $aiResult['is_error'] === true) {
@@ -288,10 +289,10 @@ class AnalyzeImageJob implements ShouldQueue
             Log::error('❌ Job FAILED: '.SecretSanitizer::redact($e->getMessage()));
             Log::error('Stack trace: '.SecretSanitizer::redact($e->getTraceAsString()));
 
-            // Hard (non-transient) failure — mark failed and return so the
-            // worker does not retry: retries are no-ops anyway once status
-            // is 'failed' (handle() skips completed/failed analyses), so
-            // throwing would just burn the remaining attempts.
+            // Hard (non-transient) failure: mark failed and return instead of
+            // throwing. Transient paths already called release() above; a
+            // throw here would only burn remaining tries and could overwrite
+            // the user-visible failure with a generic queue exception.
             try {
                 $analysis = GeoAnalysis::find($this->analysisId);
                 if ($analysis && ! in_array($analysis->status, ['completed', 'failed'])) {

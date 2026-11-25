@@ -48,9 +48,13 @@
         value: 50
       - key: GEMINI_DAILY_LIMIT
         value: 0
-      # Reap-on-read window (no Render scheduler needed)
+      # Reap-on-read window (no Render scheduler needed). Must stay above the
+      # browser's 20-minute AI wait so a watched job is never reaped early.
       - key: ANALYSIS_REAP_MINUTES
-        value: 10
+        value: 25
+      # Stale pending row cutoff, based on updated_at; >= 980s worst case + margin.
+      - key: ANALYSIS_STALE_PENDING_SECONDS
+        value: 1200
       - key: GEMINI_CONFIDENCE_REVERSE_GEOCODE
         value: true
       - key: GEMINI_HEALTH_PROBE

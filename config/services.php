@@ -38,13 +38,21 @@ return [
     |--------------------------------------------------------------------------
     */
     'analysis' => [
-        // A pending/processing row older than this is failed on read, so no
-        // scheduler is required on Render.
-        'reap_stuck_minutes' => (int) env('ANALYSIS_REAP_MINUTES', 10),
-        // One automatic requeue (8s) when both models fail with overload or
-        // timeout. Never used for bad_request; total user wait is capped.
-        'auto_requeue' => (bool) env('ANALYSIS_AUTO_REQUEUE', true),
-        'requeue_delay_seconds' => (int) env('ANALYSIS_REQUEUE_DELAY_SECONDS', 8),
+        // Worst-case job = 4 tries x 110s Gemini budget + 3 release delays
+        // (Retry-After can raise each to 180s) = 980s (~16m20s). The browser
+        // waits AI_WAIT_MAX_MS = 20 min (public/js/analysis.js); this reaper
+        // must outlive that so it never fails a row the user is still watching.
+        'reap_stuck_minutes' => (int) env('ANALYSIS_REAP_MINUTES', 25),
+        // Transient 429/503/timeout failures release the job with these
+        // delays; a Google Retry-After acts as a floor, capped at the last.
+        'transient_release_delays' => [30, 90, 180],
+        // Seconds the duplicate-upload lock waits for an in-flight upload of
+        // the same bytes by the same user before answering 409.
+        'upload_lock_wait_seconds' => (int) env('ANALYSIS_UPLOAD_LOCK_WAIT_SECONDS', 5),
+        // A pending row whose updated_at is older than this is stale. Must be
+        // >= worst-case job (980s = 4x110s budget + 3x180s capped releases)
+        // plus margin, so a job waiting out 30/90/180s is never retired.
+        'stale_pending_seconds' => (int) env('ANALYSIS_STALE_PENDING_SECONDS', 1200),
     ],
 
     /*

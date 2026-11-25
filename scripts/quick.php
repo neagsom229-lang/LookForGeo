@@ -34,7 +34,8 @@ function finish(array $job): array
 
 function changedPhpFiles(string $root): array
 {
-    $proc = proc_open(['git', 'diff', '--name-only', '--diff-filter=AM', 'origin/main...HEAD', '--', 'app', 'routes', 'config', 'database', 'tests', 'scripts'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root);
+    // Two-dot avoids a multi-merge-base warning from a merge commit.
+    $proc = proc_open(['git', 'diff', '--name-only', '--diff-filter=AM', 'origin/main..HEAD', '--', 'app', 'routes', 'config', 'database', 'tests', 'scripts'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root);
     if (! is_resource($proc)) {
         fwrite(STDERR, "quick: git diff failed\n");
         exit(1);
