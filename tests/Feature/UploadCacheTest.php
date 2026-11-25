@@ -7,6 +7,7 @@ use App\Models\GeoAnalysis;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -203,6 +204,136 @@ class UploadCacheTest extends TestCase
         $this->assertSame('pending', GeoAnalysis::find($response->json('id'))->status);
         Queue::assertPushed(AnalyzeImageJob::class, 1);
         $this->assertSame(2, GeoAnalysis::count());
+    }
+
+    /** A reused RUNNING analysis must not look like a completed cached result. */
+    public function test_running_guard_response_is_marked_running_with_no_result(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $bytes = $this->tinyPngBytes();
+
+        $running = GeoAnalysis::create([
+            'user_id' => $user->id,
+            'status' => 'processing',
+            'stage' => 2,
+            'stage_label' => 'Waiting for AI service',
+            'progress' => 40,
+            'image_path' => 'analyses/running.jpg',
+            'image_url' => '/storage/analyses/running.jpg',
+            'image_hash' => hash('sha256', $bytes),
+            'started_at' => now(),
+        ]);
+
+        $this->upload($user, $bytes)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('cached', true)
+            ->assertJsonPath('running', true)
+            ->assertJsonPath('data.running', true)
+            ->assertJsonPath('data.id', $running->id)
+            ->assertJsonMissingPath('data.result');
+    }
+
+    /** The duplicate-upload guard must serialize check + create with a lock. */
+    public function test_upload_lock_rejects_a_second_upload_while_held(): void
+    {
+        config(['services.analysis.upload_lock_wait_seconds' => 0]);
+        Queue::fake();
+        $user = User::factory()->create();
+        $bytes = $this->tinyPngBytes();
+        $key = 'analysis:upload:'.$user->id.':'.hash('sha256', $bytes);
+
+        $lock = Cache::lock($key, 10);
+        $this->assertTrue($lock->get());
+
+        $this->upload($user, $bytes)
+            ->assertStatus(409)
+            ->assertJsonPath('success', false);
+
+        $this->assertSame(0, GeoAnalysis::count());
+        $lock->release();
+    }
+
+    /** Two sequential calls: one row, one job, and the lock is released. */
+    public function test_two_sequential_uploads_release_the_lock_and_create_one_analysis(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $bytes = $this->tinyPngBytes();
+        $key = 'analysis:upload:'.$user->id.':'.hash('sha256', $bytes);
+
+        $first = $this->upload($user, $bytes);
+        $second = $this->upload($user, $bytes);
+
+        $first->assertOk();
+        $second->assertOk();
+        $this->assertSame($first->json('id'), $second->json('id'));
+        $this->assertSame(1, GeoAnalysis::count());
+        Queue::assertPushed(AnalyzeImageJob::class, 1);
+        $lock = Cache::lock($key, 10);
+        $this->assertTrue($lock->get());
+        $lock->release();
+    }
+
+    /** A pending row nobody picked up for >3 min is stale, not reusable. */
+    public function test_stale_pending_upload_is_marked_failed_and_a_new_analysis_created(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $bytes = $this->tinyPngBytes();
+
+        $stale = GeoAnalysis::create([
+            'user_id' => $user->id,
+            'status' => 'pending',
+            'stage' => 0,
+            'stage_label' => 'Uploaded',
+            'progress' => 10,
+            'image_path' => 'analyses/stale.jpg',
+            'image_url' => '/storage/analyses/stale.jpg',
+            'image_hash' => hash('sha256', $bytes),
+            'started_at' => now()->subMinutes(4),
+        ]);
+        // created_at is not fillable; force it so the row is genuinely stale.
+        $stale->forceFill(['created_at' => now()->subMinutes(4)])->save();
+
+        $response = $this->upload($user, $bytes);
+
+        $response->assertOk();
+        $this->assertNotSame($stale->id, $response->json('id'));
+        $this->assertSame('failed', $stale->fresh()->status);
+        $this->assertNotNull($stale->fresh()->finished_at);
+        $this->assertSame('pending', GeoAnalysis::find($response->json('id'))->status);
+        Queue::assertPushed(AnalyzeImageJob::class, 1);
+        $this->assertSame(2, GeoAnalysis::count());
+    }
+
+    /** A pending row still within the 3-minute window is reused normally. */
+    public function test_fresh_pending_upload_is_reused(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $bytes = $this->tinyPngBytes();
+
+        $running = GeoAnalysis::create([
+            'user_id' => $user->id,
+            'status' => 'pending',
+            'stage' => 0,
+            'stage_label' => 'Uploaded',
+            'progress' => 10,
+            'image_path' => 'analyses/fresh.jpg',
+            'image_url' => '/storage/analyses/fresh.jpg',
+            'image_hash' => hash('sha256', $bytes),
+            'started_at' => now()->subMinutes(2),
+        ]);
+        $running->forceFill(['created_at' => now()->subMinutes(2)])->save();
+
+        $this->upload($user, $bytes)
+            ->assertOk()
+            ->assertJsonPath('cached', true)
+            ->assertJsonPath('id', $running->id);
+
+        Queue::assertNothingPushed();
     }
 
     public function test_cached_row_stores_the_sha256_hash(): void

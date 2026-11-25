@@ -11,10 +11,12 @@ use App\Services\Gemini\GeminiCircuitBreaker;
 use App\Services\Gemini\GeminiFailureClassifier;
 use App\Services\Gemini\SecretSanitizer;
 use Cloudinary\Cloudinary;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Psr7\UriResolver;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -65,14 +67,36 @@ class AnalysisController extends Controller
             ], 401);
         }
 
+        $file = $request->file('image');
+        $imageHash = hash_file('sha256', $file->getRealPath());
+        $userId = (int) auth()->id();
+        $wait = max(0, (int) config('services.analysis.upload_lock_wait_seconds', 5));
+
         try {
-            $file = $request->file('image');
+            // Serialize check + create for the same user and the same bytes so
+            // two simultaneous submits cannot both dispatch a paid job.
+            return Cache::lock(GeoAnalysis::uploadLockKey($imageHash, $userId), 10)
+                ->block($wait, fn () => $this->storeWithinLock($request, $file, $imageHash, $userId));
+        } catch (LockTimeoutException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Another upload of this image is in progress. Try again shortly.',
+            ], 409);
+        }
+    }
+
+    /**
+     * Upload path while holding the user+image lock: the completed cache and
+     * the in-flight guard are checked here, then the row is created.
+     */
+    private function storeWithinLock(StoreAnalysisImageRequest $request, $file, string $imageHash, int $userId)
+    {
+        try {
             $filename = time().'_'.$file->getClientOriginalName();
 
             // Repeat-upload cache: identical bytes from the SAME user return
             // the existing completed analysis instantly (zero Gemini cost).
-            $imageHash = hash_file('sha256', $file->getRealPath());
-            $cached = GeoAnalysis::findCachedForUser($imageHash, (int) auth()->id());
+            $cached = GeoAnalysis::findCachedForUser($imageHash, $userId);
             if ($cached) {
                 Log::info('Repeat upload served from cache', [
                     'user_id' => auth()->id(),
@@ -97,10 +121,12 @@ class AnalysisController extends Controller
             // still pending/processing reuse the running analysis. Without it a
             // double submit (or a retry while the job waits out a busy AI
             // service) would queue a second paid job for the same photo.
-            $running = GeoAnalysis::findRunningForUser($imageHash, (int) auth()->id());
+            $running = GeoAnalysis::reusableRunning(
+                GeoAnalysis::findRunningForUser($imageHash, $userId)
+            );
             if ($running) {
                 Log::info('Repeat upload reused the running analysis', [
-                    'user_id' => auth()->id(),
+                    'user_id' => $userId,
                     'analysis_id' => $running->id,
                     'status' => $running->status,
                 ]);
@@ -109,9 +135,11 @@ class AnalysisController extends Controller
                     'success' => true,
                     'id' => $running->id,
                     'cached' => true,
+                    'running' => true,
                     'message' => 'Analysis already in progress for this image.',
                     'data' => [
                         'id' => $running->id,
+                        'running' => true,
                         'status' => $running->status,
                         'progress' => (int) ($running->progress ?? 10),
                         'stage_label' => $running->stage_label,

@@ -142,6 +142,39 @@ class GeoAnalysis extends Model
             ->first();
     }
 
+    /** Lock key for the duplicate-upload guard (one in-flight upload per user+bytes). */
+    public static function uploadLockKey(string $hash, int $userId): string
+    {
+        return 'analysis:upload:'.$userId.':'.$hash;
+    }
+
+    /**
+     * A 'pending' row that no worker claimed within 3 minutes is stale: a
+     * retry / re-upload must not pin the user to that corpse. Fail it so the
+     * normal upload path creates a fresh analysis instead.
+     */
+    public static function reusableRunning(?self $running): ?self
+    {
+        if ($running === null) {
+            return null;
+        }
+
+        if ($running->status === 'pending'
+            && $running->created_at !== null
+            && $running->created_at->lt(now()->subMinutes(3))) {
+            $running->update([
+                'status' => 'failed',
+                'stage_label' => 'Failed',
+                'error' => 'No queue worker picked up the upload in time.',
+                'finished_at' => now(),
+            ]);
+
+            return null;
+        }
+
+        return $running;
+    }
+
     // ============================================
     // ACCESSORS (from result JSON)
     // ============================================

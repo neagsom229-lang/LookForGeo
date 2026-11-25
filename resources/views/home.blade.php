@@ -2111,7 +2111,13 @@
                         sessionStorage.setItem('uploadedImage', data.data.image_url);
                     }
 
-                    showToast('Analysis started — redirecting...', 'success');
+                    // cached:true also means "reused": with running:true it is
+                    // an in-flight job, never a completed result. Poll the id.
+                    if (data.running === true || data.data?.running === true) {
+                        showToast('Resuming your running analysis — no second upload.', 'success');
+                    } else {
+                        showToast('Analysis started — redirecting...', 'success');
+                    }
 
                     setTimeout(() => {
                         window.location.href = '/analysis';
@@ -2252,7 +2258,11 @@
                                     sessionStorage.setItem('uploadedImage', analysisData.data.image_url);
                                 }
 
-                                showToast('Analysis started — redirecting...', 'success');
+                                if (analysisData.running === true || analysisData.data?.running === true) {
+                                    showToast('Resuming your running analysis — no second upload.', 'success');
+                                } else {
+                                    showToast('Analysis started — redirecting...', 'success');
+                                }
 
                                 setTimeout(() => {
                                     window.location.href = '/analysis';

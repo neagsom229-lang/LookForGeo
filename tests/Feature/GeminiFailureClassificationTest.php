@@ -90,6 +90,24 @@ class GeminiFailureClassificationTest extends TestCase
         $this->assertSame('Daily AI limit reached, try later.', $result['user_message']);
     }
 
+    /** Retry-After from Google must extend the breaker beyond its default. */
+    public function test_record_failure_uses_retry_after_over_the_configured_open_seconds(): void
+    {
+        config([
+            'services.gemini.circuit_failures' => 1,
+            'services.gemini.circuit_open_seconds' => 5,
+        ]);
+        $breaker = app(GeminiCircuitBreaker::class);
+        $breaker->reset('retry-after-model');
+
+        $breaker->recordFailure('retry-after-model', 120);
+
+        $remaining = $breaker->remainingSeconds('retry-after-model');
+        $this->assertGreaterThanOrEqual(115, $remaining);
+        $this->assertLessThanOrEqual(120, $remaining);
+        $this->assertTrue($breaker->isOpen('retry-after-model'));
+    }
+
     public function test_open_primary_breaker_skips_primary_and_calls_fallback_once(): void
     {
         config(['services.gemini.circuit_failures' => 1]);

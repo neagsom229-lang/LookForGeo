@@ -17,13 +17,13 @@
     // Backoff ladder: 2s, then 3s, then 5s -- don't hammer the API while a
     // job sits in the queue.
     const POLL_DELAYS_MS = [2000, 3000, 5000];
-    // The server releases a busy AI service back to the queue with 30/90/180s
-    // delays while status stays 'processing' and the label stays 'Waiting for
-    // AI service'. Keep polling calmly through that window (~6 minutes) instead
-    // of giving up at the generic no-progress timeout.
+    // Worst case on the server: 4 tries x 110s Gemini budget + 3 release
+    // delays (Retry-After can raise each to 180s) = 980s (~16m20s). Keep
+    // polling calmly for 20 minutes ( worst case + ~4 min margin ), well
+    // inside the 25-minute reaper window -- not the old 120s no-progress cap.
     const AI_WAIT_LABEL = 'Waiting for AI service';
-    const AI_WAIT_MAX_MS = 6 * 60 * 1000;
-    const AI_WAIT_CALM_HINT = 'The AI service is busy, so we are retrying automatically. This can take up to about 6 minutes.';
+    const AI_WAIT_MAX_MS = 20 * 60 * 1000;
+    const AI_WAIT_CALM_HINT = 'The AI service is busy, so we are retrying automatically. This can take up to about 20 minutes.';
 
     function nextPollDelay() {
         return POLL_DELAYS_MS[Math.min(Math.max(pollAttempts - 1, 0), POLL_DELAYS_MS.length - 1)];
@@ -1193,7 +1193,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
 
                 // Budget spent on the waiting path: stop, but say why.
                 if (waitingForAI && !aiWaitWithinBudget) {
-                    showError('The AI service stayed busy for about 6 minutes. Your photo is saved - use Retry analysis below.', currentAnalysisId);
+                    showError('The AI service stayed busy for about 20 minutes. Your photo is saved - use Retry analysis below.', currentAnalysisId);
                     return;
                 }
 
