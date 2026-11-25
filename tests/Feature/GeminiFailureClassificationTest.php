@@ -87,7 +87,7 @@ class GeminiFailureClassificationTest extends TestCase
 
         $this->assertSame('quota', $result['category']);
         $this->assertSame(7, $result['retry_after']);
-        $this->assertSame(GeminiFailureClassifier::MESSAGES['quota'], $result['user_message']);
+        $this->assertSame('Daily AI limit reached, try later.', $result['user_message']);
     }
 
     public function test_open_primary_breaker_skips_primary_and_calls_fallback_once(): void

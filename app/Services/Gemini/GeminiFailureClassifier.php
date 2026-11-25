@@ -12,7 +12,7 @@ final class GeminiFailureClassifier
     public const DEFAULT_USER_MESSAGE = 'Analysis could not be completed. Please retry.';
 
     public const MESSAGES = [
-        'quota' => 'The AI service is busy. Please try again in a moment.',
+        'quota' => 'Daily AI limit reached, try later.',
         'overload' => 'The AI service is temporarily unavailable. Please retry shortly.',
         'timeout' => 'The AI service did not respond. Please retry.',
         'bad_request' => 'The request could not be completed. Please try again.',
@@ -33,10 +33,11 @@ final class GeminiFailureClassifier
     {
         $error = (string) ($result['error'] ?? '');
         $status = isset($result['http_status']) ? (int) $result['http_status'] : null;
+        $googleStatus = strtoupper((string) ($result['google_status'] ?? ''));
 
         $category = match (true) {
-            $error === 'quota_exceeded' || $status === 429 => 'quota',
-            $error === 'service_unavailable' || $status === 503 => 'overload',
+            $error === 'quota_exceeded' || $status === 429 || $googleStatus === 'RESOURCE_EXHAUSTED' => 'quota',
+            $error === 'service_unavailable' || $status === 503 || $googleStatus === 'UNAVAILABLE' => 'overload',
             in_array($error, ['timeout', 'time_budget_exhausted', 'request_exception', 'connection_error'], true) => 'timeout',
             $error === 'api_error' && $status !== null && $status >= 400 && $status < 500 => 'bad_request',
             $error === 'circuit_open' => 'circuit_open',

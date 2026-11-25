@@ -10,21 +10,23 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Mockery;
+use Mockery\MockInterface;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\TestCase;
 
 /**
- * Proves the automatic requeue works with the REAL worker flags used by
- * dev.ps1 (`--tries=1 --timeout=180`): the job's own tries=2 is embedded in
- * the queue payload and overrides --tries=1, so the released job runs again
- * instead of being killed with MaxAttemptsExceededException.
+ * Proves a transient-release job runs again with worker --tries=1 because the
+ * job-level tries is embedded in the queue payload and overrides worker tries.
  */
 class RequeueWorkerTest extends TestCase
 {
     use RefreshDatabase;
+
+    /** Spy instance returned by Log::spy(); asserted on directly so static
+     *  facade forwarding does not look like an undefined static method. */
+    private MockInterface $logSpy;
 
     public function test_released_job_runs_a_second_time_with_worker_tries_1(): void
     {
@@ -32,20 +34,20 @@ class RequeueWorkerTest extends TestCase
         Storage::disk('public')->put('analyses/local.png', 'image-bytes');
         config([
             'queue.default' => 'database',
-            'services.analysis.requeue_delay_seconds' => 0,
+            'services.analysis.transient_release_delays' => [0, 0, 0],
             'services.gemini.retries' => 0,
             'services.gemini.max_total_time' => 20,
-            'services.gemini.min_attempt_seconds' => 0,
+            'services.gemini.min_attempt_seconds' => 1,
             'services.gemini.retry_backoff_ms' => 0,
             'services.gemini.hedge_after' => 0,
+            'services.gemini.circuit_failures' => 10,
         ]);
-        Log::spy();
+        $this->logSpy = Log::spy();
 
         $calls = 0;
         Http::fake(function () use (&$calls) {
             $calls++;
             if ($calls <= 2) {
-                // First attempt: both models overloaded -> one requeue.
                 return Http::response(['error' => 'unavailable'], 503);
             }
 
@@ -56,12 +58,15 @@ class RequeueWorkerTest extends TestCase
                             'landmark_name' => 'Eiffel Tower',
                             'city' => 'Paris',
                             'country' => 'France',
+                            'latitude' => 48.8584,
+                            'longitude' => 2.2945,
                             'confidence' => 80,
                             'reasoning' => 'Tower',
                             'description' => 'Tower',
                         ]),
                     ]]],
                 ]],
+                'usageMetadata' => ['promptTokenCount' => 1, 'candidatesTokenCount' => 1, 'totalTokenCount' => 2],
             ], 200);
         });
 
@@ -76,31 +81,24 @@ class RequeueWorkerTest extends TestCase
         ]);
         AnalyzeImageJob::dispatch($analysis->id, null, 'local.png');
 
-        // Job-level tries=2 must be baked into the payload; this is what
-        // overrides `--tries=1` in the worker.
         $payload = json_decode((string) DB::table('jobs')->value('payload'), true);
-        $this->assertSame(2, $payload['maxTries']);
+        $this->assertSame(4, $payload['maxTries']);
 
         $worker = ['--once' => true, '--tries' => 1, '--timeout' => 180, '--no-interaction' => true];
 
-        // First worker pass: overload -> release(0) with stage "Retrying".
         $this->assertSame(0, Artisan::call('queue:work', $worker, new BufferedOutput));
         $analysis->refresh();
         $this->assertSame('processing', $analysis->status);
-        $this->assertSame('Retrying', $analysis->stage_label);
+        $this->assertSame('Waiting for AI service', $analysis->stage_label);
 
-        // Second worker pass: the released job actually runs and completes.
         $this->assertSame(0, Artisan::call('queue:work', $worker, new BufferedOutput));
         $analysis->refresh();
         $this->assertSame('completed', $analysis->status);
 
-        Log::shouldHaveReceived('info')->with('AnalyzeImageJob attempt', Mockery::on(function ($context) {
-            return ($context['attempt'] ?? 0) === 2 && ($context['max_tries'] ?? 0) === 2;
+        $this->logSpy->shouldHaveReceived('info')->with('AnalyzeImageJob attempt', Mockery::on(function ($context) {
+            return ($context['attempt'] ?? 0) === 2 && ($context['max_tries'] ?? 0) === 4;
         }));
 
-        // MaxAttemptsExceededException would send the job to failed_jobs.
-        // An empty failed_jobs table proves the released job was allowed to
-        // run its second attempt instead of being killed by --tries=1.
         $this->assertSame(0, DB::table('failed_jobs')->count());
     }
 }

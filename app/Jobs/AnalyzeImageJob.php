@@ -22,14 +22,11 @@ class AnalyzeImageJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    // GeminiClient owns the in-request retries (one on the primary, then one
-    // fallback). The single automatic requeue for overload/timeout uses
-    // release(), which consumes a worker attempt. Job-level tries=2 overrides
-    // the worker's --tries=1 (Laravel reads the job payload's maxTries first),
-    // so that released job really runs again. Permanent failures are caught in
-    // handle() and marked failed; the second attempt then short-circuits, so
-    // this does not add a retry to genuinely bad requests.
-    public int $tries = 2;
+    // GeminiClient handles in-request retries/fallback. Transient provider
+    // failures (overload/timeout/quota/circuit_open) release the job back to
+    // the queue with backoff delays, keeping the analysis in processing state.
+    // Only the final attempt marks the analysis failed.
+    public int $tries = 4;
 
     public int $timeout = 180;
 
@@ -77,22 +74,26 @@ class AnalyzeImageJob implements ShouldQueue
         }
     }
 
-    private function maybeRequeueOnce(GeoAnalysis $analysis): bool
+    private function transientReleaseDelay(): int
     {
-        if (! config('services.analysis.auto_requeue', true)) {
-            return false;
+        $delays = array_values(array_map('intval', (array) config('services.analysis.transient_release_delays', [30, 90, 180])));
+        if ($delays === []) {
+            $delays = [30, 90, 180];
         }
-        $key = 'analysis_auto_requeue:'.$analysis->id;
-        if ((int) Cache::get($key, 0) >= 1) {
-            return false;
-        }
-        $elapsed = $analysis->started_at ? (int) abs($analysis->started_at->diffInSeconds(now())) : 0;
-        if ($elapsed + (int) config('services.analysis.requeue_delay_seconds', 8) > 60) {
-            return false;
-        }
-        Cache::put($key, 1, now()->addMinutes(10));
+        $index = max(0, $this->attempts() - 1);
 
-        return true;
+        // Note: a delay of 0 is valid (tests use it), so never coalesce on
+        // falsiness here -- `??` then `?:` would turn 0 into the fallback.
+        if (array_key_exists($index, $delays)) {
+            return max(0, $delays[$index]);
+        }
+
+        return max(0, (int) end($delays));
+    }
+
+    private function isTransientCategory(?string $category): bool
+    {
+        return in_array($category, ['overload', 'timeout', 'quota', 'circuit_open'], true);
     }
 
     public function handle(GeminiService $geminiService)
@@ -187,25 +188,35 @@ class AnalyzeImageJob implements ShouldQueue
 
             // Check for other AI errors (including is_error flag)
             if (isset($aiResult['is_error']) && $aiResult['is_error'] === true) {
-                $errorMsg = $aiResult['error_message'] ?? 'AI analysis failed without specific message';
-                Log::error('❌ Gemini API returned error: '.SecretSanitizer::redact($errorMsg));
+                $category = $aiResult['category'] ?? GeminiFailureClassifier::categoryFromStageLabel($aiResult['stage_label'] ?? null) ?? 'other';
+                Log::warning('Gemini analysis transient/final failure', [
+                    'analysis_id' => $analysis->id,
+                    'category' => $category,
+                    'attempt' => $this->attempts(),
+                    'max_tries' => $this->tries,
+                ]);
 
-                // One automatic requeue when BOTH models failed with an
-                // overload/timeout. Never for bad_request or other failures.
-                if (in_array($aiResult['category'] ?? null, ['overload', 'timeout'], true)
-                    && $this->maybeRequeueOnce($analysis)) {
+                if ($this->isTransientCategory($category) && $this->attempts() < $this->tries) {
+                    $delay = $this->transientReleaseDelay();
                     $analysis->update([
-                        'stage_label' => 'Retrying',
                         'status' => 'processing',
-                        'progress' => 40,
+                        'stage' => 2,
+                        'stage_label' => 'Waiting for AI service',
+                        'progress' => max(40, (int) ($analysis->progress ?? 40)),
+                        'error' => null,
+                        'finished_at' => null,
                     ]);
-                    $this->release((int) config('services.analysis.requeue_delay_seconds', 8));
+                    Log::info('Releasing analysis job for transient Gemini failure', [
+                        'analysis_id' => $analysis->id,
+                        'category' => $category,
+                        'delay' => $delay,
+                        'attempt' => $this->attempts(),
+                    ]);
+                    $this->release($delay);
 
                     return;
                 }
 
-                // Store only the classified generic message and stage label;
-                // raw provider details stay in the (sanitized) log.
                 $analysis->update([
                     'stage_label' => $aiResult['stage_label'] ?? GeminiFailureClassifier::STAGE_LABELS['other'],
                 ]);

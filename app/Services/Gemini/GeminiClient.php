@@ -4,6 +4,7 @@ namespace App\Services\Gemini;
 
 use App\Models\GeoAnalysis;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -45,7 +46,8 @@ class GeminiClient
         // Fallback should be a *stable, different-generation* model so a
         // primary outage or deprecation doesn't take down both. As of
         // Aug 2026, gemini-3.5-flash is the prior-generation stable Flash.
-        $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.1-flash-lite');
+        $fallback = trim((string) config('services.gemini.fallback_model', 'gemini-3.1-flash-lite'));
+        $this->fallbackModel = $fallback !== '' ? $fallback : $this->primaryModel;
         $this->requestTimeout = max(1, (int) config('services.gemini.timeout', 50));
         // Exactly one retry on the primary model. More retries only stack
         // latency and push the user past the two-minute failure target.
@@ -310,75 +312,129 @@ class GeminiClient
      * clear in the ~1s backoff window, so retrying only burns budget.
      */
     private function sendGeminiRequestWithRetry(
+
         $model,
+
         $imageData,
+
         $prompt,
+
         $deadline,
+
         int $maxAttempts = 1,
+
         ?callable $onRetry = null,
+
         int $retryNumber = 1
+
     ) {
-        $backoff = $this->retryBackoffMs * 1000; // milliseconds -> microseconds
+
         $attempts = max(1, $maxAttempts);
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+
             $remaining = $deadline - microtime(true);
 
-            // Do not start a request that cannot meaningfully finish.
             if ($remaining < $this->minAttemptSeconds) {
+
                 Log::warning("Gemini time budget exhausted before attempt $attempt for {$model}");
 
                 return ['error' => 'time_budget_exhausted', 'message' => 'Ran out of time budget before request could be made'];
+
             }
 
-            // Cap this request's own timeout to whatever time is actually
-            // left, so a single slow attempt can never blow past the shared
-            // deadline (and, transitively, can never approach the job's
-            // own queue timeout).
             $requestTimeout = (int) max(1, min($this->timeoutForModel($model), floor($remaining)));
 
             try {
+
                 $result = $this->sendSingleGeminiRequest($model, $imageData, $prompt, $requestTimeout);
 
-                // quota_exceeded is NOT retryable — retrying just burns the budget
-                $retryableErrors = ['timeout', 'connection_error', 'service_unavailable', 'server_error'];
-                if (isset($result['error']) && in_array($result['error'], $retryableErrors)) {
-                    $timeLeftAfterThisAttempt = $deadline - microtime(true);
+                if (isset($result['error'])) {
 
-                    if ($attempt < $attempts && $timeLeftAfterThisAttempt >= ($this->minAttemptSeconds + ($backoff / 1000000))) {
-                        $this->notifyRetry($onRetry, $model, $retryNumber);
-                        Log::warning("Gemini request attempt $attempt failed, retrying in ".($backoff / 1000000).'s', [
-                            'error' => $result['message'],
-                        ]);
-                        usleep($backoff);
+                    $category = GeminiFailureClassifier::classify($result)['category'];
 
-                        continue;
+                    $switchToFallback = in_array($category, ['quota', 'overload'], true);
+
+                    $sameModelRetryable = ! $switchToFallback
+
+                        && in_array($result['error'], ['timeout', 'connection_error', 'server_error'], true);
+
+                    if ($sameModelRetryable && $attempt < $attempts) {
+
+                        $backoffUs = $this->backoffMicroseconds($attempt, isset($result['retry_after']) ? (int) $result['retry_after'] : null);
+
+                        $timeLeftAfterThisAttempt = $deadline - microtime(true);
+
+                        if ($timeLeftAfterThisAttempt >= ($this->minAttemptSeconds + ($backoffUs / 1000000))) {
+
+                            $this->notifyRetry($onRetry, $model, $retryNumber);
+
+                            Log::warning("Gemini request attempt $attempt failed, retrying in ".round($backoffUs / 1000000, 3).'s', [
+
+                                'error' => $result['message'] ?? $result['error'],
+
+                                'category' => $category,
+
+                                'http_status' => $result['http_status'] ?? null,
+
+                                'google_status' => $result['google_status'] ?? null,
+
+                            ]);
+
+                            if ($backoffUs > 0) {
+
+                                usleep($backoffUs);
+
+                            }
+
+                            continue;
+
+                        }
+
                     }
 
-                    return $result; // no retries left, or not enough time budget for another
+                    return $result;
+
                 }
 
                 return $result;
 
             } catch (\Throwable $e) {
+
                 $timeLeftAfterThisAttempt = $deadline - microtime(true);
 
-                if ($attempt < $attempts && $timeLeftAfterThisAttempt >= ($this->minAttemptSeconds + ($backoff / 1000000))) {
+                $backoffUs = $this->backoffMicroseconds($attempt);
+
+                if ($attempt < $attempts && $timeLeftAfterThisAttempt >= ($this->minAttemptSeconds + ($backoffUs / 1000000))) {
+
                     $this->notifyRetry($onRetry, $model, $retryNumber);
-                    Log::warning("Gemini request attempt $attempt threw exception, retrying in ".($backoff / 1000000).'s', [
+
+                    Log::warning("Gemini request attempt $attempt threw exception, retrying in ".round($backoffUs / 1000000, 3).'s', [
+
                         'exception' => SecretSanitizer::redact($e->getMessage()),
+
                     ]);
-                    usleep($backoff);
+
+                    if ($backoffUs > 0) {
+
+                        usleep($backoffUs);
+
+                    }
 
                     continue;
+
                 }
+
                 Log::error('Gemini request failed after all retries: '.SecretSanitizer::redact($e->getMessage()));
 
                 return ['error' => 'request_exception', 'message' => SecretSanitizer::redact($e->getMessage())];
+
             }
+
         }
 
         return ['error' => 'unknown', 'message' => 'Request failed after all retries'];
+
     }
 
     private function hasBudgetForAttempt(float $deadline): bool
@@ -397,6 +453,40 @@ class GeminiClient
         } catch (\Throwable $e) {
             Log::warning('Gemini retry callback failed: '.SecretSanitizer::redact($e->getMessage()));
         }
+    }
+
+    private function parseRetryAfter(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_numeric($value)) {
+            $seconds = (int) $value;
+
+            return $seconds > 0 ? $seconds : null;
+        }
+        $ts = strtotime((string) $value);
+        if ($ts === false) {
+            return null;
+        }
+        $seconds = $ts - time();
+
+        return $seconds > 0 ? $seconds : null;
+    }
+
+    private function backoffMicroseconds(int $attempt, ?int $retryAfter = null): int
+    {
+        $baseMs = max(0, (int) $this->retryBackoffMs);
+        if ($retryAfter !== null && $retryAfter > 0) {
+            return $retryAfter * 1_000_000;
+        }
+        if ($baseMs === 0) {
+            return 0;
+        }
+        $expMs = $baseMs * (2 ** max(0, $attempt - 1));
+        $jitterMs = random_int(0, max(1, (int) floor($expMs * 0.25)));
+
+        return (int) (($expMs + $jitterMs) * 1000);
     }
 
     /**
@@ -474,6 +564,9 @@ class GeminiClient
             ? (int) round((hrtime(true) - $this->lastAttemptNs) / 1_000_000)
             : (int) round((microtime(true) - $started) * 1000);
         $result['gemini_ms'] = $elapsedMs;
+        $classified = isset($result['error'])
+            ? GeminiFailureClassifier::classify($result)
+            : ['category' => 'success'];
         $context = [
             'model' => $model,
             'elapsed_ms' => $elapsedMs,
@@ -482,17 +575,31 @@ class GeminiClient
             'prompt_tokens' => (int) ($result['prompt_tokens'] ?? 0),
             'output_tokens' => (int) ($result['output_tokens'] ?? 0),
             'thought_tokens' => (int) ($result['thought_tokens'] ?? 0),
-            'category' => isset($result['error'])
-                ? GeminiFailureClassifier::classify($result)['category']
-                : 'success',
+            'category' => $classified['category'],
         ];
         if ($exception !== null) {
             $context['exception_class'] = get_class($exception);
         } else {
             $context['http_status'] = $status;
         }
+        $googleStatus = $result['google_status'] ?? null;
+        if (is_string($googleStatus) && $googleStatus !== '') {
+            $context['google_status'] = $googleStatus;
+        }
 
         Log::info('Gemini attempt', $context);
+
+        try {
+            Cache::put('gemini:last_observed_status', [
+                'category' => $classified['category'],
+                'http_status' => $status,
+                'google_status' => $googleStatus,
+                'model' => $model,
+                'at' => now()->toIso8601String(),
+            ], now()->addDay());
+        } catch (\Throwable $e) {
+            // Never fail an analysis because telemetry cache write failed.
+        }
 
         return $result;
     }
@@ -610,14 +717,18 @@ class GeminiClient
                 ->post($url, $payload);
             $status = $response->status();
 
-            if ($status === 429) {
-                $retryAfter = (int) $response->header('Retry-After');
+            $body = $response->json();
+            $googleError = is_array($body['error'] ?? null) ? $body['error'] : [];
+            $googleStatus = is_string($googleError['status'] ?? null) ? $googleError['status'] : null;
+            $retryAfter = $this->parseRetryAfter($response->header('Retry-After'));
 
+            if ($status === 429) {
                 return $this->finishAttempt(
                     [
                         'error' => 'quota_exceeded',
                         'message' => 'API quota exceeded. Try again later.',
                         'http_status' => $status,
+                        'google_status' => $googleStatus,
                         'retry_after' => $retryAfter,
                     ],
                     $model, $attemptStarted, $imageBytes, $status
@@ -630,6 +741,8 @@ class GeminiClient
                         'error' => 'service_unavailable',
                         'message' => 'Gemini service temporarily unavailable (503)',
                         'http_status' => $status,
+                        'google_status' => $googleStatus,
+                        'retry_after' => $retryAfter,
                     ],
                     $model, $attemptStarted, $imageBytes, $status
                 );
@@ -641,6 +754,7 @@ class GeminiClient
                         'error' => 'server_error',
                         'message' => 'Gemini server error: '.$status,
                         'http_status' => $status,
+                        'google_status' => $googleStatus,
                     ],
                     $model, $attemptStarted, $imageBytes, $status
                 );
@@ -650,12 +764,17 @@ class GeminiClient
                 Log::error("Gemini API error (status {$status}): ".SecretSanitizer::redact($response->body()));
 
                 return $this->finishAttempt(
-                    ['error' => 'api_error', 'message' => "HTTP {$status}", 'http_status' => $status],
+                    [
+                        'error' => 'api_error',
+                        'message' => "HTTP {$status}",
+                        'http_status' => $status,
+                        'google_status' => $googleStatus,
+                    ],
                     $model, $attemptStarted, $imageBytes, $status
                 );
             }
 
-            $data = $response->json();
+            $data = $body;
             $usage = is_array($data['usageMetadata'] ?? null) ? $data['usageMetadata'] : [];
             $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 

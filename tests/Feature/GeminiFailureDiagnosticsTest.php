@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Http\Controllers\AnalysisController;
 use App\Models\GeoAnalysis;
 use App\Models\User;
 use App\Services\Gemini\GeminiFailureClassifier;
@@ -12,6 +11,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Mockery\MockInterface;
 use Tests\TestCase;
 
 /**
@@ -22,6 +22,10 @@ use Tests\TestCase;
 class GeminiFailureDiagnosticsTest extends TestCase
 {
     use RefreshDatabase;
+
+    /** Spy instance returned by Log::spy(); asserted on directly so static
+     *  facade forwarding does not look like an undefined static method. */
+    private MockInterface $logSpy;
 
     protected function setUp(): void
     {
@@ -38,7 +42,7 @@ class GeminiFailureDiagnosticsTest extends TestCase
             // automatic requeue is covered in AutoRequeueTest.
             'services.analysis.auto_requeue' => false,
         ]);
-        Log::spy();
+        $this->logSpy = Log::spy();
     }
 
     private function runPipeline(): array
@@ -65,8 +69,10 @@ class GeminiFailureDiagnosticsTest extends TestCase
 
         $result = $this->runPipeline();
 
-        $result['status']->assertJsonPath('status', 'failed')
-            ->assertJsonPath('error', AnalysisController::FAILED_USER_MESSAGE);
+        // Transient timeout is released for retry; final-attempt failure is
+        // covered by the job releasing until attempts are exhausted.
+        $result['status']->assertJsonPath('status', 'processing')
+            ->assertJsonPath('stage_label', 'Waiting for AI service');
         $this->assertAttemptLog(function (array $context) {
             return ($context['exception_class'] ?? null) === ConnectionException::class
                 && $context['model'] === 'gemini-3.5-flash-lite'
@@ -82,9 +88,8 @@ class GeminiFailureDiagnosticsTest extends TestCase
 
         $result = $this->runPipeline();
 
-        $result['status']->assertJsonPath('status', 'failed')
-            ->assertJsonPath('error', GeminiFailureClassifier::MESSAGES['overload'])
-            ->assertJsonPath('failure_category', 'overload');
+        $result['status']->assertJsonPath('status', 'processing')
+            ->assertJsonPath('stage_label', 'Waiting for AI service');
         $this->assertAttemptLog(function (array $context) {
             return ($context['http_status'] ?? null) === 503
                 && $context['model'] === 'gemini-3.5-flash-lite'
@@ -99,16 +104,12 @@ class GeminiFailureDiagnosticsTest extends TestCase
 
         $result = $this->runPipeline();
 
-        $result['status']->assertJsonPath('status', 'failed')
-            ->assertJsonPath('error', GeminiFailureClassifier::MESSAGES['quota'])
-            ->assertJsonPath('failure_category', 'quota');
-        $failed = GeoAnalysis::find($result['id']);
-        $this->assertSame(
-            GeminiFailureClassifier::STAGE_LABELS['quota'],
-            $failed->stage_label
-        );
-        // No model answered, so model_used must stay null on failure.
-        $this->assertNull($failed->model_used);
+        // Transient quota is released for retry on non-final attempt.
+        $result['status']->assertJsonPath('status', 'processing')
+            ->assertJsonPath('stage_label', 'Waiting for AI service');
+        $analysis = GeoAnalysis::find($result['id']);
+        $this->assertNull($analysis->finished_at);
+        $this->assertNull($analysis->model_used);
     }
 
     public function test_400_schema_or_thinking_rejection_is_logged_with_status(): void
@@ -128,7 +129,7 @@ class GeminiFailureDiagnosticsTest extends TestCase
                 && $context['image_bytes'] > 0;
         });
         // The secret-looking key must never appear in any captured log line.
-        Log::shouldHaveReceived('info')
+        $this->logSpy->shouldHaveReceived('info')
             ->withArgs(function ($message, $context = []) {
                 return ! str_contains(json_encode([$message, $context]), 'AIzaSyFakeDiagKey1234567890');
             });
@@ -136,7 +137,7 @@ class GeminiFailureDiagnosticsTest extends TestCase
 
     private function assertAttemptLog(callable $predicate): void
     {
-        Log::shouldHaveReceived('info')->withArgs(function ($message, $context = []) use ($predicate) {
+        $this->logSpy->shouldHaveReceived('info')->withArgs(function ($message, $context = []) use ($predicate) {
             return $message === 'Gemini attempt'
                 && is_array($context)
                 && $predicate($context)
