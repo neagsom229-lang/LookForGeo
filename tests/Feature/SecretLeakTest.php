@@ -7,6 +7,7 @@ use App\Models\GeoAnalysis;
 use App\Models\User;
 use App\Services\Gemini\GeminiClient;
 use App\Services\Gemini\GeminiFailureClassifier;
+use App\Services\GeminiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\File;
@@ -86,7 +87,7 @@ class SecretLeakTest extends TestCase
         // Simulate final attempt so transient timeout takes terminal path.
         $job = new AnalyzeImageJob($analysis->id, null, 'leak.png');
         $job->tries = 1;
-        $job->handle(app(\App\Services\GeminiService::class));
+        $job->handle(app(GeminiService::class));
 
         // --- DB error column: sanitized, no key ---
         $analysis->refresh();

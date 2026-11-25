@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Http\Controllers\AnalysisController;
 use App\Models\GeoAnalysis;
 use App\Models\User;
 use App\Services\Gemini\GeminiFailureClassifier;

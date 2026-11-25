@@ -83,9 +83,14 @@ class GeminiTransientResilienceTest extends TestCase
             'started_at' => now(),
         ]);
 
-        $job = new class($analysis->id) extends AnalyzeImageJob {
+        $job = new class($analysis->id) extends AnalyzeImageJob
+        {
             public ?int $releasedDelay = null;
-            public function release($delay = 0) { $this->releasedDelay = (int) $delay; }
+
+            public function release($delay = 0)
+            {
+                $this->releasedDelay = (int) $delay;
+            }
         };
         $job->handle(app(GeminiService::class));
 

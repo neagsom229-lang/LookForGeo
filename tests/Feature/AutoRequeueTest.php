@@ -5,9 +5,10 @@ namespace Tests\Feature;
 use App\Jobs\AnalyzeImageJob;
 use App\Models\GeoAnalysis;
 use App\Models\User;
+use App\Services\GeminiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class AutoRequeueTest extends TestCase
@@ -16,8 +17,8 @@ class AutoRequeueTest extends TestCase
 
     private function analysis(): GeoAnalysis
     {
-        \Illuminate\Support\Facades\Storage::fake('public');
-        \Illuminate\Support\Facades\Storage::disk('public')->put('analyses/test.jpg', 'jpg');
+        Storage::fake('public');
+        Storage::disk('public')->put('analyses/test.jpg', 'jpg');
 
         return GeoAnalysis::create([
             'user_id' => User::factory()->create()->id,
@@ -46,11 +47,16 @@ class AutoRequeueTest extends TestCase
         ]);
 
         $analysis = $this->analysis();
-        $job = new class($analysis->id) extends AnalyzeImageJob {
+        $job = new class($analysis->id) extends AnalyzeImageJob
+        {
             public ?int $releasedDelay = null;
-            public function release($delay = 0) { $this->releasedDelay = (int) $delay; }
+
+            public function release($delay = 0)
+            {
+                $this->releasedDelay = (int) $delay;
+            }
         };
-        $job->handle(app(\App\Services\GeminiService::class));
+        $job->handle(app(GeminiService::class));
 
         $analysis->refresh();
         $this->assertSame('processing', $analysis->status);
@@ -75,7 +81,7 @@ class AutoRequeueTest extends TestCase
 
         $analysis = $this->analysis();
         $job = new AnalyzeImageJob($analysis->id);
-        $job->handle(app(\App\Services\GeminiService::class));
+        $job->handle(app(GeminiService::class));
 
         $analysis->refresh();
         $this->assertSame('failed', $analysis->status);

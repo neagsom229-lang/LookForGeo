@@ -311,83 +311,132 @@ class GeminiClient
      * transient too. Never retries 429 (quota): a rate limit will not
      * clear in the ~1s backoff window, so retrying only burns budget.
      */
-    private function sendGeminiRequestWithRetry(
-        $model,
-        $imageData,
-        $prompt,
-        $deadline,
-        int $maxAttempts = 1,
-        ?callable $onRetry = null,
-        int $retryNumber = 1
-    ) {
-        $attempts = max(1, $maxAttempts);
-
-        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
-            $remaining = $deadline - microtime(true);
-
-            if ($remaining < $this->minAttemptSeconds) {
-                Log::warning("Gemini time budget exhausted before attempt $attempt for {$model}");
-
-                return ['error' => 'time_budget_exhausted', 'message' => 'Ran out of time budget before request could be made'];
-            }
-
-            $requestTimeout = (int) max(1, min($this->timeoutForModel($model), floor($remaining)));
-
-            try {
-                $result = $this->sendSingleGeminiRequest($model, $imageData, $prompt, $requestTimeout);
-
-                if (isset($result['error'])) {
-                    $category = GeminiFailureClassifier::classify($result)['category'];
-                    $switchToFallback = in_array($category, ['quota', 'overload'], true);
-                    $sameModelRetryable = ! $switchToFallback
-                        && in_array($result['error'], ['timeout', 'connection_error', 'server_error'], true);
-
-                    if ($sameModelRetryable && $attempt < $attempts) {
-                        $backoffUs = $this->backoffMicroseconds($attempt, isset($result['retry_after']) ? (int) $result['retry_after'] : null);
-                        $timeLeftAfterThisAttempt = $deadline - microtime(true);
-                        if ($timeLeftAfterThisAttempt >= ($this->minAttemptSeconds + ($backoffUs / 1000000))) {
-                            $this->notifyRetry($onRetry, $model, $retryNumber);
-                            Log::warning("Gemini request attempt $attempt failed, retrying in ".round($backoffUs / 1000000, 3).'s', [
-                                'error' => $result['message'] ?? $result['error'],
-                                'category' => $category,
-                                'http_status' => $result['http_status'] ?? null,
-                                'google_status' => $result['google_status'] ?? null,
-                            ]);
-                            if ($backoffUs > 0) {
-                                usleep($backoffUs);
-                            }
-
-                            continue;
-                        }
-                    }
-
-                    return $result;
-                }
-
-                return $result;
-
-            } catch (\Throwable $e) {
-                $timeLeftAfterThisAttempt = $deadline - microtime(true);
-                $backoffUs = $this->backoffMicroseconds($attempt);
-                if ($attempt < $attempts && $timeLeftAfterThisAttempt >= ($this->minAttemptSeconds + ($backoffUs / 1000000))) {
-                    $this->notifyRetry($onRetry, $model, $retryNumber);
-                    Log::warning("Gemini request attempt $attempt threw exception, retrying in ".round($backoffUs / 1000000, 3).'s', [
-                        'exception' => SecretSanitizer::redact($e->getMessage()),
-                    ]);
-                    if ($backoffUs > 0) {
-                        usleep($backoffUs);
-                    }
-
-                    continue;
-                }
-                Log::error('Gemini request failed after all retries: '.SecretSanitizer::redact($e->getMessage()));
-
-                return ['error' => 'request_exception', 'message' => SecretSanitizer::redact($e->getMessage())];
-            }
-        }
-
-        return ['error' => 'unknown', 'message' => 'Request failed after all retries'];
-    }
+    private function sendGeminiRequestWithRetry(
+
+        $model,
+
+        $imageData,
+
+        $prompt,
+
+        $deadline,
+
+        int $maxAttempts = 1,
+
+        ?callable $onRetry = null,
+
+        int $retryNumber = 1
+
+    ) {
+
+        $attempts = max(1, $maxAttempts);
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+
+            $remaining = $deadline - microtime(true);
+
+            if ($remaining < $this->minAttemptSeconds) {
+
+                Log::warning("Gemini time budget exhausted before attempt $attempt for {$model}");
+
+                return ['error' => 'time_budget_exhausted', 'message' => 'Ran out of time budget before request could be made'];
+
+            }
+
+            $requestTimeout = (int) max(1, min($this->timeoutForModel($model), floor($remaining)));
+
+            try {
+
+                $result = $this->sendSingleGeminiRequest($model, $imageData, $prompt, $requestTimeout);
+
+                if (isset($result['error'])) {
+
+                    $category = GeminiFailureClassifier::classify($result)['category'];
+
+                    $switchToFallback = in_array($category, ['quota', 'overload'], true);
+
+                    $sameModelRetryable = ! $switchToFallback
+
+                        && in_array($result['error'], ['timeout', 'connection_error', 'server_error'], true);
+
+                    if ($sameModelRetryable && $attempt < $attempts) {
+
+                        $backoffUs = $this->backoffMicroseconds($attempt, isset($result['retry_after']) ? (int) $result['retry_after'] : null);
+
+                        $timeLeftAfterThisAttempt = $deadline - microtime(true);
+
+                        if ($timeLeftAfterThisAttempt >= ($this->minAttemptSeconds + ($backoffUs / 1000000))) {
+
+                            $this->notifyRetry($onRetry, $model, $retryNumber);
+
+                            Log::warning("Gemini request attempt $attempt failed, retrying in ".round($backoffUs / 1000000, 3).'s', [
+
+                                'error' => $result['message'] ?? $result['error'],
+
+                                'category' => $category,
+
+                                'http_status' => $result['http_status'] ?? null,
+
+                                'google_status' => $result['google_status'] ?? null,
+
+                            ]);
+
+                            if ($backoffUs > 0) {
+
+                                usleep($backoffUs);
+
+                            }
+
+                            continue;
+
+                        }
+
+                    }
+
+                    return $result;
+
+                }
+
+                return $result;
+
+            } catch (\Throwable $e) {
+
+                $timeLeftAfterThisAttempt = $deadline - microtime(true);
+
+                $backoffUs = $this->backoffMicroseconds($attempt);
+
+                if ($attempt < $attempts && $timeLeftAfterThisAttempt >= ($this->minAttemptSeconds + ($backoffUs / 1000000))) {
+
+                    $this->notifyRetry($onRetry, $model, $retryNumber);
+
+                    Log::warning("Gemini request attempt $attempt threw exception, retrying in ".round($backoffUs / 1000000, 3).'s', [
+
+                        'exception' => SecretSanitizer::redact($e->getMessage()),
+
+                    ]);
+
+                    if ($backoffUs > 0) {
+
+                        usleep($backoffUs);
+
+                    }
+
+                    continue;
+
+                }
+
+                Log::error('Gemini request failed after all retries: '.SecretSanitizer::redact($e->getMessage()));
+
+                return ['error' => 'request_exception', 'message' => SecretSanitizer::redact($e->getMessage())];
+
+            }
+
+        }
+
+        return ['error' => 'unknown', 'message' => 'Request failed after all retries'];
+
+    }
+
     private function hasBudgetForAttempt(float $deadline): bool
     {
         return ($deadline - microtime(true)) >= $this->minAttemptSeconds;
