@@ -72,7 +72,7 @@ class CsrfHardeningTest extends TestCase
         );
 
         $this->assertSame(401, $response->getStatusCode());
-        $this->assertSame('NO_SESSION', $response->getData(true)['code']);
+        $this->assertSame('NO_SESSION', json_decode((string) $response->getContent(), true)['code']);
         $this->assertFalse($called);
         $this->assertSame(0, DB::table('sessions')->count());
     }
