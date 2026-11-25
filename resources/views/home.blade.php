@@ -1806,6 +1806,33 @@
     // ============================================================
 
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+        // A service worker / cached page can leave a stale token. On 419,
+        // refresh it from the server and retry the SAME request exactly once.
+        async function fetchWithCsrfRetry(url, options) {
+            let res = await fetch(url, options);
+            if (res.status !== 419) return res;
+
+            try {
+                const tokenRes = await fetch('/csrf-token', {
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                    cache: 'no-store'
+                });
+                if (!tokenRes.ok) return res;
+                const payload = await tokenRes.json();
+                if (!payload || !payload.token) return res;
+
+                const meta = document.querySelector('meta[name="csrf-token"]');
+                if (meta) meta.content = payload.token;
+                const headers = new Headers(options.headers || {});
+                headers.set('X-CSRF-TOKEN', payload.token);
+                return await fetch(url, { ...options, headers });
+            } catch (err) {
+                console.error('CSRF refresh failed:', err);
+                return res;
+            }
+        }
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // ============================================
@@ -2069,7 +2096,7 @@
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
         // ✅ ASYNC endpoint – returns immediately with ID
-        fetch('/api/analyze/store', {
+        fetchWithCsrfRetry('/api/analyze/store', {
                 method: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': csrfToken || '',
@@ -2162,7 +2189,7 @@
 
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
-        fetch('/api/fetch-image?url=' + encodeURIComponent(url), {
+        fetchWithCsrfRetry('/api/fetch-image?url=' + encodeURIComponent(url), {
                 method: 'GET',
                 headers: {
                     'X-CSRF-TOKEN': csrfToken || '',
@@ -2217,7 +2244,7 @@
                     const formData = new FormData();
                     formData.append('image', file);
 
-                    fetch('/api/analyze/store', {
+                    fetchWithCsrfRetry('/api/analyze/store', {
                             method: 'POST',
                             headers: {
                                 'X-CSRF-TOKEN': csrfToken || '',

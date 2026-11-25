@@ -1,13 +1,14 @@
 /* =========================================================================
  * TraceGeo Service Worker
  * - Dev-safe: auto-unregisters on localhost / 127.0.0.1
- * - Network-first for navigations (with preload + offline fallback)
+ * - Navigations are NEVER cached: HTML embeds a CSRF token, so a stale
+ *   cached page would POST with an old token and get 419 (network-first only)
  * - Stale-while-revalidate for static assets (faster + always fresh-ish)
  * - Never caches API, storage, uploads, Cloudinary
  * - Handles fetch failures gracefully (no Uncaught promise errors)
  * ========================================================================= */
 
-const CACHE_NAME = 'tracegeo-v2';        // ⬅️ bump this on every deploy
+const CACHE_NAME = 'tracegeo-v3';        // ⬅️ bump this on every deploy
 const OFFLINE_URL = '/offline.html';
 const NETWORK_TIMEOUT_MS = 8000;
 
@@ -106,7 +107,10 @@ if (IS_DEV) {
     response &&
     response.status === 200 &&
     response.type !== 'opaque' &&
-    response.type !== 'opaqueredirect';
+    response.type !== 'opaqueredirect' &&
+    // no-store responses (HTML with a CSRF token) must never enter the cache.
+    !String(response.headers.get('cache-control') || '').includes('no-store') &&
+    !String(response.headers.get('content-type') || '').includes('text/html');
 
   /* -------------------------------- fetch ------------------------------ */
   self.addEventListener('fetch', (event) => {
@@ -126,31 +130,18 @@ if (IS_DEV) {
     // Never cache these
     if (isNeverCache(url)) return;
 
-    // ---- 1. Navigations: network-first, fallback to cache, then offline ---
+    // ---- 1. Navigations: network-first, NEVER cached -------------------
+    // HTML embeds the CSRF token; a stale page would cause 419 on both uploads.
     if (request.mode === 'navigate') {
       event.respondWith(
         (async () => {
           try {
-            // Preloaded response (only if enabled + supported)
             const preload = await event.preloadResponse;
-            if (preload && preload.ok) {
-              // Refresh the cached copy of this URL in the background
-              const copy = preload.clone();
-              caches.open(CACHE_NAME).then((c) => c.put(request, copy)).catch(() => {});
-              return preload;
-            }
+            if (preload && preload.ok) return preload;
 
-            const fresh = await timeoutFetch(request, NETWORK_TIMEOUT_MS);
-            if (isCacheable(fresh)) {
-              const copy = fresh.clone();
-              caches.open(CACHE_NAME).then((c) => c.put(request, copy)).catch(() => {});
-            }
-            return fresh;
+            return await timeoutFetch(request, NETWORK_TIMEOUT_MS);
           } catch (err) {
-            // Offline / timeout — try cached page, then offline shell
-            const cached = await caches.match(request);
-            if (cached) return cached;
-
+            // Offline: only the static shell, never a stale HTML page.
             const offline = await caches.match(OFFLINE_URL);
             if (offline) return offline;
 

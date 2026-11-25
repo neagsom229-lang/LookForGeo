@@ -26,6 +26,13 @@ Route::post('/register', [AuthController::class, 'webRegister']);
 // Public API Docs (Perfect!)
 Route::view('/docs', 'docs');
 
+// Fresh CSRF token for a browser retry after 419. Session middleware is
+// required; no auth so a stale page can renew its token before retrying.
+Route::get('/csrf-token', function () {
+    return response()->json(['token' => csrf_token()])
+        ->header('Cache-Control', 'no-store');
+})->middleware('web');
+
 // Homepage
 Route::get('/', [HomeController::class, 'index'])->name('home');
 
