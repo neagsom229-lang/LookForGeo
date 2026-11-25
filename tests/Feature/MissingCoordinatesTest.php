@@ -8,7 +8,6 @@ use App\Services\Gemini\ConfidenceCalculator;
 use App\Services\Gemini\GeminiCircuitBreaker;
 use App\Services\Gemini\GeminiPrompt;
 use App\Services\GeminiService;
-use App\Services\SystemHealthService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
