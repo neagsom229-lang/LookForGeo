@@ -46,13 +46,18 @@ class ConfidenceCalculator
         $signals = [];
         $factors = [];
 
+        // Coordinates obtained by forward-geocoding the model's OWN landmark
+        // name are not independent evidence: they must not corroborate that
+        // same answer via country / distance / source-count points.
+        $selfSourced = ($data['coordinate_source'] ?? null) === 'forward_geocode';
+
         $this->checkExif($data, $metadata, $signals, $factors);
-        $this->checkCountry($data, $signals, $factors);
-        $this->checkForwardGeocode($data, $signals, $factors);
+        $this->checkCountry($data, $signals, $factors, $selfSourced);
+        $this->checkForwardGeocode($data, $signals, $factors, $selfSourced);
         $this->checkVisualCues($data, $signals, $factors);
         $this->checkResolution($metadata, $signals, $factors);
         $this->checkCandidates($data, $signals, $factors);
-        $this->checkCoordinateSources($data, $signals, $factors);
+        $this->checkCoordinateSources($data, $signals, $factors, $selfSourced);
 
         $score = (int) max(0, min(self::MAX_SCORE, array_sum(array_column($signals, 'points'))));
 
@@ -121,11 +126,18 @@ class ConfidenceCalculator
             : 'EXIF GPS conflicts with the model location ('.round($distanceKm, 1).' km).';
     }
 
-    private function checkCountry(array &$data, array &$signals, array &$factors): void
+    private function checkCountry(array &$data, array &$signals, array &$factors, bool $selfSourced = false): void
     {
         $lat = $data['latitude'] ?? null;
         $lng = $data['longitude'] ?? null;
         $country = strtolower((string) ($data['country'] ?? ''));
+
+        if ($selfSourced) {
+            $signals['country_consistency'] = ['points' => 0, 'state' => 'self_sourced'];
+            $factors[] = 'Country was matched by the forward geocode of the model name; no independent corroboration.';
+
+            return;
+        }
 
         if (! is_numeric($lat) || ! is_numeric($lng) || $country === '' || $country === 'unknown') {
             $signals['country_consistency'] = ['points' => 0, 'state' => 'unavailable'];
@@ -274,8 +286,15 @@ class ConfidenceCalculator
             : "Top two candidates nearly tied (gap {$gap}); location is ambiguous.";
     }
 
-    private function checkCoordinateSources(array $data, array &$signals, array &$factors): void
+    private function checkCoordinateSources(array $data, array &$signals, array &$factors, bool $selfSourced = false): void
     {
+        if ($selfSourced) {
+            $signals['coordinate_sources'] = ['points' => 0, 'count' => 0, 'state' => 'self_sourced'];
+            $factors[] = 'Only the forward geocode produced these coordinates; no independent sources to agree.';
+
+            return;
+        }
+
         $sources = (int) ($data['coordinate_sources'] ?? 0);
         $points = $sources >= 2 ? 10 : 0;
         $signals['coordinate_sources'] = ['points' => $points, 'count' => $sources];
@@ -346,9 +365,14 @@ class ConfidenceCalculator
      * place named by the model. Points stay 0 until real-photo geo:eval
      * data justifies a weighting.
      */
-    private function checkForwardGeocode(array $data, array &$signals, array &$factors): void
+    private function checkForwardGeocode(array $data, array &$signals, array &$factors, bool $selfSourced = false): void
     {
-        $signals['forward_geocode_distance'] = ['points' => 0, 'state' => 'unavailable'];
+        $signals['forward_geocode_distance'] = ['points' => 0, 'state' => $selfSourced ? 'self_sourced' : 'unavailable'];
+        if ($selfSourced) {
+            $factors[] = 'Coordinates are themselves the forward geocode result; distance check would be circular.';
+
+            return;
+        }
         if (! config('services.gemini.confidence_forward_geocode', true)) {
             $factors[] = 'Forward-geocode distance check is disabled.';
 
@@ -408,6 +432,12 @@ class ConfidenceCalculator
      * Nominatim supplies address.country_code; model output uses names such as
      * "USA", so a small alias table is needed before comparing.
      */
+    /** Shared ISO-3166 alpha-2 normalisation for the geocountry guard. */
+    public function normalizeCountryCode(?string $value): ?string
+    {
+        return $this->countryCode($value);
+    }
+
     private function countryCode(?string $value): ?string
     {
         $value = strtolower(trim((string) $value));

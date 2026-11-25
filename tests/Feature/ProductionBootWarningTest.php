@@ -21,6 +21,22 @@ class ProductionBootWarningTest extends TestCase
         }));
     }
 
+    /** The warning is a deploy-level hint, not a per-request/artisan log flood. */
+    public function test_empty_nominatim_contact_warns_only_once_until_cache_expires(): void
+    {
+        cache()->flush();
+        $log = Log::spy();
+        config(['services.nominatim.contact' => '']);
+
+        $provider = new AppServiceProvider(app());
+        $provider->warnIfNominatimContactMissing();
+        $provider->warnIfNominatimContactMissing();
+
+        $log->shouldHaveReceived('warning')->once()->with(Mockery::on(function ($message) {
+            return str_contains((string) $message, 'NOMINATIM_CONTACT is empty');
+        }));
+    }
+
     public function test_configured_contact_does_not_warn(): void
     {
         $log = Log::spy();

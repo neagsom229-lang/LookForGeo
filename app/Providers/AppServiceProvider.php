@@ -10,6 +10,7 @@ use App\Support\LocalDatabaseGuard;
 use App\Support\RequestContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
@@ -31,7 +32,9 @@ class AppServiceProvider extends ServiceProvider
     public function warnIfNominatimContactMissing(): void
     {
         $contact = trim((string) config('services.nominatim.contact', ''));
-        if ($contact === '') {
+        if ($contact === '' && Cache::add('nominatim:contact_warning', true, now()->addDay())) {
+            // Once per deploy/day, not on every request or artisan invocation.
+            // Admin health also exposes contact_configured for diagnosis.
             Log::warning('NOMINATIM_CONTACT is empty: Nominatim geocoding may be rejected. Set a role contact address in Render.');
         }
     }
