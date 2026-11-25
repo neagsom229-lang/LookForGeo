@@ -111,6 +111,49 @@ class HealthCheckTest extends TestCase
             ]);
     }
 
+    /**
+     * Admin-only Gemini diagnostics: configured model names and the last
+     * observed status category -- never the API key, and never on the public
+     * payload (which must stay exactly {"status": ...}).
+     */
+    public function test_admin_health_exposes_gemini_models_and_last_status_without_the_key(): void
+    {
+        config([
+            'services.gemini.health_probe' => false,
+            'services.gemini.key' => 'AIzaSyFakeHealthCheckKey123456',
+            'services.gemini.model' => 'gemini-3.5-flash-lite',
+            'services.gemini.fallback_model' => 'gemini-3.1-flash-lite',
+            'services.health.admin_token' => 'admin-secret',
+        ]);
+        Cache::put('gemini:last_observed_status', [
+            'category' => 'overload',
+            'http_status' => 503,
+            'google_status' => 'UNAVAILABLE',
+            'model' => 'gemini-3.5-flash-lite',
+            'at' => '2026-11-25T00:00:00+00:00',
+        ], 60);
+
+        $admin = $this->getJson('/api/health', ['X-Admin-Token' => 'admin-secret'])
+            ->assertOk()
+            ->assertJsonPath('info.gemini.configured_models.0', 'gemini-3.5-flash-lite')
+            ->assertJsonPath('info.gemini.configured_models.1', 'gemini-3.1-flash-lite')
+            ->assertJsonPath('info.gemini.last_observed_status.category', 'overload')
+            ->assertJsonPath('info.gemini.last_observed_status.http_status', 503)
+            ->assertJsonPath('info.gemini.last_observed_status.google_status', 'UNAVAILABLE');
+
+        $this->assertStringNotContainsString('AIzaSyFakeHealthCheckKey', (string) $admin->getContent());
+
+        // Wrong token == public payload only: no model names, no status.
+        $this->getJson('/api/health', ['X-Admin-Token' => 'wrong'])
+            ->assertOk()
+            ->assertExactJson(['status' => 'operational']);
+
+        // No token at all == public payload only.
+        $this->getJson('/api/health')
+            ->assertOk()
+            ->assertExactJson(['status' => 'operational']);
+    }
+
     public function test_admin_health_does_not_leak_raw_error_messages(): void
     {
         config(['services.health.admin_token' => 'admin-secret']);

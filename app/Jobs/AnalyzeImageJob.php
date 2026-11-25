@@ -74,21 +74,35 @@ class AnalyzeImageJob implements ShouldQueue
         }
     }
 
-    private function transientReleaseDelay(): int
+    /**
+     * Queue delay before the job is retried after a transient Gemini failure.
+     *
+     * Google's Retry-After (429/503) is a floor: wait at least that long, but
+     * never longer than the last configured delay so a hostile/absurd header
+     * (e.g. 9999) cannot park the analysis for hours.
+     */
+    private function transientReleaseDelay(?int $retryAfter = null): int
     {
         $delays = array_values(array_map('intval', (array) config('services.analysis.transient_release_delays', [30, 90, 180])));
         if ($delays === []) {
             $delays = [30, 90, 180];
         }
         $index = max(0, $this->attempts() - 1);
+        $maxDelay = max(0, (int) end($delays));
 
         // Note: a delay of 0 is valid (tests use it), so never coalesce on
         // falsiness here -- `??` then `?:` would turn 0 into the fallback.
         if (array_key_exists($index, $delays)) {
-            return max(0, $delays[$index]);
+            $delay = max(0, $delays[$index]);
+        } else {
+            $delay = $maxDelay;
         }
 
-        return max(0, (int) end($delays));
+        if ($retryAfter !== null && $retryAfter > 0) {
+            $delay = min($maxDelay, max($delay, $retryAfter));
+        }
+
+        return $delay;
     }
 
     private function isTransientCategory(?string $category): bool
@@ -197,7 +211,8 @@ class AnalyzeImageJob implements ShouldQueue
                 ]);
 
                 if ($this->isTransientCategory($category) && $this->attempts() < $this->tries) {
-                    $delay = $this->transientReleaseDelay();
+                    $retryAfter = $aiResult['retry_after'] ?? null;
+                    $delay = $this->transientReleaseDelay(is_numeric($retryAfter) ? (int) $retryAfter : null);
                     $analysis->update([
                         'status' => 'processing',
                         'stage' => 2,
