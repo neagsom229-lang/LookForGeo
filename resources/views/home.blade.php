@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TraceGeo — Locate a Photo's Origin</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
+<script src="/js/csrf-retry.js"></script>
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <link
@@ -1807,31 +1808,15 @@
 
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
-        // A service worker / cached page can leave a stale token. On 419,
-        // refresh it from the server and retry the SAME request exactly once.
-        async function fetchWithCsrfRetry(url, options) {
-            let res = await fetch(url, options);
-            if (res.status !== 419) return res;
-
-            try {
-                const tokenRes = await fetch('/csrf-token', {
-                    headers: { 'Accept': 'application/json' },
-                    credentials: 'same-origin',
-                    cache: 'no-store'
-                });
-                if (!tokenRes.ok) return res;
-                const payload = await tokenRes.json();
-                if (!payload || !payload.token) return res;
-
-                const meta = document.querySelector('meta[name="csrf-token"]');
-                if (meta) meta.content = payload.token;
-                const headers = new Headers(options.headers || {});
-                headers.set('X-CSRF-TOKEN', payload.token);
-                return await fetch(url, { ...options, headers });
-            } catch (err) {
-                console.error('CSRF refresh failed:', err);
-                return res;
-            }
+        // Shared helper in /js/csrf-retry.js returns {kind, response}.
+        function uploadFetch(url, options) {
+            return uploadFetch(url, options).then(result => {
+                if (result.kind === 'login') {
+                    showToast('Please log in again.', 'error');
+                    throw new Error('Please log in again.');
+                }
+                return result.response;
+            });
         }
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -2096,7 +2081,7 @@
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
         // ✅ ASYNC endpoint – returns immediately with ID
-        fetchWithCsrfRetry('/api/analyze/store', {
+        uploadFetch('/api/analyze/store', {
                 method: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': csrfToken || '',
@@ -2189,7 +2174,7 @@
 
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
-        fetchWithCsrfRetry('/api/fetch-image?url=' + encodeURIComponent(url), {
+        uploadFetch('/api/fetch-image?url=' + encodeURIComponent(url), {
                 method: 'GET',
                 headers: {
                     'X-CSRF-TOKEN': csrfToken || '',
@@ -2244,7 +2229,7 @@
                     const formData = new FormData();
                     formData.append('image', file);
 
-                    fetchWithCsrfRetry('/api/analyze/store', {
+                    uploadFetch('/api/analyze/store', {
                             method: 'POST',
                             headers: {
                                 'X-CSRF-TOKEN': csrfToken || '',

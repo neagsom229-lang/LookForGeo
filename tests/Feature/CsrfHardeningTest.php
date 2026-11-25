@@ -2,8 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\RequireSessionCookieForCsrfToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Mockery;
 use Tests\TestCase;
@@ -23,22 +26,64 @@ class CsrfHardeningTest extends TestCase
         $this->assertStringNotContainsString('caches.open(CACHE_NAME).then((c) => c.put(request, copy))', $sw);
     }
 
+    public function test_service_worker_is_served_no_cache(): void
+    {
+        $htaccess = (string) file_get_contents(base_path('public/.htaccess'));
+
+        $this->assertStringContainsString('<Files "sw.js">', $htaccess);
+        $this->assertStringContainsString('Header set Cache-Control "no-cache, no-store, must-revalidate"', $htaccess);
+    }
+
     public function test_bootstrap_trusts_forwarded_proxies(): void
     {
         $bootstrap = (string) file_get_contents(base_path('bootstrap/app.php'));
 
         $this->assertStringContainsString('trustProxies', $bootstrap);
         $this->assertStringContainsString('HEADER_X_FORWARDED_PROTO', $bootstrap);
+        $this->assertStringContainsString('HEADER_X_FORWARDED_FOR', $bootstrap);
+        $this->assertStringContainsString('HEADER_X_FORWARDED_PORT', $bootstrap);
+        $this->assertStringNotContainsString('HEADER_X_FORWARDED_HOST', $bootstrap);
     }
 
     public function test_csrf_token_endpoint_returns_fresh_token_with_no_store(): void
     {
-        $response = $this->getJson('/csrf-token')->assertOk();
+        $response = $this->withSession(['probe' => 1])->getJson('/csrf-token');
+        $response->assertOk();
         $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
 
         $this->assertIsString($response->json('token'));
         $this->assertNotSame('', $response->json('token'));
         $this->assertStringNotContainsString('cookie', strtolower((string) $response->getContent()));
+    }
+
+    public function test_no_cookie_short_circuits_before_session_starts(): void
+    {
+        config(['session.driver' => 'database']);
+        $this->app->detectEnvironment(fn () => 'production');
+        $called = false;
+
+        $response = (new RequireSessionCookieForCsrfToken)->handle(
+            Request::create('/csrf-token', 'GET'),
+            function () use (&$called) {
+                $called = true;
+
+                return response('should not run');
+            }
+        );
+
+        $this->assertSame(401, $response->getStatusCode());
+        $this->assertSame('NO_SESSION', json_decode((string) $response->getContent(), true)['code']);
+        $this->assertFalse($called);
+        $this->assertSame(0, DB::table('sessions')->count());
+    }
+
+    public function test_csrf_token_endpoint_is_throttled_to_30_per_minute(): void
+    {
+        for ($i = 0; $i < 30; $i++) {
+            $this->withSession(['probe' => $i])->getJson('/csrf-token')->assertOk();
+        }
+
+        $this->withSession(['probe' => 31])->getJson('/csrf-token')->assertStatus(429);
     }
 
     public function test_pages_embedding_a_csrf_token_are_no_store(): void

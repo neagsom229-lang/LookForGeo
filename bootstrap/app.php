@@ -5,7 +5,9 @@ use App\Http\Middleware\ForceCsp;
 use App\Http\Middleware\ForceHsts;
 use App\Http\Middleware\NoStoreHtml;
 use App\Http\Middleware\RequestId;
+use App\Http\Middleware\RequireSessionCookieForCsrfToken;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -31,15 +33,17 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prepend(RequestId::class);
         $middleware->prepend(ForceHsts::class);
         $middleware->prepend(NoStoreHtml::class);
+        $middleware->prepend(RequireSessionCookieForCsrfToken::class);
+        // Run before EncryptCookies/StartSession in the sorted global stack.
+        $middleware->prependToPriorityList(EncryptCookies::class, RequireSessionCookieForCsrfToken::class);
 
         // Render + Cloudflare terminate TLS. Trust their X-Forwarded-* headers
         // so requests are seen as https and the secure session cookie is set.
         $middleware->trustProxies(
             at: '*',
             headers: Request::HEADER_X_FORWARDED_FOR
-                | Request::HEADER_X_FORWARDED_HOST
-                | Request::HEADER_X_FORWARDED_PORT
                 | Request::HEADER_X_FORWARDED_PROTO
+                | Request::HEADER_X_FORWARDED_PORT
         );
 
         // Accepts web session OR sanctum bearer token (Phase 0 — auth hardening)
