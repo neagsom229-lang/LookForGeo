@@ -379,7 +379,13 @@ class SystemHealthService
      */
     private function nominatim(): array
     {
-        $last = Cache::get('nominatim:last_outcome');
+        // This also runs in degradedFallback() when the cache table itself is
+        // missing: a cache failure must never turn a JSON 503 into a 500.
+        try {
+            $last = Cache::get('nominatim:last_outcome');
+        } catch (Throwable $e) {
+            $last = null;
+        }
         $outcome = is_array($last) ? ($last['outcome'] ?? null) : null;
 
         return [
