@@ -46,7 +46,8 @@ class GeminiClient
         // Fallback should be a *stable, different-generation* model so a
         // primary outage or deprecation doesn't take down both. As of
         // Aug 2026, gemini-3.5-flash is the prior-generation stable Flash.
-        $this->fallbackModel = config('services.gemini.fallback_model', 'gemini-3.1-flash-lite');
+        $fallback = trim((string) config('services.gemini.fallback_model', 'gemini-3.1-flash-lite'));
+        $this->fallbackModel = $fallback !== '' ? $fallback : $this->primaryModel;
         $this->requestTimeout = max(1, (int) config('services.gemini.timeout', 50));
         // Exactly one retry on the primary model. More retries only stack
         // latency and push the user past the two-minute failure target.

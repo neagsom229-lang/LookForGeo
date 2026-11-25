@@ -16,12 +16,16 @@ class AutoRequeueTest extends TestCase
 
     private function analysis(): GeoAnalysis
     {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        \Illuminate\Support\Facades\Storage::disk('public')->put('analyses/test.jpg', 'jpg');
+
         return GeoAnalysis::create([
             'user_id' => User::factory()->create()->id,
             'status' => 'processing',
             'stage' => 2,
             'stage_label' => 'Waiting for AI service',
             'progress' => 40,
+            'image_path' => 'analyses/test.jpg',
             'image_url' => 'https://example.com/test.jpg',
             'started_at' => now()->subSeconds(5),
         ]);
