@@ -31,7 +31,7 @@ Route::view('/docs', 'docs');
 Route::get('/csrf-token', function () {
     return response()->json(['token' => csrf_token()])
         ->header('Cache-Control', 'no-store');
-})->middleware('web');
+})->middleware(['web', 'throttle:30,1']);
 
 // Homepage
 Route::get('/', [HomeController::class, 'index'])->name('home');
