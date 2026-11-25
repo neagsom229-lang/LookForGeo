@@ -149,9 +149,11 @@ class GeoAnalysis extends Model
     }
 
     /**
-     * A 'pending' row that no worker claimed within 3 minutes is stale: a
-     * retry / re-upload must not pin the user to that corpse. Fail it so the
-     * normal upload path creates a fresh analysis instead.
+     * A 'pending' row untouched (updated_at) for longer than the full job
+     * budget is stale: a retry / re-upload must not pin the user to that
+     * corpse. Fail it so the upload path creates a fresh analysis instead.
+     * updated_at -- not created_at -- is the basis: a job released at
+     * 30/90/180s is still legitimately in flight minutes after upload.
      */
     public static function reusableRunning(?self $running): ?self
     {
@@ -159,9 +161,12 @@ class GeoAnalysis extends Model
             return null;
         }
 
+        $staleSeconds = max(60, (int) config('services.analysis.stale_pending_seconds', 1200));
+        $lastTouch = $running->updated_at ?? $running->created_at;
+
         if ($running->status === 'pending'
-            && $running->created_at !== null
-            && $running->created_at->lt(now()->subMinutes(3))) {
+            && $lastTouch !== null
+            && $lastTouch->lt(now()->subSeconds($staleSeconds))) {
             $running->update([
                 'status' => 'failed',
                 'stage_label' => 'Failed',

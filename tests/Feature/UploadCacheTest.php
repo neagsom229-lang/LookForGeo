@@ -292,10 +292,13 @@ class UploadCacheTest extends TestCase
             'image_path' => 'analyses/stale.jpg',
             'image_url' => '/storage/analyses/stale.jpg',
             'image_hash' => hash('sha256', $bytes),
-            'started_at' => now()->subMinutes(4),
+            'started_at' => now()->subMinutes(25),
         ]);
-        // created_at is not fillable; force it so the row is genuinely stale.
-        $stale->forceFill(['created_at' => now()->subMinutes(4)])->save();
+        // timestamps are not fillable; force them so the row is genuinely stale.
+        $stale->forceFill([
+            'created_at' => now()->subMinutes(25),
+            'updated_at' => now()->subMinutes(21),
+        ])->save();
 
         $response = $this->upload($user, $bytes);
 
@@ -306,6 +309,75 @@ class UploadCacheTest extends TestCase
         $this->assertSame('pending', GeoAnalysis::find($response->json('id'))->status);
         Queue::assertPushed(AnalyzeImageJob::class, 1);
         $this->assertSame(2, GeoAnalysis::count());
+    }
+
+    /**
+     * Staleness must follow updated_at (last worker touch), not created_at:
+     * a job released at 30/90/180s is still legitimately in flight long after
+     * its upload time and must never be retired by the guard.
+     */
+    public function test_pending_with_recent_updated_at_is_reused_even_when_created_long_ago(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $bytes = $this->tinyPngBytes();
+
+        $running = GeoAnalysis::create([
+            'user_id' => $user->id,
+            'status' => 'pending',
+            'stage' => 0,
+            'stage_label' => 'Uploaded',
+            'progress' => 10,
+            'image_path' => 'analyses/old-created.jpg',
+            'image_url' => '/storage/analyses/old-created.jpg',
+            'image_hash' => hash('sha256', $bytes),
+            'started_at' => now()->subMinutes(25),
+        ]);
+        $running->forceFill([
+            'created_at' => now()->subMinutes(25),
+            'updated_at' => now()->subMinutes(5),
+        ])->save();
+
+        $this->upload($user, $bytes)
+            ->assertOk()
+            ->assertJsonPath('cached', true)
+            ->assertJsonPath('id', $running->id);
+
+        Queue::assertNothingPushed();
+        $this->assertSame('pending', $running->fresh()->status);
+        $this->assertSame(1, GeoAnalysis::count());
+    }
+
+    /** 18 minutes of waiting (inside the 20-minute budget) is still in flight. */
+    public function test_pending_within_wait_budget_by_updated_at_is_reused(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $bytes = $this->tinyPngBytes();
+
+        $running = GeoAnalysis::create([
+            'user_id' => $user->id,
+            'status' => 'pending',
+            'stage' => 0,
+            'stage_label' => 'Uploaded',
+            'progress' => 10,
+            'image_path' => 'analyses/waiting.jpg',
+            'image_url' => '/storage/analyses/waiting.jpg',
+            'image_hash' => hash('sha256', $bytes),
+            'started_at' => now()->subMinutes(18),
+        ]);
+        $running->forceFill([
+            'created_at' => now()->subMinutes(18),
+            'updated_at' => now()->subMinutes(18),
+        ])->save();
+
+        $this->upload($user, $bytes)
+            ->assertOk()
+            ->assertJsonPath('cached', true)
+            ->assertJsonPath('id', $running->id);
+
+        Queue::assertNothingPushed();
+        $this->assertSame('pending', $running->fresh()->status);
     }
 
     /** A pending row still within the 3-minute window is reused normally. */

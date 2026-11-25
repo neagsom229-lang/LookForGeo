@@ -49,6 +49,10 @@ return [
         // Seconds the duplicate-upload lock waits for an in-flight upload of
         // the same bytes by the same user before answering 409.
         'upload_lock_wait_seconds' => (int) env('ANALYSIS_UPLOAD_LOCK_WAIT_SECONDS', 5),
+        // A pending row whose updated_at is older than this is stale. Must be
+        // >= worst-case job (980s = 4x110s budget + 3x180s capped releases)
+        // plus margin, so a job waiting out 30/90/180s is never retired.
+        'stale_pending_seconds' => (int) env('ANALYSIS_STALE_PENDING_SECONDS', 1200),
     ],
 
     /*
