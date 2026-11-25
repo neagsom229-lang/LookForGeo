@@ -11,23 +11,67 @@ class ProductionBootWarningTest extends TestCase
 {
     public function test_empty_nominatim_contact_logs_a_warning(): void
     {
-        Log::spy();
+        $log = Log::spy();
         config(['services.nominatim.contact' => '']);
 
         (new AppServiceProvider(app()))->warnIfNominatimContactMissing();
 
-        Log::shouldHaveReceived('warning')->with(Mockery::on(function ($message) {
+        $log->shouldHaveReceived('warning')->with(Mockery::on(function ($message) {
             return str_contains((string) $message, 'NOMINATIM_CONTACT is empty');
         }));
     }
 
     public function test_configured_contact_does_not_warn(): void
     {
-        Log::spy();
+        $log = Log::spy();
         config(['services.nominatim.contact' => 'ops@example.org']);
 
         (new AppServiceProvider(app()))->warnIfNominatimContactMissing();
 
-        Log::shouldNotHaveReceived('warning');
+        $log->shouldNotHaveReceived('warning');
+    }
+
+    public function test_fallback_model_equal_to_primary_logs_a_warning(): void
+    {
+        $log = Log::spy();
+        config([
+            'services.gemini.model' => 'gemini-3.5-flash-lite',
+            'services.gemini.fallback_model' => 'gemini-3.5-flash-lite',
+        ]);
+
+        (new AppServiceProvider(app()))->warnIfGeminiFallbackEqualsPrimary();
+
+        $log->shouldHaveReceived('warning')->with(Mockery::on(function ($message) {
+            return str_contains((string) $message, 'GEMINI_FALLBACK_MODEL equals GEMINI_MODEL');
+        }));
+    }
+
+    /** An empty fallback config collapses to the primary, so it must warn too. */
+    public function test_empty_fallback_model_collapses_to_primary_and_warns(): void
+    {
+        $log = Log::spy();
+        config([
+            'services.gemini.model' => 'gemini-3.5-flash-lite',
+            'services.gemini.fallback_model' => '',
+        ]);
+
+        (new AppServiceProvider(app()))->warnIfGeminiFallbackEqualsPrimary();
+
+        $log->shouldHaveReceived('warning')->with(Mockery::on(function ($message) {
+            return str_contains((string) $message, 'GEMINI_FALLBACK_MODEL equals GEMINI_MODEL');
+        }));
+    }
+
+    public function test_distinct_fallback_model_does_not_warn(): void
+    {
+        $log = Log::spy();
+        config([
+            'services.gemini.model' => 'gemini-3.5-flash-lite',
+            'services.gemini.fallback_model' => 'gemini-3.1-flash-lite',
+        ]);
+
+        (new AppServiceProvider(app()))->warnIfGeminiFallbackEqualsPrimary();
+
+        $log->shouldNotHaveReceived('warning');
     }
 }

@@ -111,4 +111,65 @@ class GeminiTransientResilienceTest extends TestCase
         $this->assertSame('quota', $result['category'] ?? null);
         $this->assertSame('Daily AI limit reached, try later.', $result['user_message'] ?? null);
     }
+
+    /**
+     * Retry-After on a 429/503 must delay the queue release so the job never
+     * comes back before Google asked us to wait.
+     */
+    public function test_429_retry_after_delays_the_queue_release(): void
+    {
+        $job = $this->runJobWith429('120');
+
+        $this->assertSame('processing', $job['analysis']->status);
+        $this->assertSame(120, $job['releasedDelay']);
+    }
+
+    /** An absurd Retry-After must be capped at the last configured delay. */
+    public function test_429_retry_after_is_capped_by_the_max_release_delay(): void
+    {
+        $job = $this->runJobWith429('9999');
+
+        $this->assertSame('processing', $job['analysis']->status);
+        $this->assertSame(180, $job['releasedDelay']);
+    }
+
+    /**
+     * @return array{analysis: GeoAnalysis, releasedDelay: int|null}
+     */
+    private function runJobWith429(string $retryAfter): array
+    {
+        Http::fake(['*' => Http::response(
+            ['error' => ['status' => 'RESOURCE_EXHAUSTED', 'message' => 'quota']],
+            429,
+            ['Retry-After' => $retryAfter]
+        )]);
+        Storage::fake('public');
+        Storage::disk('public')->put('analyses/test.jpg', 'jpg');
+
+        $user = User::factory()->create();
+        $analysis = GeoAnalysis::create([
+            'user_id' => $user->id,
+            'status' => 'pending',
+            'stage' => 0,
+            'stage_label' => 'Uploaded',
+            'progress' => 10,
+            'image_path' => 'analyses/test.jpg',
+            'image_url' => 'https://example.com/test.jpg',
+            'started_at' => now(),
+        ]);
+
+        $job = new class($analysis->id) extends AnalyzeImageJob
+        {
+            public ?int $releasedDelay = null;
+
+            public function release($delay = 0)
+            {
+                $this->releasedDelay = (int) $delay;
+            }
+        };
+        $job->handle(app(GeminiService::class));
+        $analysis->refresh();
+
+        return ['analysis' => $analysis, 'releasedDelay' => $job->releasedDelay];
+    }
 }
