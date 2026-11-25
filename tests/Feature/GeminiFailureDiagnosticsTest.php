@@ -11,6 +11,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Mockery\MockInterface;
 use Tests\TestCase;
 
 /**
@@ -21,6 +22,10 @@ use Tests\TestCase;
 class GeminiFailureDiagnosticsTest extends TestCase
 {
     use RefreshDatabase;
+
+    /** Spy instance returned by Log::spy(); asserted on directly so static
+     *  facade forwarding does not look like an undefined static method. */
+    private MockInterface $logSpy;
 
     protected function setUp(): void
     {
@@ -37,7 +42,7 @@ class GeminiFailureDiagnosticsTest extends TestCase
             // automatic requeue is covered in AutoRequeueTest.
             'services.analysis.auto_requeue' => false,
         ]);
-        Log::spy();
+        $this->logSpy = Log::spy();
     }
 
     private function runPipeline(): array
@@ -124,7 +129,7 @@ class GeminiFailureDiagnosticsTest extends TestCase
                 && $context['image_bytes'] > 0;
         });
         // The secret-looking key must never appear in any captured log line.
-        Log::shouldHaveReceived('info')
+        $this->logSpy->shouldHaveReceived('info')
             ->withArgs(function ($message, $context = []) {
                 return ! str_contains(json_encode([$message, $context]), 'AIzaSyFakeDiagKey1234567890');
             });
@@ -132,7 +137,7 @@ class GeminiFailureDiagnosticsTest extends TestCase
 
     private function assertAttemptLog(callable $predicate): void
     {
-        Log::shouldHaveReceived('info')->withArgs(function ($message, $context = []) use ($predicate) {
+        $this->logSpy->shouldHaveReceived('info')->withArgs(function ($message, $context = []) use ($predicate) {
             return $message === 'Gemini attempt'
                 && is_array($context)
                 && $predicate($context)

@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Mockery;
+use Mockery\MockInterface;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\TestCase;
 
@@ -22,6 +23,10 @@ use Tests\TestCase;
 class RequeueWorkerTest extends TestCase
 {
     use RefreshDatabase;
+
+    /** Spy instance returned by Log::spy(); asserted on directly so static
+     *  facade forwarding does not look like an undefined static method. */
+    private MockInterface $logSpy;
 
     public function test_released_job_runs_a_second_time_with_worker_tries_1(): void
     {
@@ -37,7 +42,7 @@ class RequeueWorkerTest extends TestCase
             'services.gemini.hedge_after' => 0,
             'services.gemini.circuit_failures' => 10,
         ]);
-        Log::spy();
+        $this->logSpy = Log::spy();
 
         $calls = 0;
         Http::fake(function () use (&$calls) {
@@ -90,7 +95,7 @@ class RequeueWorkerTest extends TestCase
         $analysis->refresh();
         $this->assertSame('completed', $analysis->status);
 
-        Log::shouldHaveReceived('info')->with('AnalyzeImageJob attempt', Mockery::on(function ($context) {
+        $this->logSpy->shouldHaveReceived('info')->with('AnalyzeImageJob attempt', Mockery::on(function ($context) {
             return ($context['attempt'] ?? 0) === 2 && ($context['max_tries'] ?? 0) === 4;
         }));
 
