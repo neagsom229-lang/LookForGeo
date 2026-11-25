@@ -80,6 +80,7 @@ class EnricherGeocodeTest extends TestCase
         config([
             'services.gemini.confidence_reverse_geocode' => true,
             'services.gemini.confidence_forward_geocode' => false,
+            'services.gemini.forward_geocode_missing' => false,
         ]);
         Http::fake(['nominatim.openstreetmap.org/*' => Http::response($this->realNominatimPayload(), 200)]);
 

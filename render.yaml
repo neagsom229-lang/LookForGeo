@@ -57,6 +57,9 @@
         value: 1200
       - key: GEMINI_CONFIDENCE_REVERSE_GEOCODE
         value: true
+      # Last-resort Nominatim forward geocode when the model omits coordinates
+      - key: GEMINI_FORWARD_GEOCODE_MISSING
+        value: true
       - key: GEMINI_HEALTH_PROBE
         value: false
       - key: HEALTH_ADMIN_TOKEN

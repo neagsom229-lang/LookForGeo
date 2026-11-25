@@ -22,6 +22,9 @@ class GeminiHedgeTest extends TestCase
             'services.gemini.max_total_time' => 10,
             'services.gemini.min_attempt_seconds' => 5,
             'services.gemini.hedge_after' => 1,
+            // This suite counts Gemini HTTP calls; the missing-coordinate
+            // Nominatim fallback is covered in MissingCoordinatesTest.
+            'services.gemini.forward_geocode_missing' => false,
         ]);
     }
 

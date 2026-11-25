@@ -50,6 +50,9 @@ class GeminiResultEnhancer
         if ($this->isValidCoordinate($data['latitude'] ?? null, $data['longitude'] ?? null)) {
             return $data;
         }
+        if (! config('services.gemini.forward_geocode_missing', true)) {
+            return $data;
+        }
 
         $landmark = trim((string) ($data['landmark_name'] ?? ''));
         $city = trim((string) ($data['city'] ?? ''));
