@@ -3,12 +3,17 @@
 namespace App\Services\Gemini;
 
 use App\Models\Landmark;
+use App\Services\OpenStreetMapService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 class GeminiResultEnhancer
 {
-    public function __construct(private ConfidenceCalculator $confidence) {}
+    public function __construct(
+        private ConfidenceCalculator $confidence,
+        private OpenStreetMapService $osm
+    ) {}
 
     /**
      * RUN THE ENRICHMENT CHAIN + FIELD VALIDATION.
@@ -19,6 +24,7 @@ class GeminiResultEnhancer
     {
         $data = $this->databaseCrossReference($data);
         $data = $this->multiSourceVerification($data);
+        $data = $this->resolveMissingCoordinates($data);
         $data = $this->confidence->calculate($data, $metadata);
         $data = $this->addRichMetadata($data);
 
@@ -27,7 +33,58 @@ class GeminiResultEnhancer
 
     private function isValidCoordinate($lat, $lng)
     {
-        return is_numeric($lat) && is_numeric($lng) && abs($lat) <= 90 && abs($lng) <= 180 && $lat != 0 && $lng != 0;
+        return is_numeric($lat) && is_numeric($lng)
+            && is_finite((float) $lat) && is_finite((float) $lng)
+            && abs((float) $lat) <= 90 && abs((float) $lng) <= 180
+            && ! ((float) $lat === 0.0 && (float) $lng === 0.0);
+    }
+
+    /**
+     * Last-resort forward geocode when the model found a place but returned no
+     * coordinates. Nominatim is rate-limited (1 req/s), cached and uses the
+     * configured contact User-Agent. Any failure keeps coordinates null and
+     * never fails the analysis; the outcome category is carried in the result.
+     */
+    private function resolveMissingCoordinates(array $data): array
+    {
+        if ($this->isValidCoordinate($data['latitude'] ?? null, $data['longitude'] ?? null)) {
+            return $data;
+        }
+
+        $landmark = trim((string) ($data['landmark_name'] ?? ''));
+        $city = trim((string) ($data['city'] ?? ''));
+        $country = trim((string) ($data['country'] ?? ''));
+        if ($landmark === '' && $city === '' && $country === '') {
+            return $data;
+        }
+
+        try {
+            $place = $this->osm->forwardGeocode(
+                $landmark,
+                $city !== '' ? $city : null,
+                $country !== '' ? $country : null
+            );
+        } catch (Throwable $e) {
+            Log::warning('Forward geocode for missing coordinates failed: '.get_class($e));
+            $place = null;
+        }
+
+        $outcome = $this->osm->lastOutcomeCategory();
+        $data['forward_geocode_outcome'] = $outcome;
+
+        if ($this->isValidCoordinate($place['lat'] ?? null, $place['lng'] ?? null)) {
+            $data['latitude'] = (float) $place['lat'];
+            $data['longitude'] = (float) $place['lng'];
+            $data['coordinate_source'] = 'forward_geocode';
+
+            return $data;
+        }
+
+        // Honest absence: never substitute a famous landmark or (0, 0).
+        $data['latitude'] = null;
+        $data['longitude'] = null;
+
+        return $data;
     }
 
     private function extractCoordinatesFromText($text)

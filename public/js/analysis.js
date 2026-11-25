@@ -362,10 +362,16 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     let aiWaitingSince = null;
 
     // ========== HELPERS ==========
+    // Strict gate for EVERY map/Street View URL. Number(null) === 0, so
+    // explicit null/empty must be rejected before conversion.
     function isValidCoord(lat, lng) {
-        const a = parseFloat(lat),
-            b = parseFloat(lng);
-        return !isNaN(a) && !isNaN(b) && a !== 0 && b !== 0 && Math.abs(a) <= 90 && Math.abs(b) <= 180;
+        if (lat === null || lat === undefined || lat === '' ||
+            lng === null || lng === undefined || lng === '') return false;
+        const a = typeof lat === 'number' ? lat : Number(lat);
+        const b = typeof lng === 'number' ? lng : Number(lng);
+        return Number.isFinite(a) && Number.isFinite(b) &&
+            Math.abs(a) <= 90 && Math.abs(b) <= 180 &&
+            !(a === 0 && b === 0);
     }
 
     function sleep(ms) {
@@ -527,27 +533,14 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
 
     function flyEarthTo(lat, lng, zoom, duration = 1600) {
         return new Promise(resolve => {
-            function isValidCoordinate(lat, lng) {
-                const latNum = parseFloat(lat);
-                const lngNum = parseFloat(lng);
-                return !isNaN(latNum) && !isNaN(lngNum) &&
-                    Math.abs(latNum) <= 90 && Math.abs(lngNum) <= 180 &&
-                    latNum !== 0 && lngNum !== 0;
+            if (!isValidCoord(lat, lng)) {
+                console.warn('flyEarthTo: no usable coordinates; not moving the globe', {lat, lng});
+                resolve();
+                return;
             }
 
-            let latNum = parseFloat(lat);
-            let lngNum = parseFloat(lng);
-
-            if (!isValidCoordinate(latNum, lngNum)) {
-                console.warn('⚠️ flyEarthTo: Invalid coordinates received', {
-                    lat,
-                    lng
-                });
-                console.warn('   → Using fallback: Eiffel Tower, Paris (48.8584, 2.2945)');
-                latNum = 48.8584;
-                lngNum = 2.2945;
-                zoom = zoom || 12;
-            }
+            const latNum = Number(lat);
+            const lngNum = Number(lng);
 
             const safeZoom = Math.min(Math.max(zoom || 2, 1), 18);
 
@@ -1017,31 +1010,13 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     async function revealTarget(lat, lng, name) {
         analysisComplete = true;
 
-        function isValidCoordinate(lat, lng) {
-            const latNum = parseFloat(lat);
-            const lngNum = parseFloat(lng);
-            return !isNaN(latNum) && !isNaN(lngNum) &&
-                Math.abs(latNum) <= 90 && Math.abs(lngNum) <= 180 &&
-                latNum !== 0 && lngNum !== 0;
+        if (!isValidCoord(lat, lng)) {
+            console.warn('revealTarget: no usable coordinates; skipping map reveal', {lat, lng, name});
+            return;
         }
 
-        let latNum = parseFloat(lat);
-        let lngNum = parseFloat(lng);
-
-        if (!isValidCoordinate(latNum, lngNum)) {
-            console.warn('⚠️ revealTarget: Invalid coordinates, using fallback');
-            console.warn('   → Received:', {
-                lat,
-                lng,
-                name
-            });
-            latNum = 48.8584;
-            lngNum = 2.2945;
-            name = name || 'Unknown Location (fallback)';
-        }
-
-        latNum = Math.min(Math.max(latNum, -90), 90);
-        lngNum = Math.min(Math.max(lngNum, -180), 180);
+        const latNum = Number(lat);
+        const lngNum = Number(lng);
 
         showFlatMapMode();
         await sleep(300);
@@ -1220,30 +1195,26 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                         clearSession();
                         analysisComplete = true;
 
-                        function parseSafeCoordinate(value, fallback = 48.8584) {
-                            const parsed = parseFloat(value);
-                            return !isNaN(parsed) && isFinite(parsed) && Math.abs(parsed) <= 180 ? parsed :
-                                fallback;
-                        }
+                        // Never invent a location. null coordinates mean the
+                        // place was identified but cannot be pinned.
+                        const tLat = result.latitude ?? result.lat ?? null;
+                        const tLng = result.longitude ?? result.lng ?? null;
+                        const tName = result.landmark_name || result.city || result.place || 'Unknown Location';
+                        const canReveal = isValidCoord(tLat, tLng) && !result.coordinates_missing;
 
-                        let tLat = parseSafeCoordinate(result.latitude ?? result.lat, 48.8584);
-                        let tLng = parseSafeCoordinate(result.longitude ?? result.lng, 2.2945);
-                        let tName = result.landmark_name || result.city || result.place || 'Unknown Location';
-
-                        console.log('📍 Target coordinates extracted:', {
+                        console.log('Target coordinates:', {
                             tLat,
                             tLng,
-                            tName
+                            tName,
+                            canReveal
                         });
                         console.log('📦 Full result:', result);
 
-                        // Never animate a pin to fallback coordinates: a result
-                        // with coordinates_missing=true is not pinnable.
-                        const pinnable = !result.coordinates_missing &&
-                            isValidCoord(result.latitude ?? result.lat, result.longitude ?? result.lng);
+                        // No fallback flight: with missing coordinates we keep
+                        // the current view and show the honest status message.
                         setTimeout(async () => {
                             stopStarfield();
-                            if (pinnable) {
+                            if (canReveal) {
                                 await revealTarget(tLat, tLng, tName);
                             } else if (DOM.mapStatusText) {
                                 DOM.mapStatusText.textContent = 'Location could not be pinned - coordinates missing';
@@ -1711,10 +1682,23 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     const STREET_VIEW_TIMEOUT_MS = 6000;
 
     function showStreetView(lat, lng) {
+        // Hard gate: no coordinates -> no URL is ever constructed. This also
+        // protects the embedded key from being attached to a NaN request.
+        if (!isValidCoord(lat, lng)) {
+            if (DOM.satPane) {
+                DOM.satPane.querySelector('.street-inline')?.remove();
+                const notice = document.createElement('div');
+                notice.className = 'street-inline street-setup-notice';
+                notice.textContent = 'Street View is unavailable: this result has no valid coordinates.';
+                DOM.satPane.appendChild(notice);
+            }
+            console.warn('showStreetView: no valid coordinates; no URL built');
+            return;
+        }
         DOM.satPane.querySelector('.street-inline')?.remove();
         const wrap = document.createElement('div');
         wrap.className = 'street-inline';
-        const fullUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
+        const fullUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${Number(lat)},${Number(lng)}`;
 
         const globeBtn = document.getElementById('globeToggleBtn');
         const streetBtn = document.getElementById('streetToggleBtn');
@@ -1755,7 +1739,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         }
 
         const embedSrc =
-            `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
+            `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(GOOGLE_MAPS_EMBED_KEY)}&location=${Number(lat)},${Number(lng)}&heading=0&pitch=0&fov=90`;
 
         wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>

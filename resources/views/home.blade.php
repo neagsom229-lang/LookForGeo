@@ -2423,21 +2423,11 @@
     // ============================================
     // COSMETIC: HERO COORDINATE READOUT
     // ============================================
-    (function animateCoordReadout() {
+    // No invented coordinates on the hero: until an analysis resolves a real
+    // location, the readout stays explicitly unavailable.
+    (function coordReadout() {
         const el = document.getElementById('coordReadout');
-        if (!el || prefersReducedMotion) return;
-        const targetLat = 48.8584,
-            targetLng = 2.2945;
-        let t = 0;
-        const steps = 40;
-        const interval = setInterval(() => {
-            t++;
-            const progress = Math.min(t / steps, 1);
-            const lat = (targetLat * progress).toFixed(4);
-            const lng = (targetLng * progress).toFixed(4);
-            el.textContent = `${lat}, ${lng}`;
-            if (progress >= 1) clearInterval(interval);
-        }, 60);
+        if (el) el.textContent = 'Location pending analysis';
     })();
 
     // ============================================

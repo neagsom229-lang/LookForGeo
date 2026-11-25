@@ -29,7 +29,10 @@ class GeminiServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(GeminiResultEnhancer::class, function ($app) {
-            return new GeminiResultEnhancer($app->make(ConfidenceCalculator::class));
+            return new GeminiResultEnhancer(
+                $app->make(ConfidenceCalculator::class),
+                $app->make(OpenStreetMapService::class)
+            );
         });
 
         $this->app->singleton(GeminiResultValidator::class, function ($app) {
