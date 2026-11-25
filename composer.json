@@ -50,7 +50,8 @@
     "test:all": ["@test", "@test:slow"],
     "pint-changed": "php scripts/pint-changed.php",
     "quick": "php scripts/quick.php",
-    "ci": ["@test:all", "@test:decoy", "@pint-changed", "@analyse"],
+    "js:check": "node --check public/js/csrf-retry.js && node --check public/js/home-upload.js && node --check public/sw.js && node --test tests/js/csrf-retry.test.cjs tests/js/home-upload.test.cjs",
+    "ci": ["@test:all", "@test:decoy", "@pint-changed", "@analyse", "@js:check"],
     "dev": [
         "Composer\\Config::disableProcessTimeout",
         "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1"

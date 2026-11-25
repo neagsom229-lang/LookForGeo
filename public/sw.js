@@ -8,7 +8,7 @@
  * - Handles fetch failures gracefully (no Uncaught promise errors)
  * ========================================================================= */
 
-const CACHE_NAME = 'tracegeo-v3';        // ⬅️ bump this on every deploy
+const CACHE_NAME = 'tracegeo-v4';        // ⬅️ bump this on every deploy
 const OFFLINE_URL = '/offline.html';
 const NETWORK_TIMEOUT_MS = 8000;
 

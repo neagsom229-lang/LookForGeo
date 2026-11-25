@@ -19,11 +19,40 @@ class CsrfHardeningTest extends TestCase
     {
         $sw = (string) file_get_contents(base_path('public/sw.js'));
 
-        $this->assertStringContainsString("CACHE_NAME = 'tracegeo-v3'", $sw);
+        $this->assertStringContainsString("CACHE_NAME = 'tracegeo-v4'", $sw);
         $this->assertStringContainsString('no-store', $sw);
         $this->assertStringContainsString('self.clients.claim()', $sw);
         // Navigations must not be written into the cache at all.
         $this->assertStringNotContainsString('caches.open(CACHE_NAME).then((c) => c.put(request, copy))', $sw);
+    }
+
+    /** Regressions that killed both upload paths with infinite recursion. */
+    public function test_upload_wrapper_is_not_self_recursive_and_loads_helper_first(): void
+    {
+        $home = (string) file_get_contents(base_path('resources/views/home.blade.php'));
+        $uploadJs = (string) file_get_contents(base_path('public/js/home-upload.js'));
+        $retryJs = (string) file_get_contents(base_path('public/js/csrf-retry.js'));
+
+        // (a) helper is namespaced; wrapper never calls itself.
+        $this->assertStringContainsString('CsrfRetry.fetchWithCsrfRetry', $uploadJs);
+        $this->assertStringNotContainsString('return uploadFetch(', $uploadJs);
+        $this->assertStringNotContainsString('return uploadFetch(', $home);
+        $this->assertStringContainsString('module.exports = { createUploadFetch }', $uploadJs);
+
+        // (b) both analyse-store calls go through the wrapper.
+        $this->assertStringNotContainsString("fetch('/api/analyze/store'", $home);
+        $this->assertGreaterThanOrEqual(2, substr_count($home, "uploadFetch('/api/analyze/store'"));
+
+        // (c) script order: helper, wrapper, then inline use.
+        $retryPos = (int) strpos($home, '/js/csrf-retry.js');
+        $uploadPos = (int) strpos($home, '/js/home-upload.js');
+        $usePos = (int) strpos($home, 'window.HomeUpload.createUploadFetch()');
+        $this->assertGreaterThan(0, $retryPos);
+        $this->assertGreaterThan($retryPos, $uploadPos);
+        $this->assertGreaterThan($uploadPos, $usePos);
+
+        // Namespaced global is actually exported by the helper.
+        $this->assertStringContainsString('root.CsrfRetry', $retryJs);
     }
 
     public function test_service_worker_is_served_no_cache(): void

@@ -45,6 +45,8 @@
     }
   }
 
-  root.fetchWithCsrfRetry = fetchWithCsrfRetry;
+  // Namespaced global: the page wrapper is also called uploadFetch, so the
+  // helper must be reachable under a DIFFERENT name to avoid recursion.
+  root.CsrfRetry = Object.assign(root.CsrfRetry || {}, { fetchWithCsrfRetry });
   if (typeof module !== 'undefined' && module.exports) module.exports = fetchWithCsrfRetry;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
