@@ -64,6 +64,7 @@ class SystemHealthService
                     'pending_migrations_count' => $pendingMigrations,
                     'failed_jobs' => $databaseDown ? ['count' => null, 'skipped' => 'database_down'] : $this->failedJobs(),
                     'gemini' => $this->gemini(),
+                    'nominatim' => $this->nominatim(),
                     'worker' => [
                         'queue_backlog' => $queueCheck['backlog'] ?? null,
                         'queue_oldest_seconds' => $queueCheck['oldest_seconds'] ?? null,
@@ -372,6 +373,28 @@ class SystemHealthService
      *
      * @return array<string, mixed>
      */
+    /**
+     * Last Nominatim outcome and contact presence, for admin diagnostics only.
+     * Contains no keys, URLs with keys, or contact values.
+     */
+    private function nominatim(): array
+    {
+        // This also runs in degradedFallback() when the cache table itself is
+        // missing: a cache failure must never turn a JSON 503 into a 500.
+        try {
+            $last = Cache::get('nominatim:last_outcome');
+        } catch (Throwable $e) {
+            $last = null;
+        }
+        $outcome = is_array($last) ? ($last['outcome'] ?? null) : null;
+
+        return [
+            'contact_configured' => trim((string) config('services.nominatim.contact', '')) !== '',
+            'last_outcome' => $outcome,
+            'last_outcome_at' => is_array($last) ? ($last['at'] ?? null) : null,
+        ];
+    }
+
     private function gemini(): array
     {
         $lastObserved = Cache::get('gemini:last_observed_status');
@@ -438,6 +461,7 @@ class SystemHealthService
                 'migrations_pending' => false,
                 'pending_migrations_count' => -1,
                 'failed_jobs' => ['count' => null],
+                'nominatim' => $this->nominatim(),
                 'gemini' => [
                     'configured_models' => array_values(array_filter([
                         (string) config('services.gemini.model'),

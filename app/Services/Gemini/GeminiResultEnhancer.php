@@ -76,6 +76,33 @@ class GeminiResultEnhancer
         $data['forward_geocode_outcome'] = $outcome;
 
         if ($this->isValidCoordinate($place['lat'] ?? null, $place['lng'] ?? null)) {
+            // A geocode of the model's own name can match a different country
+            // (homonyms, wrong continent). Accept it only when the ISO country
+            // code agrees with the model's stated country.
+            $placeCode = $this->confidence->normalizeCountryCode(
+                isset($place['country_code']) ? (string) $place['country_code'] : null
+            );
+            if ($placeCode === null) {
+                $parts = array_values(array_filter(array_map('trim', explode(
+                    ',', (string) ($place['display_name'] ?? '')
+                ))));
+                $placeCode = $this->confidence->normalizeCountryCode(
+                    $parts === [] ? null : (string) end($parts)
+                );
+            }
+            $modelCode = $this->confidence->normalizeCountryCode($country !== '' ? $country : null);
+            if ($modelCode !== null && $placeCode !== null && $modelCode !== $placeCode) {
+                $data['forward_geocode_outcome'] = 'country_mismatch';
+                Log::warning('Forward geocode country mismatch', [
+                    'model_country' => $modelCode,
+                    'geocoded_country' => $placeCode,
+                ]);
+                $data['latitude'] = null;
+                $data['longitude'] = null;
+
+                return $data;
+            }
+
             $data['latitude'] = (float) $place['lat'];
             $data['longitude'] = (float) $place['lng'];
             $data['coordinate_source'] = 'forward_geocode';

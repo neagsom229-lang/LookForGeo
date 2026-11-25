@@ -37,7 +37,7 @@ class OpenStreetMapService
     private function allowNominatim(string $operation): bool
     {
         if (RateLimiter::tooManyAttempts(self::NOMINATIM_LIMIT_KEY, 1)) {
-            $this->lastOutcome = 'rate_limit';
+            $this->recordOutcome('rate_limit');
             Log::warning('Nominatim request skipped', [
                 'category' => 'rate_limit',
                 'provider' => 'nominatim',
@@ -323,7 +323,7 @@ class OpenStreetMapService
                 // "Briefly": avoid hammering a free service while still
                 // refreshing stale country data.
                 Cache::put($cacheKey, $data, self::NOMINATIM_CACHE_SECONDS);
-                $this->lastOutcome = 'ok';
+                $this->recordOutcome('ok');
 
                 return $data;
             }
@@ -345,9 +345,19 @@ class OpenStreetMapService
         return null;
     }
 
-    private function logNominatimFailure(string $operation, string $category, array $context): void
+    /** Last outcome is cached (no secrets) so admin health can diagnose it. */
+    private function recordOutcome(string $category): void
     {
         $this->lastOutcome = $category;
+        Cache::put('nominatim:last_outcome', [
+            'outcome' => $category,
+            'at' => now()->toIso8601String(),
+        ], 3600);
+    }
+
+    private function logNominatimFailure(string $operation, string $category, array $context): void
+    {
+        $this->recordOutcome($category);
         Log::warning('Nominatim geocode failed', array_merge([
             'category' => $category,
             'provider' => 'nominatim',
@@ -368,14 +378,14 @@ class OpenStreetMapService
             $landmark, $city, $country,
         ], fn ($part) => is_string($part) && trim($part) !== '')));
         if ($query === '') {
-            $this->lastOutcome = 'skipped_no_query';
+            $this->recordOutcome('skipped_no_query');
 
             return null;
         }
 
         $cacheKey = 'forward_'.md5($query);
         if (Cache::has($cacheKey)) {
-            $this->lastOutcome = 'ok';
+            $this->recordOutcome('ok');
 
             return Cache::get($cacheKey);
         }
@@ -409,14 +419,16 @@ class OpenStreetMapService
                 return null;
             }
 
+            $address = is_array($data[0]['address'] ?? null) ? $data[0]['address'] : [];
             $result = [
                 'lat' => (float) $data[0]['lat'],
                 'lng' => (float) $data[0]['lon'],
                 'display_name' => (string) ($data[0]['display_name'] ?? ''),
+                'country_code' => $address['country_code'] ?? ($data[0]['country_code'] ?? null),
                 'query' => $query,
             ];
             Cache::put($cacheKey, $result, self::NOMINATIM_CACHE_SECONDS);
-            $this->lastOutcome = 'ok';
+            $this->recordOutcome('ok');
 
             return $result;
         } catch (ConnectionException $e) {

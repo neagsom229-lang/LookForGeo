@@ -76,6 +76,8 @@ Before picking a final answer, silently consider at least 3 plausible locations 
 
 **OUTPUT:** Return ONLY valid JSON with the following structure. All fields are required; use `null` (not the string "null") for unknown numeric fields, and `"Unknown"` for unknown text fields.
 
+**COORDINATE POLICY:** When `landmark_name` names a specific, identifiable place, you MUST provide your best-estimate latitude and longitude (decimal degrees, even if approximate). Use null only when the place is genuinely unknown or cannot be located at all. Never omit coordinates for an identified landmark just to avoid being wrong; a best estimate is more useful than no pin.
+
 ```json
 {
     "landmark_name": "Name of the specific place or 'Unknown Location'",

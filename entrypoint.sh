@@ -24,8 +24,13 @@ echo "🔗 Creating storage link (if not exists)..."
 # Ensure the target directory exists
 mkdir -p storage/app/public
 
-# Attempt to create the symlink; if it fails, retry once
-if ! php artisan storage:link; then
+# Idempotent: `storage:link` logs an ERROR when the link already exists,
+# so skip the command entirely on deploys where the symlink is still valid.
+if [ -L public/storage ]; then
+  echo "Storage link already exists; skipping."
+elif php artisan storage:link; then
+  :
+else
   echo "⚠️ Storage link creation failed. Retrying after 2 seconds..."
   sleep 2
   php artisan storage:link || {

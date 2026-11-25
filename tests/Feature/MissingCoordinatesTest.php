@@ -6,6 +6,7 @@ use App\Models\GeoAnalysis;
 use App\Models\User;
 use App\Services\Gemini\ConfidenceCalculator;
 use App\Services\Gemini\GeminiCircuitBreaker;
+use App\Services\Gemini\GeminiPrompt;
 use App\Services\GeminiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
@@ -196,6 +197,107 @@ class MissingCoordinatesTest extends TestCase
 
         $this->assertTrue((bool) $calculated['coordinates_missing']);
         $this->assertSame(49, $calculated['confidence']);
+    }
+
+    /** Forward-geocoded coordinates came from the model's own name: no self-corroboration. */
+    public function test_forward_geocoded_coordinates_earn_no_corroboration_points(): void
+    {
+        config([
+            'services.gemini.confidence_reverse_geocode' => true,
+            'services.gemini.confidence_forward_geocode' => true,
+        ]);
+        Http::fake(['nominatim.openstreetmap.org/*' => Http::response([[
+            'lat' => '-33.8568',
+            'lon' => '151.2153',
+            'address' => ['country_code' => 'au', 'country' => 'Australia'],
+        ]], 200)]);
+
+        $data = $this->foundLandmarkWithoutCoordinates();
+        $data['latitude'] = -33.8568;
+        $data['longitude'] = 151.2153;
+        $data['coordinate_source'] = 'forward_geocode';
+        $data['coordinate_sources'] = 2;
+        $data['forward_geocode_outcome'] = 'ok';
+
+        $calculated = app(ConfidenceCalculator::class)->calculate($data, []);
+
+        $this->assertSame(0, $calculated['confidence_signals']['country_consistency']['points']);
+        $this->assertSame(0, $calculated['confidence_signals']['coordinate_sources']['points']);
+        $this->assertSame(0, $calculated['confidence_signals']['forward_geocode_distance']['points']);
+    }
+
+    /** A Nominatim hit in another country must be discarded, not accepted. */
+    public function test_forward_geocode_rejects_a_country_mismatch(): void
+    {
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response(
+                $this->geminiResponse($this->foundLandmarkWithoutCoordinates()), 200
+            ),
+            'nominatim.openstreetmap.org/*' => Http::response([[
+                'lat' => '-33.8568',
+                'lon' => '151.2153',
+                'display_name' => 'Sydney Opera House, Auckland, New Zealand',
+                'address' => ['country_code' => 'nz', 'country' => 'New Zealand'],
+            ]], 200),
+        ]);
+
+        $result = app(GeminiService::class)->analyzeGeolocation('img', []);
+
+        $this->assertNull($result['latitude'] ?? null);
+        $this->assertNull($result['longitude'] ?? null);
+        $this->assertSame('country_mismatch', $result['forward_geocode_outcome'] ?? null);
+    }
+
+    /** Nominatim outcome must be visible only in the admin health payload. */
+    public function test_admin_health_exposes_nominatim_outcome_without_secrets(): void
+    {
+        config([
+            'services.gemini.health_probe' => false,
+            'services.health.admin_token' => 'admin-secret',
+        ]);
+        cache()->put('nominatim:last_outcome', [
+            'outcome' => 'empty',
+            'at' => '2026-11-25T00:00:00+00:00',
+        ], 60);
+
+        $admin = $this->getJson('/api/health', ['X-Admin-Token' => 'admin-secret'])
+            ->assertOk()
+            ->assertJsonPath('info.nominatim.last_outcome', 'empty');
+        $this->assertStringNotContainsString('ops@example.org', (string) $admin->getContent());
+
+        $this->getJson('/api/health')
+            ->assertOk()
+            ->assertExactJson(['status' => 'operational']);
+    }
+
+    /** The prompt must ask for a best estimate when a place was identified. */
+    public function test_prompt_requires_best_estimate_for_identified_landmark(): void
+    {
+        $prompt = app(GeminiPrompt::class)->buildUltimateGeoPrompt([]);
+
+        $this->assertStringContainsString('best-estimate latitude and longitude', $prompt);
+        $this->assertStringContainsString('null only when the place is genuinely unknown', $prompt);
+    }
+
+    /** Public health stays exactly {"status":...} (no token, no diagnostics). */
+    public function test_public_health_is_exact_status_only(): void
+    {
+        config(['services.gemini.health_probe' => false]);
+
+        $response = $this->getJson('/api/health')->assertOk();
+
+        $response->assertExactJson(['status' => 'operational']);
+        $this->assertSame(24, strlen((string) $response->getContent()));
+    }
+
+    /** storage:link must not emit "already exists" ERROR on every deploy. */
+    public function test_entrypoint_storage_link_is_idempotent(): void
+    {
+        $script = (string) file_get_contents(base_path('entrypoint.sh'));
+
+        $this->assertStringContainsString('if [ -L public/storage ]; then', $script);
+        $this->assertStringContainsString('Storage link already exists; skipping.', $script);
+        $this->assertStringNotContainsString('if ! php artisan storage:link; then', $script);
     }
 
     public function test_unknown_landmark_without_coordinates_stays_low(): void

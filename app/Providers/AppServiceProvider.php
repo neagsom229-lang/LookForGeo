@@ -10,10 +10,12 @@ use App\Support\LocalDatabaseGuard;
 use App\Support\RequestContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
+use Throwable;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -31,7 +33,20 @@ class AppServiceProvider extends ServiceProvider
     public function warnIfNominatimContactMissing(): void
     {
         $contact = trim((string) config('services.nominatim.contact', ''));
-        if ($contact === '') {
+        if ($contact !== '') {
+            return;
+        }
+
+        // A boot-time warning must never break the app (Larastan boots the
+        // console kernel with CACHE_STORE=database but no cache table).
+        try {
+            $warn = Cache::add('nominatim:contact_warning', true, now()->addDay());
+        } catch (Throwable $e) {
+            $warn = false;
+        }
+        if ($warn) {
+            // Once per deploy/day, not on every request or artisan invocation.
+            // Admin health also exposes contact_configured for diagnosis.
             Log::warning('NOMINATIM_CONTACT is empty: Nominatim geocoding may be rejected. Set a role contact address in Render.');
         }
     }
@@ -57,6 +72,21 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        try {
+            $this->bootSafely();
+        } catch (Throwable $e) {
+            // Provider boot must never break artisan, queue workers or
+            // Larastan's console-kernel bootstrap.
+            try {
+                Log::warning('app_provider_boot_failed', ['error' => get_class($e)]);
+            } catch (Throwable $ignored) {
+                // Logging itself is best-effort here.
+            }
+        }
+    }
+
+    private function bootSafely(): void
+    {
         // Local-only safety net: a local .env pointing at the production
         // database (pgsql / render.com host) must fail loudly at boot.
         if ($this->app->environment('local')) {
@@ -70,8 +100,12 @@ class AppServiceProvider extends ServiceProvider
         // Force HTTPS in production to fix mixed content warnings
         if ($this->app->environment('production')) {
             URL::forceScheme('https');
-            $this->warnIfNominatimContactMissing();
-            $this->warnIfGeminiFallbackEqualsPrimary();
+            // Console boot (artisan, queue worker, Larastan) must not run
+            // warnings that read cache/database during bootstrap.
+            if (! $this->app->runningInConsole()) {
+                $this->warnIfNominatimContactMissing();
+                $this->warnIfGeminiFallbackEqualsPrimary();
+            }
         }
 
         // Rate limiter (migrated from RouteServiceProvider for Laravel 11+)
@@ -94,7 +128,7 @@ class AppServiceProvider extends ServiceProvider
             if (method_exists($logger->getLogger(), 'pushProcessor')) {
                 $logger->pushProcessor(new SecretLogProcessor);
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             // Never let log wiring break boot; call-site redaction still applies.
         }
 
