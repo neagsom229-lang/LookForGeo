@@ -58,9 +58,9 @@ class ProductionBootWarningTest extends TestCase
         DB::setDefaultConnection('lgboot');
         Cache::clearResolvedInstance('cache');
 
+        $this->expectNotToPerformAssertions();
         try {
             (new AppServiceProvider(app()))->warnIfNominatimContactMissing();
-            $this->assertTrue(true);
         } finally {
             @unlink($path);
         }
