@@ -96,6 +96,26 @@ class AnalysisApiController extends Controller
             ], 200);
         }
 
+        // Same-image guard: bytes this user already has in flight return the
+        // running analysis instead of a second job (and a second Gemini cost).
+        $running = GeoAnalysis::findRunningForUser($imageHash, (int) $request->user()->id);
+        if ($running) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Analysis already in progress for this image.',
+                'id' => $running->id,
+                'cached' => true,
+                'data' => [
+                    'id' => $running->id,
+                    'status' => $running->status,
+                    'progress' => (int) ($running->progress ?? 10),
+                    'stage_label' => $running->stage_label,
+                    'image_url' => $running->image_url,
+                    'result' => null,
+                ],
+            ], 200);
+        }
+
         $costGuard = app(AnalysisCostGuard::class);
         if ($blocked = $costGuard->blocked((int) $request->user()->id)) {
             return response()->json([

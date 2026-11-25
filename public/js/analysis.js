@@ -17,6 +17,13 @@
     // Backoff ladder: 2s, then 3s, then 5s -- don't hammer the API while a
     // job sits in the queue.
     const POLL_DELAYS_MS = [2000, 3000, 5000];
+    // The server releases a busy AI service back to the queue with 30/90/180s
+    // delays while status stays 'processing' and the label stays 'Waiting for
+    // AI service'. Keep polling calmly through that window (~6 minutes) instead
+    // of giving up at the generic no-progress timeout.
+    const AI_WAIT_LABEL = 'Waiting for AI service';
+    const AI_WAIT_MAX_MS = 6 * 60 * 1000;
+    const AI_WAIT_CALM_HINT = 'The AI service is busy, so we are retrying automatically. This can take up to about 6 minutes.';
 
     function nextPollDelay() {
         return POLL_DELAYS_MS[Math.min(Math.max(pollAttempts - 1, 0), POLL_DELAYS_MS.length - 1)];
@@ -350,6 +357,9 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     let isExploring = false;
     let lastProgress = 0;
     let lastProgressTime = Date.now();
+    // When the current poll first saw the 'Waiting for AI service' label;
+    // null whenever the analysis is not on that path.
+    let aiWaitingSince = null;
 
     // ========== HELPERS ==========
     function isValidCoord(lat, lng) {
@@ -443,8 +453,10 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     /**
      * Surface server-provided hints (e.g. "queue worker not running?")
      * inside the progress card and in the nav status line.
+     * Pass toast=false for hints re-sent on every poll (a toast on each
+     * poll would spam the user while they wait).
      */
-    function showQueueHint(hint) {
+    function showQueueHint(hint, toast = true) {
         if (!hint) return;
         let el = document.getElementById('pcHint');
         if (!el) {
@@ -461,7 +473,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         }
         el.textContent = '💡 ' + hint;
         el.style.display = 'block';
-        showToast(hint);
+        if (toast !== false) showToast(hint);
     }
 
     function hideQueueHint() {
@@ -1113,6 +1125,8 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         consecutiveErrors = 0;
         analysisComplete = true;
         isExploring = false;
+        aiWaitingSince = null;
+        hideQueueHint();
     }
 
     // ========== POLL BACKEND ==========
@@ -1157,12 +1171,33 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
 
                 updateProgressCard(stage, progress, data.stage_label);
 
+                // Transient AI failures keep status 'processing' with this exact
+                // label and a frozen progress bar while the server retries on
+                // 30/90/180s release delays. Remember when we entered that path
+                // so the generic no-progress timeout does not abort the wait.
+                const waitingForAI = data.status === 'processing' &&
+                    String(data.stage_label || '').indexOf(AI_WAIT_LABEL) === 0;
+
+                if (waitingForAI) {
+                    if (aiWaitingSince === null) aiWaitingSince = Date.now();
+                } else {
+                    aiWaitingSince = null;
+                }
+                const aiWaitWithinBudget = waitingForAI &&
+                    (Date.now() - aiWaitingSince) < AI_WAIT_MAX_MS;
+
                 if (data.status === 'delayed') {
                     showError(data.message || 'Analysis is taking longer than expected. Please retry.', currentAnalysisId);
                     return;
                 }
 
-                if (Date.now() - lastProgressTime > 120000) {
+                // Budget spent on the waiting path: stop, but say why.
+                if (waitingForAI && !aiWaitWithinBudget) {
+                    showError('The AI service stayed busy for about 6 minutes. Your photo is saved - use Retry analysis below.', currentAnalysisId);
+                    return;
+                }
+
+                if (!aiWaitWithinBudget && Date.now() - lastProgressTime > 120000) {
                     showError('Analysis is taking longer than expected. Use Retry analysis below.', currentAnalysisId);
                     return;
                 }
@@ -1236,6 +1271,8 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 // worker picks the job up (server stops sending it).
                 if (data.hint) {
                     showQueueHint(data.hint);
+                } else if (aiWaitWithinBudget) {
+                    showQueueHint(AI_WAIT_CALM_HINT, false);
                 } else {
                     hideQueueHint();
                 }
@@ -1827,6 +1864,7 @@ TraceGeo OSINT Intelligence`;
         startTime = Date.now();
         lastProgress = 0;
         lastProgressTime = Date.now();
+        aiWaitingSince = null;
         analysisComplete = false;
         isExploring = false;
 

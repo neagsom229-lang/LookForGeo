@@ -93,6 +93,33 @@ class AnalysisController extends Controller
                 ]);
             }
 
+            // Repeat-upload guard: identical bytes from the SAME user that are
+            // still pending/processing reuse the running analysis. Without it a
+            // double submit (or a retry while the job waits out a busy AI
+            // service) would queue a second paid job for the same photo.
+            $running = GeoAnalysis::findRunningForUser($imageHash, (int) auth()->id());
+            if ($running) {
+                Log::info('Repeat upload reused the running analysis', [
+                    'user_id' => auth()->id(),
+                    'analysis_id' => $running->id,
+                    'status' => $running->status,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'id' => $running->id,
+                    'cached' => true,
+                    'message' => 'Analysis already in progress for this image.',
+                    'data' => [
+                        'id' => $running->id,
+                        'status' => $running->status,
+                        'progress' => (int) ($running->progress ?? 10),
+                        'stage_label' => $running->stage_label,
+                        'image_url' => $running->image_url,
+                    ],
+                ]);
+            }
+
             // Cached uploads are free; only real analyses consume cost.
             $costGuard = app(AnalysisCostGuard::class);
             if ($blocked = $costGuard->blocked((int) auth()->id())) {

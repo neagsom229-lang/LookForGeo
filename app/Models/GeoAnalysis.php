@@ -119,6 +119,29 @@ class GeoAnalysis extends Model
             ->first();
     }
 
+    /**
+     * In-flight twin lookup for the repeat-upload guard. Same user + same
+     * bytes still being analysed returns the running row, so a double submit
+     * (or a refresh-and-reupload) reuses it instead of dispatching a second
+     * paid job. Scoped by user_id: never attach to another user's run.
+     *
+     * The row must be younger than the stuck-analysis reap window: without
+     * that, a processing row whose worker died would pin every future upload
+     * of those bytes to a corpse the reaper has not swept yet.
+     */
+    public static function findRunningForUser(string $hash, int $userId): ?self
+    {
+        $window = max(1, (int) config('services.analysis.reap_stuck_minutes', 10));
+
+        return self::where('user_id', $userId)
+            ->where('image_hash', $hash)
+            ->whereIn('status', ['pending', 'processing'])
+            ->where('created_at', '>=', now()->subMinutes($window))
+            ->latest('created_at')
+            ->latest('id')
+            ->first();
+    }
+
     // ============================================
     // ACCESSORS (from result JSON)
     // ============================================
