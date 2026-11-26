@@ -23,6 +23,7 @@ class GeoEval extends Command
                             {--labels= : CSV with file,landmark,city,country,latitude,longitude,license}
                             {--images= : Directory containing the real photos named in --labels}
                             {--ground-truth= : CSV with file,lat,lng,category (default tests/eval/ground_truth.csv)}
+                            {--dataset= : Dataset name: synthetic (default) or real (uses tests/eval/ground_truth_real.csv)}
                             {--models= : Comma-separated model ids (a,b,c)}
                             {--limit=0 : Evaluate only the first N images (0 = all)}
                             {--report= : Override the JSON report path}';
@@ -39,7 +40,11 @@ class GeoEval extends Command
         $imagePath = (string) $this->option('image');
         $labelsPath = (string) $this->option('labels');
         $imagesDir = (string) $this->option('images');
-        $groundTruthPath = (string) ($this->option('ground-truth') ?: dirname(__DIR__, 3).'/tests/eval/ground_truth.csv');
+        $dataset = strtolower(trim((string) ($this->option('dataset') ?: '')));
+        $defaultGroundTruth = $dataset === 'real'
+            ? dirname(__DIR__, 3).'/tests/eval/ground_truth_real.csv'
+            : dirname(__DIR__, 3).'/tests/eval/ground_truth.csv';
+        $groundTruthPath = (string) ($this->option('ground-truth') ?: $defaultGroundTruth);
 
         if ($imagePath !== '') {
             return $this->evaluateSingleImage($gemini, $imagePath, $models, $live);
@@ -201,7 +206,8 @@ class GeoEval extends Command
             ];
         }
 
-        $report = $this->buildReport($rows, $live, $realPhotoMode);
+        $datasetName = $dataset !== '' ? $dataset : ($realPhotoMode ? 'real-photo-labels' : 'synthetic');
+        $report = $this->buildReport($rows, $live, $realPhotoMode, $datasetName, $groundTruthPath);
         $report['metrics']['estimated_cost_usd'] = $live ? round($totalCostUsd, 4) : 0.0;
         $reportPath = (string) ($this->option('report') ?: storage_path('app/eval-'.($live ? 'live' : 'mock').'.json'));
         file_put_contents($reportPath, json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -272,6 +278,7 @@ class GeoEval extends Command
                 'longitude' => trim((string) ($raw['lng'] ?? $raw['longitude'] ?? '')),
                 'category' => trim((string) ($raw['category'] ?? '')),
                 'license' => trim((string) ($raw['license'] ?? $raw['licence'] ?? '')),
+                'source_url' => trim((string) ($raw['source_url'] ?? '')),
             ];
         }
         fclose($handle);
@@ -279,13 +286,14 @@ class GeoEval extends Command
         return $labels;
     }
 
-    private function buildReport(array $rows, bool $live, bool $realPhotoMode = false): array
+    private function buildReport(array $rows, bool $live, bool $realPhotoMode = false, string $datasetName = '', string $groundTruthPath = ''): array
     {
         $errors = array_values(array_filter(array_column($rows, 'error_km'), fn ($v) => $v !== null));
         $latencies = array_values(array_column($rows, 'seconds'));
         $failures = count(array_filter($rows, fn ($r) => $r['failed']));
         $total = count($rows);
         $abstained = count(array_filter($rows, fn ($r) => $r['abstained']));
+        $isSynthetic = $datasetName === 'synthetic' || str_contains(strtolower($datasetName), 'synthetic');
 
         $calibration = [];
         foreach (['low:0-49' => [0, 49], 'medium:50-79' => [50, 79], 'high:80-100' => [80, 100]] as $name => [$min, $max]) {
@@ -312,14 +320,15 @@ class GeoEval extends Command
         return [
             'generated_at' => now()->toIso8601String(),
             'mode' => $live ? 'live' : 'mock',
-            'dataset' => $realPhotoMode ? 'real-photo' : 'synthetic-fixtures',
+            'dataset' => $datasetName !== '' ? $datasetName : ($realPhotoMode ? 'real-photo' : 'synthetic-fixtures'),
+            'is_synthetic' => $isSynthetic,
             'fixture_license' => $realPhotoMode
-                ? 'User-supplied photos; see the license column of the labels CSV'
+                ? 'User-supplied photos; see the license/source_url column of the labels CSV'
                 : 'CC0 synthetic images; coordinates are public geographic facts',
             'disclaimer' => $live
-                ? null
+                ? ($isSynthetic ? 'Synthetic dataset: NOT accuracy.' : null)
                 : 'Harness smoke test, NOT accuracy: mock mode returns the ground truth as the prediction.',
-            'ground_truth' => $realPhotoMode ? 'labels' : 'tests/eval/ground_truth.csv',
+            'ground_truth' => $groundTruthPath !== '' ? $groundTruthPath : ($realPhotoMode ? 'labels' : 'tests/eval/ground_truth.csv'),
             'count' => $total,
             'metrics' => [
                 'median_error_km' => $errors ? round($this->percentile($errors, 0.5), 2) : null,
@@ -384,6 +393,7 @@ class GeoEval extends Command
             ['Estimated cost (USD)', $m['estimated_cost_usd'] ?? 'n/a'],
         ]);
 
+        $isSynthetic = (bool) ($report['is_synthetic'] ?? false);
         $this->line('Within 1 km: '.($m['pct_within']['1km'] ?? 'n/a').'%');
         $bandRows = [];
         foreach ($m['calibration'] as $name => $stats) {
@@ -395,7 +405,9 @@ class GeoEval extends Command
                 $stats['median_error_km'] ?? 'n/a',
             ];
         }
-        $this->line('Accuracy by predicted-confidence band:');
+        $this->line($isSynthetic
+            ? 'Harness smoke-test by predicted-confidence band (NOT accuracy):'
+            : 'Accuracy by predicted-confidence band:');
         $this->table(['band', 'n', 'within 25 km', 'within 200 km', 'median error (km)'], $bandRows);
     }
 

@@ -460,13 +460,15 @@ class OpenStreetMapService
             }
 
             $entityData = $entity->json();
-            $claims = is_array($entityData) && isset($entityData['entities'][$entityId]['claims']['P625'])
-                ? $entityData['entities'][$entityId]['claims']['P625']
-                : null;
-            $claim = is_array($claims) ? ($claims[0] ?? $claims) : null;
+            $entityClaims = is_array($entityData) && isset($entityData['entities'][$entityId]['claims'])
+                ? $entityData['entities'][$entityId]['claims']
+                : [];
+
+            $p625Claims = is_array($entityClaims['P625'] ?? null) ? $entityClaims['P625'] : null;
+            $claim = is_array($p625Claims) ? ($p625Claims[0] ?? $p625Claims) : null;
             $value = is_array($claim) && isset($claim['mainsnak']['datavalue']['value'])
                 ? $claim['mainsnak']['datavalue']['value']
-                : (is_array($claims) && isset($claims['mainsnak']['datavalue']['value']) ? $claims['mainsnak']['datavalue']['value'] : null);
+                : (is_array($p625Claims) && isset($p625Claims['mainsnak']['datavalue']['value']) ? $p625Claims['mainsnak']['datavalue']['value'] : null);
             if (! is_array($value) || ! isset($value['latitude'], $value['longitude'])
                 || ! is_numeric($value['latitude']) || ! is_numeric($value['longitude'])) {
                 // No usable P625 coordinate: report "empty", never invent one.
@@ -474,6 +476,22 @@ class OpenStreetMapService
                 $this->recordOutcome('empty');
 
                 return null;
+            }
+
+            // Require P17 (country) to match the model country (ISO compare) when provided.
+            $modelCountry = is_string($country) ? trim($country) : '';
+            if ($modelCountry !== '') {
+                $p17 = $this->wikidataCountryCode($entityClaims);
+                $modelCode = $this->normalizeCountryCode($modelCountry);
+                if ($p17 === null || $modelCode === null || $p17 !== $modelCode) {
+                    $this->logNominatimFailure('wikidata', 'country_mismatch', [
+                        'entity' => $entityId,
+                        'p17' => $p17,
+                        'model' => $modelCode,
+                    ]);
+
+                    return null;
+                }
             }
 
             $label = $searchData['search'][0]['label'] ?? $searchData['search'][0]['display']['label']['value'] ?? $entityId;
@@ -501,6 +519,63 @@ class OpenStreetMapService
         }
 
         return null;
+    }
+
+    /**
+     * Resolve the Wikidata entity's P17 (country) to an ISO 3166-1 alpha-2 code.
+     * Returns null if P17 is missing/unresolvable or on any failure.
+     */
+    private function wikidataCountryCode(array $entityClaims): ?string
+    {
+        $p17Claims = $entityClaims['P17'] ?? null;
+        $p17Claim = is_array($p17Claims) ? ($p17Claims[0] ?? $p17Claims) : null;
+        $countryId = is_array($p17Claim) ? ($p17Claim['mainsnak']['datavalue']['value']['id'] ?? null) : null;
+        if (! is_string($countryId) || $countryId === '') {
+            return null;
+        }
+
+        $cacheKey = 'wikidata_p297_'.md5($countryId);
+        if (Cache::has($cacheKey)) {
+            $cached = Cache::get($cacheKey);
+
+            return is_string($cached) && $cached !== '' ? strtolower($cached) : null;
+        }
+        if (! $this->allowWikidata('wikidata_p17')) {
+            return null;
+        }
+
+        try {
+            $resp = Http::timeout(5)
+                ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
+                ->get('https://www.wikidata.org/wiki/Special/EntityData/'.$countryId.'.json');
+
+            if (! $resp->successful()) {
+                return null;
+            }
+            $data = $resp->json();
+            $p297Claims = is_array($data) ? ($data['entities'][$countryId]['claims']['P297'] ?? null) : null;
+            $p297Claim = is_array($p297Claims) ? ($p297Claims[0] ?? $p297Claims) : null;
+            $code = is_array($p297Claim) ? ($p297Claim['mainsnak']['datavalue']['value'] ?? null) : null;
+            $code = is_string($code) ? strtolower(trim($code)) : null;
+            if ($code) {
+                Cache::put($cacheKey, $code, self::WIKIDATA_CACHE_SECONDS);
+            }
+
+            return $code ?: null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function normalizeCountryCode(string $country): ?string
+    {
+        try {
+            $calc = app(\App\Services\Gemini\ConfidenceCalculator::class);
+
+            return $calc->normalizeCountryCode($country);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**

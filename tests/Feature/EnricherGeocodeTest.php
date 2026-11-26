@@ -121,6 +121,14 @@ class EnricherGeocodeTest extends TestCase
                     ['id' => 'Q1128', 'label' => 'Statue of Liberty'],
                 ],
             ], 200),
+            '*wikidata.org/wiki/Special/EntityData/Q30.json*' => Http::response([
+                'entities' => [
+                    'Q30' => [
+                        'id' => 'Q30',
+                        'claims' => ['P297' => [['mainsnak' => ['datavalue' => ['value' => 'US']]]]],
+                    ],
+                ],
+            ], 200),
             '*wikidata.org/wiki/*' => Http::response([
                 'entities' => [
                     'Q1128' => [
@@ -129,6 +137,9 @@ class EnricherGeocodeTest extends TestCase
                         'claims' => [
                             'P625' => [
                                 'mainsnak' => ['datavalue' => ['value' => ['latitude' => 40.6893, 'longitude' => -74.0444, 'precision' => 1000]]],
+                            ],
+                            'P17' => [
+                                ['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q30']]]],
                             ],
                         ],
                     ],
@@ -176,6 +187,14 @@ class EnricherGeocodeTest extends TestCase
                     ['id' => 'Q1128', 'label' => 'Statue of Liberty'],
                 ],
             ], 200),
+            '*wikidata.org/wiki/Special/EntityData/Q30.json*' => Http::response([
+                'entities' => [
+                    'Q30' => [
+                        'id' => 'Q30',
+                        'claims' => ['P297' => [['mainsnak' => ['datavalue' => ['value' => 'US']]]]],
+                    ],
+                ],
+            ], 200),
             '*wikidata.org/wiki/*' => Http::response([
                 'entities' => [
                     'Q1128' => [
@@ -184,6 +203,9 @@ class EnricherGeocodeTest extends TestCase
                         'claims' => [
                             'P625' => [
                                 'mainsnak' => ['datavalue' => ['value' => ['latitude' => 40.85, 'longitude' => -73.95, 'precision' => 1000]]],
+                            ],
+                            'P17' => [
+                                ['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q30']]]],
                             ],
                         ],
                     ],
@@ -222,6 +244,14 @@ class EnricherGeocodeTest extends TestCase
                     ['id' => 'Q1128', 'label' => 'Statue of Liberty'],
                 ],
             ], 200),
+            '*wikidata.org/wiki/Special/EntityData/Q30.json*' => Http::response([
+                'entities' => [
+                    'Q30' => [
+                        'id' => 'Q30',
+                        'claims' => ['P297' => [['mainsnak' => ['datavalue' => ['value' => 'US']]]]],
+                    ],
+                ],
+            ], 200),
             '*wikidata.org/wiki/*' => Http::response([
                 'entities' => [
                     'Q1128' => [
@@ -231,6 +261,9 @@ class EnricherGeocodeTest extends TestCase
                             'P625' => [
                                 'mainsnak' => ['datavalue' => ['value' => ['latitude' => 40.6893, 'longitude' => -74.0444, 'precision' => 1000]]],
                             ],
+                            'P17' => [
+                                ['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q30']]]],
+                            ],
                         ],
                     ],
                 ],
@@ -238,6 +271,58 @@ class EnricherGeocodeTest extends TestCase
         ]);
 
         $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult());
+
+        $this->assertSame('model', $result['coordinate_source']);
+        $this->assertNull($result['coordinate_disagreement_km']);
+        $this->assertSame('approximate', $result['location_precision']);
+        $this->assertSame(5000.0, (float) $result['uncertainty_radius_m']);
+    }
+
+    /**
+     * Wikidata top hit is the wrong entity: it has P625 but P17 country does
+     * not match the model country. The resolver must skip it and fall through
+     * to Nominatim; if Nominatim also can't confirm, keep model coords with
+     * approximate precision.
+     */
+    public function test_wikidata_wrong_entity_country_skips_to_nominatim(): void
+    {
+        config([
+            'services.gemini.confidence_reverse_geocode' => false,
+            'services.gemini.confidence_forward_geocode' => true,
+        ]);
+        Http::fake([
+            '*wikidata.org/w/api.php*' => Http::response([
+                'search' => [
+                    ['id' => 'Q62', 'label' => 'Paris'],
+                ],
+            ], 200),
+            '*wikidata.org/wiki/Special/EntityData/Q30.json*' => Http::response([
+                'entities' => [
+                    'Q30' => ['id' => 'Q30', 'claims' => ['P297' => [['mainsnak' => ['datavalue' => ['value' => 'US']]]]]],
+                ],
+            ], 200),
+            '*wikidata.org/wiki/Special/EntityData/Q62.json*' => Http::response([
+                'entities' => [
+                    'Q62' => [
+                        'id' => 'Q62',
+                        'claims' => [
+                            'P625' => [['mainsnak' => ['datavalue' => ['value' => ['latitude' => 37.7793, 'longitude' => -122.4193, 'precision' => 1000]]]]],
+                            'P17' => [['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q30']]]]],
+                        ],
+                    ],
+                ],
+            ], 200),
+            // Nominatim returns no usable match
+            '*nominatim.openstreetmap.org/*' => Http::response([], 200),
+        ]);
+
+        $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult([
+            'landmark_name' => 'Eiffel Tower',
+            'city' => 'Paris',
+            'country' => 'France',
+            'latitude' => 48.8584,
+            'longitude' => 2.2945,
+        ]));
 
         $this->assertSame('model', $result['coordinate_source']);
         $this->assertNull($result['coordinate_disagreement_km']);
