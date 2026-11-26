@@ -22,7 +22,7 @@ jobs:
       RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
       BASE_URL: https://lookforgeo.onrender.com
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Trigger Render deploy
         if: env.RENDER_DEPLOY_HOOK_URL != ''
