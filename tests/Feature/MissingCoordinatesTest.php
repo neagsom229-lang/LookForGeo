@@ -270,13 +270,14 @@ class MissingCoordinatesTest extends TestCase
             ->assertExactJson(['status' => 'operational']);
     }
 
-    /** The prompt must ask for a best estimate when a place was identified. */
-    public function test_prompt_requires_best_estimate_for_identified_landmark(): void
+    /** The prompt must ask for a best estimate when a place was identified, and allow abstention when unsure. */
+    public function test_prompt_requests_best_estimate_and_allows_abstention(): void
     {
         $prompt = app(GeminiPrompt::class)->buildUltimateGeoPrompt([]);
 
         $this->assertStringContainsString('best-estimate latitude and longitude', $prompt);
-        $this->assertStringContainsString('null only when the place is genuinely unknown', $prompt);
+        $this->assertStringContainsString('You MAY return null when you are genuinely unsure', $prompt);
+        $this->assertStringContainsString('Return null when unsure rather than producing a confident-sounding guess', $prompt);
     }
 
     /** Public health stays exactly {"status":...} (no token, no diagnostics). */

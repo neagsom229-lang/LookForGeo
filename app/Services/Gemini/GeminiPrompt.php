@@ -76,7 +76,7 @@ Before picking a final answer, silently consider at least 3 plausible locations 
 
 **OUTPUT:** Return ONLY valid JSON with the following structure. All fields are required; use `null` (not the string "null") for unknown numeric fields, and `"Unknown"` for unknown text fields.
 
-**COORDINATE POLICY:** When `landmark_name` names a specific, identifiable place, you MUST provide your best-estimate latitude and longitude (decimal degrees, even if approximate). Use null only when the place is genuinely unknown or cannot be located at all. Never omit coordinates for an identified landmark just to avoid being wrong; a best estimate is more useful than no pin.
+**COORDINATE POLICY:** When `landmark_name` names a specific, identifiable place, provide your best-estimate latitude and longitude (decimal degrees, even if approximate) when the visual evidence supports a useful estimate. You MAY return null when you are genuinely unsure: an abstention is an honest null, not a failure, and the pipeline records it as such. Never invent coordinates for a place you cannot actually locate.
 
 ```json
 {
@@ -118,7 +118,7 @@ The first entry in `candidates` should match your primary `landmark_name`/`city`
 - If you see a flag, describe it.
 - If you are unsure, set confidence to a low number and explain what is missing.
 - **NEVER** return an empty or null reasoning. Always explain your thought process.
-- **ALWAYS** provide coordinates if you have a strong guess (even if approximate) — for a generic guess, use the nearest city center coordinates rather than leaving both null.
+- Provide coordinates when you have a strong guess (even if approximate); for a generic guess, use the nearest city center coordinates. Return null when unsure rather than producing a confident-sounding guess.
 - For images too generic to localize (blank wall, close-up object, sky only), say so plainly in `reasoning` and `negative_evidence` rather than inventing a specific-sounding but baseless answer.
 
 Now analyze the image and return ONLY the JSON.

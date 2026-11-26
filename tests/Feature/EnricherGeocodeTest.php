@@ -140,4 +140,57 @@ class EnricherGeocodeTest extends TestCase
         $this->assertStringContainsString('Forward-geocode distance:', $text);
         $this->assertStringContainsString('points=0', $text);
     }
+
+    /**
+     * Model coordinates that disagree with the gazetteer by more than the
+     * 5 km preference threshold: the gazetteer answer wins and the
+     * disagreement is surfaced (precision becomes landmark-grade).
+     */
+    public function test_enricher_prefers_gazetteer_when_model_coordinates_disagree(): void
+    {
+        config([
+            'services.gemini.confidence_reverse_geocode' => false,
+            'services.gemini.confidence_forward_geocode' => true,
+        ]);
+        Http::fake(['nominatim.openstreetmap.org/*' => Http::response([
+            [
+                'lat' => '40.85',
+                'lon' => '-73.95',
+                'display_name' => 'Statue of Liberty area, New York, United States',
+                'address' => ['country' => 'United States', 'country_code' => 'us'],
+            ],
+        ], 200)]);
+
+        $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult());
+
+        $this->assertSame('gazetteer', $result['coordinate_source']);
+        $this->assertGreaterThan(5.0, (float) $result['coordinate_disagreement_km']);
+        $this->assertSame('landmark', $result['location_precision']);
+        $this->assertSame(0.0, (float) $result['uncertainty_radius_m']);
+    }
+
+    /**
+     * Model coordinates inside the 5 km tolerance: keep the model answer, no
+     * disagreement, precision is approximate with the model uncertainty radius.
+     */
+    public function test_enricher_keeps_model_coordinates_when_gazetteer_agrees(): void
+    {
+        config([
+            'services.gemini.confidence_reverse_geocode' => false,
+            'services.gemini.confidence_forward_geocode' => true,
+        ]);
+        Http::fake(['nominatim.openstreetmap.org/*' => Http::response([
+            'lat' => '40.6893',
+            'lon' => '-74.0444',
+            'display_name' => 'Statue of Liberty, New York, United States',
+            'address' => ['country' => 'United States', 'country_code' => 'us'],
+        ], 200)]);
+
+        $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult());
+
+        $this->assertSame('model', $result['coordinate_source']);
+        $this->assertNull($result['coordinate_disagreement_km']);
+        $this->assertSame('approximate', $result['location_precision']);
+        $this->assertSame(5000.0, (float) $result['uncertainty_radius_m']);
+    }
 }

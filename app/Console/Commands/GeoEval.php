@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Http;
 /**
  * Evaluate geolocation quality on a labeled fixture set.
  *
- * Mock mode (default) fakes Gemini with the label, so it measures the
+ * Mock mode (default) fakes Gemini with the ground truth, so it measures the
  * harness/calibration path without cost. Live mode calls the real Gemini
  * endpoint and needs GEMINI_API_KEY. Both write a JSON report so runs can
  * be diffed for regressions.
@@ -22,6 +22,7 @@ class GeoEval extends Command
                             {--image= : Single real photo path (resized exactly like the app)}
                             {--labels= : CSV with file,landmark,city,country,latitude,longitude,license}
                             {--images= : Directory containing the real photos named in --labels}
+                            {--ground-truth= : CSV with file,lat,lng,category (default tests/eval/ground_truth.csv)}
                             {--models= : Comma-separated model ids (a,b,c)}
                             {--limit=0 : Evaluate only the first N images (0 = all)}
                             {--report= : Override the JSON report path}';
@@ -38,6 +39,7 @@ class GeoEval extends Command
         $imagePath = (string) $this->option('image');
         $labelsPath = (string) $this->option('labels');
         $imagesDir = (string) $this->option('images');
+        $groundTruthPath = (string) ($this->option('ground-truth') ?: dirname(__DIR__, 3).'/tests/eval/ground_truth.csv');
 
         if ($imagePath !== '') {
             return $this->evaluateSingleImage($gemini, $imagePath, $models, $live);
@@ -55,11 +57,11 @@ class GeoEval extends Command
             return self::FAILURE;
         }
 
-        $labels = $realPhotoMode ? $this->readLabels($labelsPath) : $this->readLabels();
+        $labels = $realPhotoMode ? $this->readLabels($labelsPath) : $this->readGroundTruth($groundTruthPath);
         if (empty($labels)) {
             $this->error($realPhotoMode
                 ? "No labels found in {$labelsPath}."
-                : 'No labels found in tests/fixtures/eval/labels.csv. Run scripts/make-eval-fixtures.php first.');
+                : "No ground truth found in {$groundTruthPath}.");
 
             return self::FAILURE;
         }
@@ -163,16 +165,31 @@ class GeoEval extends Command
                 (float) $predLat, (float) $predLng
             );
 
+            $factors = [];
+            if (is_array($result) && is_array($result['confidence_factors'] ?? null)) {
+                $factors = array_values(array_map('strval', $result['confidence_factors']));
+            }
+            if ($failed) {
+                $factors[] = 'Analysis failed: no usable prediction was produced.';
+            }
+
+            $predictedCountry = is_array($result) ? trim((string) ($result['country'] ?? '')) : '';
+            $sameCountry = ($label['country'] !== '' && $predictedCountry !== ''
+                && strcasecmp($predictedCountry, $label['country']) === 0) ? true : null;
+
             $rows[] = [
                 'file' => $label['file'],
-                'expected' => [$label['latitude'], $label['longitude']],
+                'expected' => [(float) $label['latitude'], (float) $label['longitude']],
                 'predicted' => [$predLat, $predLng],
                 'error_km' => $errorKm === null ? null : round($errorKm, 2),
                 'confidence' => is_array($result) ? ($result['confidence'] ?? 0) : 0,
-                'model_reported_confidence' => is_array($result) ? ($result['model_reported_confidence'] ?? 0) : 0,
-                'low_confidence' => is_array($result) ? (bool) ($result['low_confidence'] ?? true) : true,
-                'seconds' => $seconds,
+                'coordinate_source' => is_array($result) ? ($result['coordinate_source'] ?? 'model') : 'model',
+                'factors' => $factors,
                 'failed' => $failed,
+                // Failed already covers abstentions (no usable prediction / missing coordinates).
+                'abstained' => $failed,
+                'same_country' => $sameCountry,
+                'seconds' => $seconds,
             ];
         }
 
@@ -211,12 +228,55 @@ class GeoEval extends Command
         return $labels;
     }
 
+    /**
+     * Read the benchmark ground truth CSV (`--ground-truth`, default
+     * tests/eval/ground_truth.csv). Required columns: file, lat, lng, category.
+     * Optional context columns (landmark, city, country, license) are used
+     * when present.
+     */
+    private function readGroundTruth(string $path): array
+    {
+        if (! is_file($path)) {
+            return [];
+        }
+
+        $labels = [];
+        $handle = fopen($path, 'r');
+        if ($handle === false) {
+            return [];
+        }
+        $header = fgetcsv($handle, 0, ',', '"', '\\');
+        while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+            if (count($row) < 4) {
+                continue;
+            }
+            $raw = [];
+            foreach ($header as $index => $key) {
+                $raw[$key] = $row[$index] ?? '';
+            }
+            $labels[] = [
+                'file' => trim((string) ($raw['file'] ?? '')),
+                'landmark' => trim((string) ($raw['landmark'] ?? $raw['category'] ?? '')),
+                'city' => trim((string) ($raw['city'] ?? '')),
+                'country' => trim((string) ($raw['country'] ?? '')),
+                'latitude' => trim((string) ($raw['lat'] ?? $raw['latitude'] ?? '')),
+                'longitude' => trim((string) ($raw['lng'] ?? $raw['longitude'] ?? '')),
+                'category' => trim((string) ($raw['category'] ?? '')),
+                'license' => trim((string) ($raw['license'] ?? $raw['licence'] ?? '')),
+            ];
+        }
+        fclose($handle);
+
+        return $labels;
+    }
+
     private function buildReport(array $rows, bool $live, bool $realPhotoMode = false): array
     {
         $errors = array_values(array_filter(array_column($rows, 'error_km'), fn ($v) => $v !== null));
         $latencies = array_values(array_column($rows, 'seconds'));
         $failures = count(array_filter($rows, fn ($r) => $r['failed']));
         $total = count($rows);
+        $abstained = count(array_filter($rows, fn ($r) => $r['abstained']));
 
         $calibration = [];
         foreach (['low:0-49' => [0, 49], 'medium:50-79' => [50, 79], 'high:80-100' => [80, 100]] as $name => [$min, $max]) {
@@ -234,6 +294,12 @@ class GeoEval extends Command
             ];
         }
 
+        // Same-country accuracy: among rows with a measurable error, the share
+        // that landed within 25 km AND inside the ground-truth country.
+        $nearby = array_values(array_filter($rows, fn ($r) => $r['error_km'] !== null && $r['error_km'] <= 25));
+        $sameCountry = count(array_filter($nearby, fn ($r) => $r['same_country'] === true));
+        $pctWithinSameCountry = $nearby ? round(100 * $sameCountry / count($nearby), 1) : null;
+
         return [
             'generated_at' => now()->toIso8601String(),
             'mode' => $live ? 'live' : 'mock',
@@ -241,6 +307,7 @@ class GeoEval extends Command
             'fixture_license' => $realPhotoMode
                 ? 'User-supplied photos; see the license column of the labels CSV'
                 : 'CC0 synthetic images; coordinates are public geographic facts',
+            'ground_truth' => $realPhotoMode ? 'labels' : 'tests/eval/ground_truth.csv',
             'count' => $total,
             'metrics' => [
                 'median_error_km' => $errors ? round($this->percentile($errors, 0.5), 2) : null,
@@ -251,6 +318,8 @@ class GeoEval extends Command
                     '750km' => $this->pctWithin($errors, 750),
                     '2500km' => $this->pctWithin($errors, 2500),
                 ],
+                'pct_within_same_country' => $pctWithinSameCountry,
+                'abstain_rate_pct' => $total ? round(100 * $abstained / $total, 1) : null,
                 'latency_p50_s' => $latencies ? round($this->percentile($latencies, 0.5), 3) : null,
                 'latency_p95_s' => $latencies ? round($this->percentile($latencies, 0.95), 3) : null,
                 'failure_rate_pct' => $total ? round(100 * $failures / $total, 1) : null,
@@ -295,11 +364,14 @@ class GeoEval extends Command
             ['Median error (km)', $m['median_error_km'] ?? 'n/a'],
             ['Within 25 km', $m['pct_within']['25km'].'%'],
             ['Within 200 km', $m['pct_within']['200km'].'%'],
+            ['Within same country', $m['pct_within_same_country'] === null ? 'n/a' : $m['pct_within_same_country'].'%'],
+            ['Abstain rate', $m['abstain_rate_pct'] === null ? 'n/a' : $m['abstain_rate_pct'].'%'],
             ['Latency p50 (s)', $m['latency_p50_s'] ?? 'n/a'],
             ['Latency p95 (s)', $m['latency_p95_s'] ?? 'n/a'],
             ['Failure rate', $m['failure_rate_pct'].'%'],
         ]);
 
+        $this->line('Within 1 km: '.($m['pct_within']['1km'] ?? 'n/a').'%');
         $bandRows = [];
         foreach ($m['calibration'] as $name => $stats) {
             $bandRows[] = [

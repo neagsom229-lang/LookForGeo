@@ -1386,6 +1386,21 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         // low, and the calibrated low_confidence flag always wins.
         if (DOM.confPill) DOM.confPill.className = `pill-confidence band-${tier}`;
 
+        // Location precision: a model-only estimate is "approximate"; a
+        // gazetteer-backed answer is "landmark". The uncertainty radius is in
+        // meters and drives the map circle. A model-vs-gazetteer disagreement
+        // beyond 5 km means the gazetteer answer was preferred upstream and is
+        // surfaced here as a warning.
+        const locationPrecision = data.location_precision || (hasCoords ? 'approximate' : 'region');
+        const uncertaintyRadiusM = Number(data.uncertainty_radius_m ?? 0);
+        const coordinateDisagreementKm = Number(data.coordinate_disagreement_km ?? 0);
+        const locationDisagreed = coordinateDisagreementKm > 5;
+        const approximateLocation = locationPrecision === 'approximate';
+
+        if (locationDisagreed && DOM.mapStatusText) {
+            DOM.mapStatusText.textContent = 'Location adjusted from model estimate to gazetteer answer (' + coordinateDisagreementKm.toFixed(1) + ' km difference)';
+        }
+
         if (DOM.photoFrame) {
             const imgUrl = data.image_url || data.result?.image_url || data.result_image_url || uploadedImageURL ||
                 sessionStorage.getItem('uploadedImage');
@@ -1453,6 +1468,21 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             L.marker([lat, lng], {
                 icon: markerIcon
             }).addTo(resultMapInstance);
+
+            // Uncertainty radius (meters) from the enriched result: drawn as a
+            // dashed circle when the answer is not gazetteer-precise (model-only
+            // estimate or region-level). Landmark-grade answers have ~0 radius.
+            const uncertaintyRadiusM = Number(data.uncertainty_radius_m ?? 0);
+            if (uncertaintyRadiusM > 0) {
+                L.circle([lat, lng], {
+                    radius: uncertaintyRadiusM,
+                    color: '#f59e0b',
+                    weight: 2,
+                    dashArray: '6 6',
+                    fillColor: '#f59e0b',
+                    fillOpacity: 0.08
+                }).addTo(resultMapInstance);
+            }
         }
 
         function renderResultMedia(data, imgUrl, lat, lng, hasCoords) {
@@ -1531,6 +1561,8 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                     <strong style="color:var(--accent);">AI Reasoning:</strong><br>
                     ${reasoning}
                 </div>
+                ${approximateLocation ? '<span style="color:var(--warning);"><strong>Approximate location</strong> (model estimate, uncertainty ~' + (uncertaintyRadiusM / 1000).toFixed(1) + ' km)</span>' : ''}
+                ${locationDisagreed ? '<span style="color:var(--warning);"><strong>Coordinates disagreed with gazetteer by ' + coordinateDisagreementKm.toFixed(1) + ' km - gazetteer answer preferred</strong></span>' : ''}
             `;
         }
     }
