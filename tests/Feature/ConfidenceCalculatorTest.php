@@ -254,4 +254,181 @@ class ConfidenceCalculatorTest extends TestCase
         $this->assertSame('Mid', $result['alternatives'][1]['location']);
         $this->assertSame('Low', $result['alternatives'][2]['location']);
     }
+
+    private function calculatorWithoutGeocoders(): ConfidenceCalculator
+    {
+        config([
+            'services.gemini.confidence_reverse_geocode' => false,
+            'services.gemini.confidence_forward_geocode' => false,
+        ]);
+
+        return new ConfidenceCalculator(new FakeOpenStreetMapService);
+    }
+
+    /**
+     * The floor is a rule, not measured evidence. The result must say so.
+     */
+    public function test_floor_flag_is_exposed_when_the_identified_landmark_floor_applies(): void
+    {
+        $result = $this->calculatorWithoutGeocoders()->calculate(
+            $this->goldenGateResult([
+                'visual_clues' => [],
+                'candidates' => [],
+                'coordinate_sources' => 1,
+            ]),
+            ['resolution' => ['width' => 320, 'height' => 240]]
+        );
+
+        $this->assertSame(49, $result['confidence']);
+        $this->assertTrue($result['confidence_floor_applied']);
+        $this->assertStringContainsString('score floored at 49', implode(' ', $result['confidence_factors']));
+    }
+
+    public function test_floor_flag_is_false_when_the_score_is_earned(): void
+    {
+        $result = $this->calculatorWithoutGeocoders()->calculate(
+            $this->baseResult(),
+            ['resolution' => ['width' => 1600, 'height' => 1200], 'gps' => ['latitude' => 48.8584, 'longitude' => 2.2945]]
+        );
+
+        // 25 + 10 + 10 + 15 + 10 = 70 from the checkable signals (country is
+        // not verifiable with the offline geocoders turned off here).
+        $this->assertSame(70, $result['confidence']);
+        $this->assertFalse($result['confidence_floor_applied']);
+    }
+
+    public function test_two_model_agreement_awards_points_for_same_name_and_nearby_coordinates(): void
+    {
+        $result = $this->calculatorWithoutGeocoders()->calculate(
+            $this->baseResult([
+                'winner' => 'gemini-primary',
+                'secondary_model_answer' => [
+                    'landmark_name' => 'eiffel tower',
+                    'latitude' => 48.8600,
+                    'longitude' => 2.2945,
+                    'model' => 'gemini-fallback',
+                ],
+            ]),
+            []
+        );
+
+        $signal = $result['confidence_signals']['model_agreement'];
+        $this->assertSame(10, $signal['points']);
+        $this->assertSame('agree', $signal['state']);
+        $this->assertTrue($signal['names_match']);
+        $this->assertStringContainsString('Two models independently agreed', implode(' ', $result['confidence_factors']));
+    }
+
+    public function test_two_model_agreement_requires_the_same_landmark_name(): void
+    {
+        $result = $this->calculatorWithoutGeocoders()->calculate(
+            $this->baseResult([
+                'winner' => 'gemini-primary',
+                'secondary_model_answer' => [
+                    'landmark_name' => 'Louvre Museum',
+                    'latitude' => 48.8584,
+                    'longitude' => 2.2945,
+                    'model' => 'gemini-fallback',
+                ],
+            ]),
+            []
+        );
+
+        $signal = $result['confidence_signals']['model_agreement'];
+        $this->assertSame(0, $signal['points']);
+        $this->assertFalse($signal['names_match']);
+        $this->assertSame('disagree', $signal['state']);
+    }
+
+    public function test_two_model_agreement_requires_coordinates_within_five_km(): void
+    {
+        $result = $this->calculatorWithoutGeocoders()->calculate(
+            $this->baseResult([
+                'winner' => 'gemini-primary',
+                'secondary_model_answer' => [
+                    'landmark_name' => 'Eiffel Tower',
+                    // ~20 km north of the primary answer.
+                    'latitude' => 49.0384,
+                    'longitude' => 2.2945,
+                    'model' => 'gemini-fallback',
+                ],
+            ]),
+            []
+        );
+
+        $signal = $result['confidence_signals']['model_agreement'];
+        $this->assertSame(0, $signal['points']);
+        $this->assertTrue($signal['names_match']);
+        $this->assertSame('disagree', $signal['state']);
+        $this->assertGreaterThan(5, $signal['distance_km']);
+    }
+
+    public function test_two_model_agreement_is_not_awarded_to_the_same_model(): void
+    {
+        $result = $this->calculatorWithoutGeocoders()->calculate(
+            $this->baseResult([
+                'winner' => 'gemini-primary',
+                'secondary_model_answer' => [
+                    'landmark_name' => 'Eiffel Tower',
+                    'latitude' => 48.8584,
+                    'longitude' => 2.2945,
+                    'model' => 'gemini-primary',
+                ],
+            ]),
+            []
+        );
+
+        $signal = $result['confidence_signals']['model_agreement'];
+        $this->assertSame(0, $signal['points']);
+        $this->assertSame('same_model', $signal['state']);
+    }
+
+    public function test_two_model_agreement_is_not_awarded_for_forward_geocoded_coordinates(): void
+    {
+        $result = $this->calculatorWithoutGeocoders()->calculate(
+            $this->baseResult([
+                'winner' => 'gemini-primary',
+                'secondary_model_answer' => [
+                    'landmark_name' => 'Eiffel Tower',
+                    'latitude' => 48.8584,
+                    'longitude' => 2.2945,
+                    'coordinate_source' => 'forward_geocode',
+                    'model' => 'gemini-fallback',
+                ],
+            ]),
+            []
+        );
+
+        $signal = $result['confidence_signals']['model_agreement'];
+        $this->assertSame(0, $signal['points']);
+        $this->assertSame('self_sourced', $signal['state']);
+    }
+
+    /**
+     * The kept-first escalation path uses this method: it must add the
+     * agreement points without re-running any geocoder.
+     */
+    public function test_secondary_answer_can_be_applied_after_the_first_score(): void
+    {
+        $calculator = $this->calculatorWithoutGeocoders();
+        $first = $calculator->calculate(
+            $this->baseResult(),
+            ['resolution' => ['width' => 1600, 'height' => 1200], 'gps' => ['latitude' => 48.8584, 'longitude' => 2.2945]]
+        );
+
+        $this->assertSame(70, $first['confidence']);
+        $this->assertFalse($first['confidence_floor_applied']);
+
+        $updated = $calculator->withSecondaryModelAnswer($first, [
+            'landmark_name' => 'Eiffel Tower',
+            'latitude' => 48.8584,
+            'longitude' => 2.2945,
+            'model' => 'gemini-fallback',
+        ]);
+
+        // 70 + MODEL_AGREEMENT_POINTS(10) = 80 (below the MAX_SCORE(95) cap).
+        $this->assertSame(10, $updated['confidence_signals']['model_agreement']['points']);
+        $this->assertSame(80, $updated['confidence']);
+        $this->assertFalse($updated['confidence_floor_applied']);
+    }
 }

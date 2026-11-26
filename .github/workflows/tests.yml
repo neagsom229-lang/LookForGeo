@@ -15,7 +15,9 @@ jobs:
       - uses: actions/checkout@v4
 
       # composer js:check runs `node --check` and `node --test`; without an
-      # explicit setup-node step the runner's Node version is undefined.
+      # explicit setup-node step the runner's Node version is undefined. It
+      # needs no composer install: the script only shells out to node, and the
+      # PHP setup here is only to give composer itself a runtime.
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

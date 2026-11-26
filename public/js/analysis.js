@@ -1340,6 +1340,11 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         // alternatives when the result is low confidence. The model's own
         // self-reported number is shown only as a non-authoritative note.
         const factors = Array.isArray(data.confidence_factors) ? [...data.confidence_factors] : [];
+        // A floored score is a rule, not evidence. Say so next to the number
+        // instead of letting 49 look like measured support.
+        if (data.confidence_floor_applied === true) {
+            factors.unshift('Low evidence (score floored): the raw signal sum was below 49, so the identified-landmark floor set the score.');
+        }
         if (data.model_reported_confidence !== undefined && data.model_reported_confidence !== null) {
             factors.push(`Model self-reported ${data.model_reported_confidence}% (not used for this score).`);
         }
@@ -1517,7 +1522,10 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                     <strong style="color:${headingColor};">${headingText}</strong><br>
                     <span style="color:var(--text-secondary);">Landmark: <strong>${data.landmark_name || data.city || 'Unknown'}</strong></span><br>
                     <span style="color:var(--text-secondary);">Coordinates: <strong>${latStr}</strong></span><br>
-                    <span style="color:var(--text-secondary);">Confidence: <strong>${confidence}%</strong></span>
+                    <span style="color:var(--text-secondary);">Confidence: <strong>${confidence}%</strong></span><br>
+                    ${data.confidence_floor_applied === true
+                        ? '<span style="color:var(--warning);"><strong>Low evidence (score floored)</strong></span><br>'
+                        : ''}
                 </div>
                 <div style="line-height:1.8;">
                     <strong style="color:var(--accent);">AI Reasoning:</strong><br>

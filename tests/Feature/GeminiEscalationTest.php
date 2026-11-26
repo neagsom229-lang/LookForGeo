@@ -106,4 +106,33 @@ class GeminiEscalationTest extends TestCase
         $this->assertArrayNotHasKey('escalation_failed', $result);
         Http::assertSentCount(1);
     }
+
+    /**
+     * Both models ran and agreed: the second answer earns the independent
+     * agreement points, and no third request is made for the signal.
+     */
+    public function test_second_model_agreement_is_credited_without_an_extra_call(): void
+    {
+        $answer = $this->payload([
+            'landmark_name' => 'Eiffel Tower',
+            'visual_clues' => [],
+            'candidates' => [],
+        ]);
+
+        Http::fakeSequence()
+            ->push($this->body($answer), 200)
+            ->push($this->body($answer), 200);
+
+        $result = app(GeminiService::class)->analyzeGeolocation('img', []);
+
+        // Both answers agree, but the identified-landmark floor (49) sits the
+        // score back: 49 + 10 is not > 49, so the first answer is kept and the
+        // agreement is still credited through the kept-first path.
+        $this->assertFalse($result['escalated'] ?? false);
+        $this->assertTrue($result['escalation_failed'] ?? false);
+        $this->assertSame(10, $result['confidence_signals']['model_agreement']['points']);
+        $this->assertSame('agree', $result['confidence_signals']['model_agreement']['state']);
+        $this->assertSame('Eiffel Tower', $result['secondary_model_answer']['landmark_name']);
+        Http::assertSentCount(2);
+    }
 }

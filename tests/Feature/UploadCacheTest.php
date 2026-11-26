@@ -334,8 +334,12 @@ class UploadCacheTest extends TestCase
             'image_hash' => hash('sha256', $bytes),
             'started_at' => now()->subMinutes(25),
         ]);
+        // 30 minutes is deliberately BEYOND the 25-minute reap window. A
+        // created_at-based lookup drops this row; the guard must use the last
+        // worker touch (updated_at), so this is a deterministic regression
+        // test rather than a 25-minute boundary race.
         $running->forceFill([
-            'created_at' => now()->subMinutes(25),
+            'created_at' => now()->subMinutes(30),
             'updated_at' => now()->subMinutes(5),
         ])->save();
 

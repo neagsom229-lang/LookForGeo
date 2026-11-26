@@ -31,6 +31,16 @@ class GeminiResultEnhancer
         return $this->validateAllFields($data);
     }
 
+    /**
+     * Re-apply the calibrated score after a second model's answer becomes
+     * available. No model or geocoder call: it only adds the agreement
+     * signal and re-runs the cap/floor rules.
+     */
+    public function applySecondaryModelAnswer(array $data, array $secondary): array
+    {
+        return $this->confidence->withSecondaryModelAnswer($data, $secondary);
+    }
+
     private function isValidCoordinate($lat, $lng)
     {
         return is_numeric($lat) && is_numeric($lng)

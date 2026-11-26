@@ -125,9 +125,13 @@ class GeoAnalysis extends Model
      * (or a refresh-and-reupload) reuses it instead of dispatching a second
      * paid job. Scoped by user_id: never attach to another user's run.
      *
-     * The row must be younger than the stuck-analysis reap window: without
-     * that, a processing row whose worker died would pin every future upload
-     * of those bytes to a corpse the reaper has not swept yet.
+     * The row must have been touched by a worker within the stuck-analysis
+     * reap window: without that, a processing row whose worker died would pin
+     * every future upload of those bytes to a corpse the reaper has not swept
+     * yet. The basis is updated_at, not created_at: a job released at
+     * 30/90/180s is still legitimately in flight long after its upload time.
+     * Using created_at here made the lookup drop live rows whose upload was
+     * older than the window (and turned the boundary into a flaky test).
      */
     public static function findRunningForUser(string $hash, int $userId): ?self
     {
@@ -136,8 +140,8 @@ class GeoAnalysis extends Model
         return self::where('user_id', $userId)
             ->where('image_hash', $hash)
             ->whereIn('status', ['pending', 'processing'])
-            ->where('created_at', '>=', now()->subMinutes($window))
-            ->latest('created_at')
+            ->where('updated_at', '>=', now()->subMinutes($window))
+            ->latest('updated_at')
             ->latest('id')
             ->first();
     }
