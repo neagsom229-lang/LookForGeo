@@ -8,6 +8,26 @@ on:
   pull_request:
 
 jobs:
+  js:
+    name: JS checks (node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # composer js:check runs `node --check` and `node --test`; without an
+      # explicit setup-node step the runner's Node version is undefined.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Node syntax + unit tests
+        run: composer js:check
+
   phpunit:
     name: PHPUnit (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest

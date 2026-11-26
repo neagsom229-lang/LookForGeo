@@ -12,7 +12,12 @@ use Tests\TestCase;
  *
  * Prints inputs -> score using realistic structured outputs (no EXIF), then
  * locks the CURRENT scores so any future weight change is intentional.
- * This test does NOT change weights.
+ *
+ * Identified landmarks with valid coordinates now have a floor of 49: a
+ * pinned answer must never score lower than the same answer without a pin
+ * (which is capped at 49). Contradicting signals are still listed in
+ * confidence_factors; they simply cannot push an identified landmark below
+ * that floor.
  */
 class ConfidenceCalibrationMatrixTest extends TestCase
 {
@@ -43,21 +48,21 @@ class ConfidenceCalibrationMatrixTest extends TestCase
                 'meta' => [],
                 'osm' => null,
                 'reverse' => false,
-                'expected' => 25,
+                'expected' => 49,
             ],
             'Statue of Liberty / low-res 320px' => [
                 'data' => $this->makeResult('Statue of Liberty', 'United States', 40.6892, -74.0445),
                 'meta' => ['resolution' => ['width' => 320, 'height' => 240]],
                 'osm' => null,
                 'reverse' => false,
-                'expected' => 15,
+                'expected' => 49,
             ],
             'Statue of Liberty / OSM says Canada (mismatch) + low-res' => [
                 'data' => $this->makeResult('Statue of Liberty', 'United States', 40.6892, -74.0445),
                 'meta' => ['resolution' => ['width' => 320, 'height' => 240]],
                 'osm' => ['country' => 'Canada'],
                 'reverse' => true,
-                'expected' => 0,
+                'expected' => 49,
             ],
             'Statue of Liberty / real Nominatim address.country shape' => [
                 'data' => $this->makeResult('Statue of Liberty', 'United States', 40.6892, -74.0445),
@@ -74,7 +79,7 @@ class ConfidenceCalibrationMatrixTest extends TestCase
                 'meta' => ['resolution' => ['width' => 1280, 'height' => 960]],
                 'osm' => null,
                 'reverse' => false,
-                'expected' => 35,
+                'expected' => 49,
             ],
             'Phnom Kulen / tied candidates (-15) + low-res (-10)' => [
                 'data' => $this->makeResult('Phnom Kulen', 'Cambodia', 13.6844, 103.9586, [
@@ -87,7 +92,7 @@ class ConfidenceCalibrationMatrixTest extends TestCase
                 'meta' => ['resolution' => ['width' => 320, 'height' => 240]],
                 'osm' => null,
                 'reverse' => false,
-                'expected' => 0,
+                'expected' => 49,
             ],
         ];
 
