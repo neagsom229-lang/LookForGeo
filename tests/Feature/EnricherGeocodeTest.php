@@ -115,9 +115,26 @@ class EnricherGeocodeTest extends TestCase
             'services.gemini.confidence_reverse_geocode' => false,
             'services.gemini.confidence_forward_geocode' => true,
         ]);
-        Http::fake(['nominatim.openstreetmap.org/*' => Http::response([
-            ['lat' => '40.6893', 'lon' => '-74.0444', 'display_name' => 'Statue of Liberty, New York'],
-        ], 200)]);
+        Http::fake([
+            '*wikidata.org/w/api.php*' => Http::response([
+                'search' => [
+                    ['id' => 'Q1128', 'label' => 'Statue of Liberty'],
+                ],
+            ], 200),
+            '*wikidata.org/wiki/*' => Http::response([
+                'entities' => [
+                    'Q1128' => [
+                        'id' => 'Q1128',
+                        'type' => 'item',
+                        'claims' => [
+                            'P625' => [
+                                'mainsnak' => ['datavalue' => ['value' => ['latitude' => 40.6893, 'longitude' => -74.0444, 'precision' => 1000]]],
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
 
         $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult());
         $signal = $result['confidence_signals']['forward_geocode_distance'];
@@ -143,35 +160,55 @@ class EnricherGeocodeTest extends TestCase
 
     /**
      * Model coordinates that disagree with the gazetteer by more than the
-     * 5 km preference threshold: the gazetteer answer wins and the
-     * disagreement is surfaced (precision becomes landmark-grade).
+     * 5 km preference threshold: the model answer is KEPT (no silent override),
+     * the disagreement is surfaced, precision is downgraded to approximate and
+     * the uncertainty radius is widened to at least the disagreement distance.
      */
-    public function test_enricher_prefers_gazetteer_when_model_coordinates_disagree(): void
+    public function test_enricher_records_gazetteer_disagreement_and_keeps_model_coordinates(): void
     {
         config([
             'services.gemini.confidence_reverse_geocode' => false,
             'services.gemini.confidence_forward_geocode' => true,
         ]);
-        Http::fake(['nominatim.openstreetmap.org/*' => Http::response([
-            [
-                'lat' => '40.85',
-                'lon' => '-73.95',
-                'display_name' => 'Statue of Liberty area, New York, United States',
-                'address' => ['country' => 'United States', 'country_code' => 'us'],
-            ],
-        ], 200)]);
+        Http::fake([
+            '*wikidata.org/w/api.php*' => Http::response([
+                'search' => [
+                    ['id' => 'Q1128', 'label' => 'Statue of Liberty'],
+                ],
+            ], 200),
+            '*wikidata.org/wiki/*' => Http::response([
+                'entities' => [
+                    'Q1128' => [
+                        'id' => 'Q1128',
+                        'type' => 'item',
+                        'claims' => [
+                            'P625' => [
+                                'mainsnak' => ['datavalue' => ['value' => ['latitude' => 40.85, 'longitude' => -73.95, 'precision' => 1000]]],
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
 
         $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult());
 
-        $this->assertSame('gazetteer', $result['coordinate_source']);
+        $this->assertSame('model', $result['coordinate_source']);
         $this->assertGreaterThan(5.0, (float) $result['coordinate_disagreement_km']);
-        $this->assertSame('landmark', $result['location_precision']);
-        $this->assertSame(0.0, (float) $result['uncertainty_radius_m']);
+        $this->assertSame(40.6892, (float) $result['latitude']);
+        $this->assertSame(-74.0445, (float) $result['longitude']);
+        $this->assertArrayHasKey('gazetteer_coordinates', $result);
+        $this->assertSame('wikidata', $result['gazetteer_coordinates']['source']);
+        $this->assertSame('approximate', $result['location_precision']);
+        $this->assertGreaterThanOrEqual(
+            (float) $result['coordinate_disagreement_km'] * 1000,
+            (float) $result['uncertainty_radius_m']
+        );
     }
 
     /**
-     * Model coordinates inside the 5 km tolerance: keep the model answer, no
-     * disagreement, precision is approximate with the model uncertainty radius.
+     * Model coordinates inside the 5 km tolerance: no disagreement, precision
+     * is approximate with the model uncertainty radius (never zero).
      */
     public function test_enricher_keeps_model_coordinates_when_gazetteer_agrees(): void
     {
@@ -179,12 +216,26 @@ class EnricherGeocodeTest extends TestCase
             'services.gemini.confidence_reverse_geocode' => false,
             'services.gemini.confidence_forward_geocode' => true,
         ]);
-        Http::fake(['nominatim.openstreetmap.org/*' => Http::response([
-            'lat' => '40.6893',
-            'lon' => '-74.0444',
-            'display_name' => 'Statue of Liberty, New York, United States',
-            'address' => ['country' => 'United States', 'country_code' => 'us'],
-        ], 200)]);
+        Http::fake([
+            '*wikidata.org/w/api.php*' => Http::response([
+                'search' => [
+                    ['id' => 'Q1128', 'label' => 'Statue of Liberty'],
+                ],
+            ], 200),
+            '*wikidata.org/wiki/*' => Http::response([
+                'entities' => [
+                    'Q1128' => [
+                        'id' => 'Q1128',
+                        'type' => 'item',
+                        'claims' => [
+                            'P625' => [
+                                'mainsnak' => ['datavalue' => ['value' => ['latitude' => 40.6893, 'longitude' => -74.0444, 'precision' => 1000]]],
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
 
         $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult());
 

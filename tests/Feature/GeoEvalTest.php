@@ -28,6 +28,7 @@ class GeoEvalTest extends TestCase
             $this->assertArrayHasKey('calibration', $report['metrics']);
             $this->assertArrayHasKey('low:0-49', $report['metrics']['calibration']);
             $this->assertStringContainsString('CC0', $report['fixture_license']);
+            $this->assertSame('Harness smoke test, NOT accuracy: mock mode returns the ground truth as the prediction.', $report['disclaimer']);
         } finally {
             if (is_file($path)) {
                 unlink($path);

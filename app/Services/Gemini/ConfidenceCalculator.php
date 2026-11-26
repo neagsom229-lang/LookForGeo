@@ -73,10 +73,11 @@ class ConfidenceCalculator
         $signals = [];
         $factors = [];
 
-        // Coordinates obtained by forward-geocoding the model's OWN landmark
-        // name are not independent evidence: they must not corroborate that
-        // same answer via country / distance / source-count points.
-        $selfSourced = ($data['coordinate_source'] ?? null) === 'forward_geocode';
+        // Coordinates obtained by forward-geocoding (or via the gazetteer)
+        // the model's own landmark name are not independent evidence: they must
+        // not corroborate that same answer via country / distance / source-count
+        // points. A gazetteer-sourced pin is self-sourced evidence too.
+        $selfSourced = in_array(($data['coordinate_source'] ?? null), ['forward_geocode', 'gazetteer'], true);
 
         $this->checkExif($data, $metadata, $signals, $factors);
         $this->checkCountry($data, $signals, $factors, $selfSourced);
@@ -416,10 +417,13 @@ class ConfidenceCalculator
         $primaryName = $this->normalizeLandmarkName($data['landmark_name'] ?? null);
         $secondaryName = $this->normalizeLandmarkName($secondary['landmark_name'] ?? null);
 
-        // Coordinates produced by forward-geocoding a model's own name are
-        // not independent: comparing them would only re-test the name match.
+        // Coordinates produced by forward-geocoding (or the gazetteer) a model's
+        // own name are not independent: comparing them would only re-test the
+        // name match.
         if (($data['coordinate_source'] ?? null) === 'forward_geocode'
-            || ($secondary['coordinate_source'] ?? null) === 'forward_geocode') {
+            || ($data['coordinate_source'] ?? null) === 'gazetteer'
+            || ($secondary['coordinate_source'] ?? null) === 'forward_geocode'
+            || ($secondary['coordinate_source'] ?? null) === 'gazetteer') {
             $signals['model_agreement'] = ['points' => 0, 'state' => 'self_sourced'];
             $factors[] = 'At least one model answer used forward-geocoded coordinates; agreement would be circular.';
 
