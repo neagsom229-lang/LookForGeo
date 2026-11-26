@@ -186,7 +186,8 @@ class GeoEval extends Command
                 'coordinate_source' => is_array($result) ? ($result['coordinate_source'] ?? 'model') : 'model',
                 'factors' => $factors,
                 'failed' => $failed,
-                'abstained' => $failed || $predLat === null || $predLng === null,
+                // Failed already covers abstentions (no usable prediction / missing coordinates).
+                'abstained' => $failed,
                 'same_country' => $sameCountry,
                 'seconds' => $seconds,
             ];

@@ -297,7 +297,7 @@ class GeminiResultEnhancer
                 isset($data['city']) && is_string($data['city']) ? $data['city'] : null,
                 isset($data['country']) && is_string($data['country']) ? $data['country'] : null
             );
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             return $data;
         }
 
