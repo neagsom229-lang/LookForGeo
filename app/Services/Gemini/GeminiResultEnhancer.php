@@ -10,6 +10,12 @@ use Throwable;
 
 class GeminiResultEnhancer
 {
+    /**
+     * A named-landmark coordinate from the model only is an estimate; the
+     * gazetteer-backed answer wins when the two disagree by more than this.
+     */
+    private const GAZETTEER_PREFER_KM = 5.0;
+
     public function __construct(
         private ConfidenceCalculator $confidence,
         private OpenStreetMapService $osm
@@ -24,9 +30,13 @@ class GeminiResultEnhancer
     {
         $data = $this->databaseCrossReference($data);
         $data = $this->multiSourceVerification($data);
+        $data = $this->applyGazetteerPreference($data);
         $data = $this->resolveMissingCoordinates($data);
         $data = $this->confidence->calculate($data, $metadata);
         $data = $this->addRichMetadata($data);
+
+        $data['location_precision'] = $this->resolveLocationPrecision($data);
+        $data['uncertainty_radius_m'] = $this->resolveUncertaintyRadius($data);
 
         return $this->validateAllFields($data);
     }
@@ -254,6 +264,113 @@ class GeminiResultEnhancer
     }
 
     /**
+     * Named-landmark gazetteer preference (Wikimedia-style coordinate
+     * authority). Runs after the model answer and its cross-source average;
+     * when a landmark was identified and the model coordinates disagree with
+     * the gazetteer by more than GAZETTEER_PREFER_KM, the gazetteer answer
+     * wins. Any failure is swallowed: a geocode problem must never fail the
+     * analysis, the model answer stays in place.
+     */
+    private function applyGazetteerPreference(array $data): array
+    {
+        if (! $this->isIdentified($data)) {
+            return $data;
+        }
+        $lat = $data['latitude'] ?? null;
+        $lng = $data['longitude'] ?? null;
+        if (! is_numeric($lat) || ! is_numeric($lng) || ! $this->isValidCoordinate($lat, $lng)) {
+            // Missing coordinates are resolved later via forward geocode.
+            return $data;
+        }
+        if (($data['coordinate_source'] ?? null) === 'gazetteer' || ($data['coordinate_source'] ?? null) === 'forward_geocode') {
+            // Already gazetteer-backed (or resolved later): no model-vs-gazetteer
+            // comparison is meaningful in that state.
+            return $data;
+        }
+        if (! config('services.gemini.confidence_forward_geocode', true)) {
+            return $data;
+        }
+
+        try {
+            $place = $this->osm->forwardGeocode(
+                (string) ($data['landmark_name'] ?? ''),
+                isset($data['city']) && is_string($data['city']) ? $data['city'] : null,
+                isset($data['country']) && is_string($data['country']) ? $data['country'] : null
+            );
+        } catch (\Throwable $e) {
+            return $data;
+        }
+
+        if (! is_array($place) || ! isset($place['lat'], $place['lng']) || ! is_numeric($place['lat']) || ! is_numeric($place['lng'])) {
+            // No usable gazetteer hit: keep the honest model answer.
+            return $data;
+        }
+
+        $distanceKm = $this->osm->calculateDistance(
+            (float) $lat, (float) $lng, (float) $place['lat'], (float) $place['lng']
+        ) / 1000;
+
+        if ($distanceKm > self::GAZETTEER_PREFER_KM) {
+            $data['coordinate_disagreement_km'] = round($distanceKm, 2);
+            $data['latitude'] = (float) $place['lat'];
+            $data['longitude'] = (float) $place['lng'];
+            $data['coordinate_source'] = 'gazetteer';
+            $data['forward_geocode_outcome'] = 'disagree';
+
+            return $data;
+        }
+
+        return $data;
+    }
+
+    private function isIdentified(array $data): bool
+    {
+        $name = strtolower(trim((string) ($data['landmark_name'] ?? '')));
+
+        return $name !== ''
+            && ! in_array($name, ['unknown', 'unknown location', 'n/a', 'none'], true);
+    }
+
+    /**
+     * location_precision: landmark (gazetteer-backed), approximate (model
+     * estimate) or region (no identifiable precise place).
+     */
+    private function resolveLocationPrecision(array $data): string
+    {
+        if (! $this->isIdentified($data)) {
+            return 'region';
+        }
+        if (($data['coordinate_source'] ?? null) === 'gazetteer') {
+            return 'landmark';
+        }
+        if (isset($data['latitude'], $data['longitude']) && $this->isValidCoordinate($data['latitude'], $data['longitude'])) {
+            return 'approximate';
+        }
+
+        return 'region';
+    }
+
+    /**
+     * Uncertainty radius in meters for the returned precision. A gazetteer
+     * answer is a known place (near zero); a model-only estimate carries the
+     * model uncertainty; an unidentified answer is region-level.
+     */
+    private function resolveUncertaintyRadius(array $data): float
+    {
+        if (! $this->isIdentified($data)) {
+            return 50_000.0;
+        }
+        if (($data['coordinate_source'] ?? null) === 'gazetteer') {
+            return 0.0;
+        }
+        if (isset($data['latitude'], $data['longitude']) && $this->isValidCoordinate($data['latitude'], $data['longitude'])) {
+            return 5_000.0;
+        }
+
+        return 50_000.0;
+    }
+
+    /**
      * ADD RICH METADATA
      */
     private function addRichMetadata($data)
@@ -310,6 +427,10 @@ class GeminiResultEnhancer
             'nearest_airport' => null,
             'candidates' => [],
             'candidate_gap' => null,
+            'coordinate_source' => 'model',
+            'coordinate_disagreement_km' => null,
+            'location_precision' => 'region',
+            'uncertainty_radius_m' => 0,
         ];
 
         foreach ($defaults as $key => $defaultValue) {
