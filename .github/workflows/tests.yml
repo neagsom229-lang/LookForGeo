@@ -12,7 +12,7 @@ jobs:
     name: JS checks (node)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # composer js:check runs `node --check` and `node --test`; without an
       # explicit setup-node step the runner's Node version is undefined. It
@@ -38,7 +38,7 @@ jobs:
       matrix:
         php: ['8.2', '8.5']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -75,7 +75,7 @@ jobs:
       matrix:
         gd: [with-jpeg, without-jpeg]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Rebuild GD explicitly so one leg has imagecreatefromjpeg() and the
       # other does not. Tests force the encoder path via config, so both
@@ -96,7 +96,7 @@ jobs:
     name: Hermetic suite with decoy .env
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -130,7 +130,7 @@ jobs:
     name: Smoke test (offline, fake Gemini)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: PowerShell parse check
         shell: pwsh
@@ -165,7 +165,7 @@ jobs:
     name: geo:eval (mock, offline)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -203,7 +203,7 @@ jobs:
     name: Dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -223,7 +223,7 @@ jobs:
     name: Pint (changed files)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -261,7 +261,7 @@ jobs:
     name: Dependabot schema (check-jsonschema)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # check-jsonschema 0.39.0 (Apache-2.0, Python >=3.11) ships a vendored
       # SchemaStore dependabot schema as "vendor.dependabot"; both are
@@ -283,7 +283,7 @@ jobs:
       DB_CONNECTION: sqlite
       DB_DATABASE: ':memory:'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -338,7 +338,7 @@ jobs:
       DB_USERNAME: tg
       DB_PASSWORD: tg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -389,7 +389,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build Dockerfile
         run: docker build -t tracegeo-ci .
