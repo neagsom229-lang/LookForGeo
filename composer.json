@@ -50,7 +50,7 @@
     "test:all": ["@test", "@test:slow"],
     "pint-changed": "php scripts/pint-changed.php",
     "quick": "php scripts/quick.php",
-    "js:check": "node --check public/js/csrf-retry.js && node --check public/js/home-upload.js && node --check public/js/confidence-heading.js && node --check public/js/analysis.js && node --check public/sw.js && node --test tests/js/csrf-retry.test.cjs tests/js/home-upload.test.cjs tests/js/confidence-heading.test.cjs",
+    "js:check": "node --check public/js/csrf-retry.js && node --check public/js/home-upload.js && node --check public/js/confidence-heading.js && node --check public/js/street-view-fallback.js && node --check public/js/analysis.js && node --check public/sw.js && node --test tests/js/csrf-retry.test.cjs tests/js/home-upload.test.cjs tests/js/confidence-heading.test.cjs tests/js/street-view-fallback.test.cjs",
     "security-audit": "composer audit --no-interaction",
     "ci": ["@test:all", "@test:decoy", "@pint-changed", "@analyse", "@js:check", "@security-audit"],
     "dev": [
