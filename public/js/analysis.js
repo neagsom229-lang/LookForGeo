@@ -345,6 +345,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     let uploadedImageURL = null;
     let pollTimer = null;
     let streetViewTimer = null;
+    let streetViewSession = null;
     let completionTimers = [];
     let currentAnalysisId = null;
     let pollAttempts = 0;
@@ -1091,6 +1092,10 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             clearTimeout(pollTimer);
             pollTimer = null;
         }
+        if (streetViewSession) {
+            streetViewSession.cancel();
+            streetViewSession = null;
+        }
         if (streetViewTimer) {
             clearTimeout(streetViewTimer);
             streetViewTimer = null;
@@ -1607,6 +1612,10 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         const streetBtn = document.getElementById('streetToggleBtn');
 
         const removeStreetView = () => {
+            if (streetViewSession) {
+                streetViewSession.cancel();
+                streetViewSession = null;
+            }
             if (streetViewTimer) {
                 clearTimeout(streetViewTimer);
                 streetViewTimer = null;
@@ -1804,6 +1813,10 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             console.warn('showStreetView: no valid coordinates; no URL built');
             return;
         }
+        if (streetViewSession) {
+            streetViewSession.cancel();
+            streetViewSession = null;
+        }
         if (streetViewTimer) {
             clearTimeout(streetViewTimer);
             streetViewTimer = null;
@@ -1819,27 +1832,30 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         if (globeBtn) globeBtn.classList.remove('active');
         if (streetBtn) streetBtn.classList.add('active');
 
+        const streetFallback = (typeof StreetViewFallback !== 'undefined' ? StreetViewFallback : window.StreetViewFallback);
+        const onBack = () => {
+            if (streetViewSession) {
+                streetViewSession.cancel();
+                streetViewSession = null;
+            }
+            wrap.remove();
+            if (globeBtn) globeBtn.classList.remove('active');
+            if (streetBtn) streetBtn.classList.remove('active');
+            const roadsBtn = document.getElementById('roadsToggle');
+            const terrainBtn = document.getElementById('terrainToggle');
+            if (currentTileMode === 'terrain') terrainBtn?.classList.add('active');
+            else roadsBtn?.classList.add('active');
+        };
         const bindBack = () => {
+            if (streetFallback && typeof streetFallback.safeBindBack === 'function') {
+                streetFallback.safeBindBack(wrap, onBack);
+                return;
+            }
             const backBtn = wrap.querySelector('#streetBackBtn');
-            if (!backBtn) return;
-            backBtn.onclick = () => {
-                wrap.remove();
-                if (streetViewTimer) {
-                    clearTimeout(streetViewTimer);
-                    streetViewTimer = null;
-                }
-                if (globeBtn) globeBtn.classList.remove('active');
-                if (streetBtn) streetBtn.classList.remove('active');
-                const roadsBtn = document.getElementById('roadsToggle');
-                const terrainBtn = document.getElementById('terrainToggle');
-                if (currentTileMode === 'terrain') terrainBtn?.classList.add('active');
-                else roadsBtn?.classList.add('active');
-            };
+            if (backBtn) backBtn.onclick = onBack;
         };
 
         if (!GOOGLE_MAPS_EMBED_KEY) {
-            // No key configured at all — go straight to the honest fallback,
-            // never show a spinner that can't ever resolve.
             wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
         <div class="street-setup-notice">
@@ -1852,8 +1868,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         </div>`;
             DOM.satPane.appendChild(wrap);
             bindBack();
-            document.getElementById('streetOpenRealBtn')?.addEventListener('click', () => window.open(fullUrl,
-                '_blank'));
+            wrap.querySelector('#streetOpenRealBtn')?.addEventListener('click', () => window.open(fullUrl, '_blank'));
             return;
         }
 
@@ -1872,26 +1887,11 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         DOM.satPane.appendChild(wrap);
         bindBack();
 
-        const iframe = document.getElementById('streetIframe');
-        const loadingNotice = document.getElementById('streetLoadingNotice');
-        const openFullBtn = document.getElementById('streetOpenFullBtn');
-        let settled = false;
-
-        const showLoaded = () => {
-            if (settled) return;
-            settled = true;
-            if (loadingNotice) loadingNotice.remove();
-            if (iframe) iframe.style.opacity = '1';
-            if (openFullBtn) openFullBtn.style.display = '';
-        };
+        const iframe = wrap.querySelector('#streetIframe');
+        const loadingNotice = wrap.querySelector('#streetLoadingNotice');
+        const openFullBtn = wrap.querySelector('#streetOpenFullBtn');
 
         const showTimedOutFallback = () => {
-            if (settled) return;
-            if (!wrap.isConnected) {
-                settled = true;
-                return;
-            }
-            settled = true;
             wrap.innerHTML = `
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
         <div class="street-setup-notice">
@@ -1903,32 +1903,49 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             </button>
         </div>`;
             bindBack();
-            const openBtn = wrap.querySelector('#streetOpenRealBtn');
-            if (openBtn) openBtn.addEventListener('click', () => window.open(fullUrl, '_blank'));
+            wrap.querySelector('#streetOpenRealBtn')?.addEventListener('click', () => window.open(fullUrl, '_blank'));
+        };
+
+        streetViewSession = streetFallback && typeof streetFallback.createSession === 'function'
+            ? streetFallback.createSession({
+                wrap,
+                timeoutMs: STREET_VIEW_TIMEOUT_MS,
+                isCompleted: () => analysisComplete === true,
+                onFallback: showTimedOutFallback,
+                onBack
+            })
+            : null;
+
+        if (!streetViewSession) {
+            // Fallback: no helper loaded; keep minimal guard.
+            let settled = false;
+            streetViewTimer = setTimeout(() => {
+                streetViewTimer = null;
+                if (settled || !wrap.isConnected || analysisComplete === true) return;
+                settled = true;
+                showTimedOutFallback();
+            }, STREET_VIEW_TIMEOUT_MS);
+            streetViewSession = { cancel: () => { settled = true; if (streetViewTimer) { clearTimeout(streetViewTimer); streetViewTimer = null; } }, isSettled: () => settled };
+        }
+
+        const settleLoaded = () => {
+            if (streetViewSession && streetViewSession.isSettled()) return;
+            if (streetViewSession) streetViewSession.cancel();
+            if (loadingNotice) loadingNotice.remove();
+            if (iframe) iframe.style.opacity = '1';
+            if (openFullBtn) openFullBtn.style.display = '';
         };
 
         if (iframe) {
-            iframe.addEventListener('load', () => {
-                if (streetViewTimer) {
-                    clearTimeout(streetViewTimer);
-                    streetViewTimer = null;
-                }
-                showLoaded();
-            });
+            iframe.addEventListener('load', settleLoaded);
             iframe.addEventListener('error', () => {
-                if (streetViewTimer) {
-                    clearTimeout(streetViewTimer);
-                    streetViewTimer = null;
+                if (streetViewSession && !streetViewSession.isSettled()) {
+                    streetViewSession.triggerFallback();
                 }
-                showTimedOutFallback();
             });
         }
-        streetViewTimer = setTimeout(() => {
-            streetViewTimer = null;
-            if (!settled && wrap.isConnected) showTimedOutFallback();
-        }, STREET_VIEW_TIMEOUT_MS);
 
-        document.getElementById('streetOpenFullBtn')?.addEventListener('click', () => window.open(fullUrl, '_blank'));
+        wrap.querySelector('#streetOpenFullBtn')?.addEventListener('click', () => window.open(fullUrl, '_blank'));
     }
 
     function exportReport(data, lat, lng) {

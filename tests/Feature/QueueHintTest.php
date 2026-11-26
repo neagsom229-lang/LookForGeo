@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\GeoAnalysis;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -80,30 +81,37 @@ class QueueHintTest extends TestCase
      */
     public function test_upload_stays_pending_until_worker_runs_and_then_hints(): void
     {
-        config(['queue.default' => 'database']);
-        Storage::fake('public');
+        Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00'));
 
-        $user = User::factory()->create();
-        $response = $this->actingAs($user, 'web')->postJson('/api/analyze/store', [
-            'image' => UploadedFile::fake()->image('queued.png'),
-        ]);
+        try {
+            config(['queue.default' => 'database']);
+            Storage::fake('public');
 
-        $response->assertOk();
-        $this->assertSame('pending', $response->json('data.status'));
+            $user = User::factory()->create();
+            $response = $this->actingAs($user, 'web')->postJson('/api/analyze/store', [
+                'image' => UploadedFile::fake()->image('queued.png'),
+            ]);
 
-        $analysis = GeoAnalysis::find($response->json('id'));
-        $this->assertSame('pending', $analysis->status);
+            $response->assertOk();
+            $this->assertSame('pending', $response->json('data.status'));
 
-        // Simulate > 20s of queue wait without sleeping.
-        $analysis->forceFill([
-            'created_at' => now()->subMinutes(3),
-            'started_at' => now()->subMinutes(3),
-        ])->save();
+            $analysis = GeoAnalysis::find($response->json('id'));
+            $this->assertSame('pending', $analysis->status);
 
-        $status = $this->actingAs($user, 'web')->getJson("/api/analyze/{$analysis->id}/status");
-        $status->assertOk();
-        $this->assertSame('pending', $status->json('status'));
-        $this->assertGreaterThanOrEqual(20, (int) $status->json('queued_seconds'));
-        $this->assertStringContainsString('queue worker not running', (string) $status->json('hint'));
+            // Simulate > 20s of queue wait without sleeping. Keep under the
+            // 180s "delayed" threshold (AnalysisController) to avoid boundary flake.
+            $analysis->forceFill([
+                'created_at' => now()->subSeconds(179),
+                'started_at' => now()->subSeconds(179),
+            ])->save();
+
+            $status = $this->actingAs($user, 'web')->getJson("/api/analyze/{$analysis->id}/status");
+            $status->assertOk();
+            $this->assertSame('pending', $status->json('status'));
+            $this->assertGreaterThanOrEqual(20, (int) $status->json('queued_seconds'));
+            $this->assertStringContainsString('queue worker not running', (string) $status->json('hint'));
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 }

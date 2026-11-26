@@ -19,7 +19,7 @@ class CsrfHardeningTest extends TestCase
     {
         $sw = (string) file_get_contents(base_path('public/sw.js'));
 
-        $this->assertStringContainsString("CACHE_NAME = 'tracegeo-v4'", $sw);
+        $this->assertStringContainsString("CACHE_NAME = 'tracegeo-v5'", $sw);
         $this->assertStringContainsString('no-store', $sw);
         $this->assertStringContainsString('self.clients.claim()', $sw);
         // Navigations must not be written into the cache at all.
