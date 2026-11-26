@@ -206,7 +206,7 @@ class GeoEval extends Command
             ];
         }
 
-        $datasetName = $dataset !== '' ? $dataset : ($realPhotoMode ? 'real-photo-labels' : 'synthetic');
+        $datasetName = $dataset !== '' ? $dataset : ($realPhotoMode ? 'real-photo' : 'synthetic');
         $report = $this->buildReport($rows, $live, $realPhotoMode, $datasetName, $groundTruthPath);
         $report['metrics']['estimated_cost_usd'] = $live ? round($totalCostUsd, 4) : 0.0;
         $reportPath = (string) ($this->option('report') ?: storage_path('app/eval-'.($live ? 'live' : 'mock').'.json'));

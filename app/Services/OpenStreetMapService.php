@@ -540,9 +540,7 @@ class OpenStreetMapService
 
             return is_string($cached) && $cached !== '' ? strtolower($cached) : null;
         }
-        if (! $this->allowWikidata('wikidata_p17')) {
-            return null;
-        }
+        // Follow-up P17 lookup: the main wikidata call was already rate-limited.
 
         try {
             $resp = Http::timeout(5)
