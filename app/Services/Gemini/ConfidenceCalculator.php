@@ -47,6 +47,16 @@ class ConfidenceCalculator
 
     private const FORWARD_GEOCODE_POINTS = 10;
 
+    /**
+     * Two-model agreement. Only usable when a second model already produced
+     * an answer (never by making an extra call for this signal). The same
+     * landmark name and coordinates within a few km is independent evidence:
+     * different models do not share the same weights or prompt sampling.
+     */
+    private const MODEL_AGREEMENT_KM = 5.0;
+
+    private const MODEL_AGREEMENT_POINTS = 10;
+
     public function __construct(private OpenStreetMapService $osm) {}
 
     /**
@@ -75,7 +85,56 @@ class ConfidenceCalculator
         $this->checkResolution($metadata, $signals, $factors);
         $this->checkCandidates($data, $signals, $factors);
         $this->checkCoordinateSources($data, $signals, $factors, $selfSourced);
+        $this->checkModelAgreement($data, $signals, $factors);
 
+        return $this->finalize($data, $signals, $factors, $modelReported);
+    }
+
+    /**
+     * Add a second model's answer after the fact (the escalation pass already
+     * ran). Recomputes only the agreement signal and the final score; it never
+     * calls a model or a geocoder.
+     */
+    public function withSecondaryModelAnswer(array $data, array $secondary): array
+    {
+        $data['secondary_model_answer'] = $secondary;
+
+        $signals = is_array($data['confidence_signals'] ?? null) ? $data['confidence_signals'] : [];
+        $factors = is_array($data['confidence_factors'] ?? null) ? $data['confidence_factors'] : [];
+
+        unset($signals['model_agreement']);
+        // Drop factors produced by the previous finalize() pass so a second
+        // pass cannot duplicate them.
+        $factors = array_values(array_filter($factors, function ($factor) {
+            return ! is_string($factor)
+                || (! str_contains($factor, 'score floored at ')
+                    && ! str_contains($factor, 'Two models independently agreed')
+                    && ! str_contains($factor, 'Second model answer differs')
+                    && ! str_contains($factor, 'Both answers came from the same model')
+                    && ! str_contains($factor, 'Second model answer is missing')
+                    && ! str_contains($factor, 'Only one model answered')
+                    && ! str_contains($factor, 'At least one model answer used'));
+        }));
+
+        $this->checkModelAgreement($data, $signals, $factors);
+
+        $modelReported = isset($data['model_reported_confidence']) && is_numeric($data['model_reported_confidence'])
+            ? (int) $data['model_reported_confidence']
+            : 0;
+
+        return $this->finalize($data, $signals, $factors, $modelReported);
+    }
+
+    /**
+     * Apply the cap/floor rules and publish the calibrated fields. Shared by
+     * the normal calculation and the post-escalation agreement update so both
+     * paths enforce exactly the same rules.
+     *
+     * @param  array<int,array<string,mixed>>  $signals
+     * @param  array<int,string>  $factors
+     */
+    private function finalize(array $data, array $signals, array $factors, int $modelReported): array
+    {
         $score = (int) max(0, min(self::MAX_SCORE, array_sum(array_column($signals, 'points'))));
 
         // A completed analysis with no usable coordinates is still useful as
@@ -86,6 +145,7 @@ class ConfidenceCalculator
             && abs((float) $lat) <= 90 && abs((float) $lng) <= 180;
         $data['coordinates_missing'] = ! $hasCoordinates;
         $identified = $this->isIdentifiedLandmark($data);
+        $floorApplied = false;
         if (! $hasCoordinates) {
             // A named landmark was genuinely identified: present it at the
             // honest cap, not at 0/5 just because there is no pin to verify.
@@ -98,14 +158,17 @@ class ConfidenceCalculator
             // Monotonicity: a named landmark WITH a valid pin must never
             // score lower than the same landmark without one. Contradicting
             // signals still surface in confidence_factors; they cannot push
-            // the score below the no-coordinate cap.
+            // the score below the no-coordinate cap. This is a rule, not
+            // evidence, so the result says so explicitly.
             $score = self::IDENTIFIED_COORDINATE_FLOOR;
+            $floorApplied = true;
             $factors[] = 'Named landmark with valid coordinates: score floored at '
                 .self::IDENTIFIED_COORDINATE_FLOOR.' so a pinned result is never weaker than an unpinned one.';
         }
 
         $data['model_reported_confidence'] = $modelReported;
         $data['confidence'] = $score;
+        $data['confidence_floor_applied'] = $floorApplied;
         $data['confidence_signals'] = $signals;
         $data['confidence_factors'] = $factors;
         $data['confidence_basis'] = 'calibrated-signals';
@@ -324,6 +387,89 @@ class ConfidenceCalculator
         $factors[] = $points > 0
             ? "{$sources} independent coordinate sources agree."
             : 'Only one coordinate source available.';
+    }
+
+    /**
+     * Independent agreement between two models that both ran. This is only
+     * read from data already present (`secondary_model_answer`); it never
+     * triggers a second model call. Same-model answers are not independent.
+     */
+    private function checkModelAgreement(array $data, array &$signals, array &$factors): void
+    {
+        $secondary = $data['secondary_model_answer'] ?? null;
+        if (! is_array($secondary)) {
+            $signals['model_agreement'] = ['points' => 0, 'state' => 'unavailable'];
+            $factors[] = 'Only one model answered; no second answer to compare.';
+
+            return;
+        }
+
+        $primaryModel = isset($data['winner']) ? (string) $data['winner'] : null;
+        $secondaryModel = isset($secondary['model']) ? (string) $secondary['model'] : null;
+        if ($primaryModel !== null && $secondaryModel !== null && $primaryModel === $secondaryModel) {
+            $signals['model_agreement'] = ['points' => 0, 'state' => 'same_model'];
+            $factors[] = 'Both answers came from the same model; agreement is not independent.';
+
+            return;
+        }
+
+        $primaryName = $this->normalizeLandmarkName($data['landmark_name'] ?? null);
+        $secondaryName = $this->normalizeLandmarkName($secondary['landmark_name'] ?? null);
+
+        // Coordinates produced by forward-geocoding a model's own name are
+        // not independent: comparing them would only re-test the name match.
+        if (($data['coordinate_source'] ?? null) === 'forward_geocode'
+            || ($secondary['coordinate_source'] ?? null) === 'forward_geocode') {
+            $signals['model_agreement'] = ['points' => 0, 'state' => 'self_sourced'];
+            $factors[] = 'At least one model answer used forward-geocoded coordinates; agreement would be circular.';
+
+            return;
+        }
+
+        $lat = $data['latitude'] ?? null;
+        $lng = $data['longitude'] ?? null;
+        $secondaryLat = $secondary['latitude'] ?? null;
+        $secondaryLng = $secondary['longitude'] ?? null;
+
+        if ($primaryName === '' || $secondaryName === ''
+            || ! is_numeric($lat) || ! is_numeric($lng)
+            || ! is_numeric($secondaryLat) || ! is_numeric($secondaryLng)) {
+            $signals['model_agreement'] = ['points' => 0, 'state' => 'incomplete'];
+            $factors[] = 'Second model answer is missing a landmark name or valid coordinates; no agreement points.';
+
+            return;
+        }
+
+        $distanceKm = $this->haversine(
+            (float) $lat, (float) $lng, (float) $secondaryLat, (float) $secondaryLng
+        );
+        $namesMatch = $primaryName === $secondaryName;
+        $agrees = $namesMatch && $distanceKm <= self::MODEL_AGREEMENT_KM;
+        $points = $agrees ? self::MODEL_AGREEMENT_POINTS : 0;
+
+        $signals['model_agreement'] = [
+            'points' => $points,
+            'state' => $agrees ? 'agree' : 'disagree',
+            'distance_km' => round($distanceKm, 1),
+            'names_match' => $namesMatch,
+            'primary_model' => $primaryModel,
+            'secondary_model' => $secondaryModel,
+        ];
+        $factors[] = $agrees
+            ? 'Two models independently agreed on "'.$primaryName.'" within '
+                .round($distanceKm, 1).' km: +'.self::MODEL_AGREEMENT_POINTS.'.'
+            : 'Second model answer differs (name match: '.($namesMatch ? 'yes' : 'no')
+                .', '.round($distanceKm, 1).' km away); no agreement points.';
+    }
+
+    private function normalizeLandmarkName($value): string
+    {
+        $name = strtolower(trim((string) $value));
+        $name = preg_replace('/[^a-z0-9]+/', ' ', $name) ?? '';
+        $name = trim(preg_replace('/\s+/', ' ', $name) ?? '');
+        $name = preg_replace('/^the\s+/', '', $name) ?? $name;
+
+        return $name;
     }
 
     /**

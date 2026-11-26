@@ -85,6 +85,8 @@ class GeminiService
             return $first;
         }
 
+        $firstModel = (string) ($first['winner'] ?? $first['hedge_winner'] ?? config('services.gemini.model'));
+
         try {
             $timeout = max(1, (int) config('services.gemini.escalation_timeout', 25));
             $second = $this->client->analyzeWithModel($model, $imageData, $prompt, $timeout);
@@ -93,6 +95,10 @@ class GeminiService
                 && ! isset($second['error'])
                 && ! isset($second['is_error'])
                 && $this->validator->validate($second) === []) {
+                // The second model already ran; make its answer available to
+                // the agreement signal. No extra call is made for this.
+                $second['winner'] = $model;
+                $second['secondary_model_answer'] = $this->secondaryAnswer($first, $firstModel);
                 $improved = $this->enhancer->enhance($second, $metadata);
                 if ((int) ($improved['confidence'] ?? 0) > $firstConfidence) {
                     $improved['escalated'] = true;
@@ -101,6 +107,16 @@ class GeminiService
 
                     return $improved;
                 }
+
+                // Keep the first answer, but still credit independent
+                // agreement when the two models actually agreed.
+                $first = $this->enhancer->applySecondaryModelAnswer(
+                    $first,
+                    $this->secondaryAnswer($improved, $model)
+                );
+                $first['escalation_failed'] = true;
+
+                return $first;
             }
         } catch (\Throwable $e) {
             Log::warning('Gemini escalation failed: '.SecretSanitizer::redact($e->getMessage()));
@@ -110,6 +126,22 @@ class GeminiService
         $first['escalation_failed'] = true;
 
         return $first;
+    }
+
+    /**
+     * The minimum a second model's answer needs to be compared with the
+     * displayed answer. Coordinates may be null; the calculator then simply
+     * awards no agreement points.
+     */
+    private function secondaryAnswer(array $answer, ?string $model): array
+    {
+        return [
+            'landmark_name' => $answer['landmark_name'] ?? null,
+            'latitude' => $answer['latitude'] ?? null,
+            'longitude' => $answer['longitude'] ?? null,
+            'coordinate_source' => $answer['coordinate_source'] ?? null,
+            'model' => $model,
+        ];
     }
 
     /**

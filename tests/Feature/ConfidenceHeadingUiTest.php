@@ -46,4 +46,12 @@ class ConfidenceHeadingUiTest extends TestCase
         $this->assertNotFalse($analysisAt, 'analysis.js must be included');
         $this->assertLessThan($analysisAt, $helperAt, 'helper must load before analysis.js');
     }
+
+    public function test_analysis_surfaces_the_floor_rule_instead_of_hiding_it(): void
+    {
+        $js = (string) file_get_contents(base_path('public/js/analysis.js'));
+
+        $this->assertStringContainsString('data.confidence_floor_applied === true', $js);
+        $this->assertStringContainsString('Low evidence (score floored)', $js);
+    }
 }
