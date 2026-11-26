@@ -476,7 +476,7 @@ class OpenStreetMapService
                 return null;
             }
 
-            $label = is_array($searchData) ? ($searchData['search'][0]['label'] ?? $searchData['search'][0]['display']['label']['value'] ?? $entityId) : $entityId;
+            $label = $searchData['search'][0]['label'] ?? $searchData['search'][0]['display']['label']['value'] ?? $entityId;
 
             $result = [
                 'lat' => (float) $value['latitude'],
