@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Gemini\ConfidenceCalculator;
 use App\Services\Gemini\SecretSanitizer;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
@@ -568,7 +569,7 @@ class OpenStreetMapService
     private function normalizeCountryCode(string $country): ?string
     {
         try {
-            $calc = app(\App\Services\Gemini\ConfidenceCalculator::class);
+            $calc = app(ConfidenceCalculator::class);
 
             return $calc->normalizeCountryCode($country);
         } catch (\Throwable $e) {
