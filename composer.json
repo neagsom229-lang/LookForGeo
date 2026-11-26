@@ -50,7 +50,7 @@
     "test:all": ["@test", "@test:slow"],
     "pint-changed": "php scripts/pint-changed.php",
     "quick": "php scripts/quick.php",
-    "js:check": "node --check public/js/csrf-retry.js && node --check public/js/home-upload.js && node --check public/sw.js && node --test tests/js/csrf-retry.test.cjs tests/js/home-upload.test.cjs",
+    "js:check": "node --check public/js/csrf-retry.js && node --check public/js/home-upload.js && node --check public/js/confidence-heading.js && node --check public/js/analysis.js && node --check public/sw.js && node --test tests/js/csrf-retry.test.cjs tests/js/home-upload.test.cjs tests/js/confidence-heading.test.cjs",
     "ci": ["@test:all", "@test:decoy", "@pint-changed", "@analyse", "@js:check"],
     "dev": [
         "Composer\\Config::disableProcessTimeout",

@@ -1,5 +1,6 @@
 #!/bin/sh
-# Fast pre-push gate: composer quick (pint-changed + fast unit/feature tests).
+# Fast pre-push gate: composer quick (pint-changed + fast unit/feature tests)
+# plus composer js:check (node syntax + JS unit tests).
 # Full composer ci remains the manual/CI command.
 # Install: git config core.hooksPath .githooks
 started=$(date +%s 2>/dev/null || echo 0)
@@ -42,6 +43,14 @@ run_composer quick
 status=$?
 if [ "$status" -ne 0 ]; then
   echo "pre-push: composer quick FAILED (exit $status). Push blocked." >&2
+  exit "$status"
+fi
+
+echo "pre-push: running composer js:check ..."
+run_composer js:check
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo "pre-push: composer js:check FAILED (exit $status). Push blocked." >&2
   exit "$status"
 fi
 

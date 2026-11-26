@@ -1222,6 +1222,8 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                             DOM.whiteFlash.classList.remove('run');
                             void DOM.whiteFlash.offsetWidth;
                             DOM.whiteFlash.classList.add('run');
+                            // revealResults defers its heavy tail (Leaflet
+                            // init, image decode, controls) to rAF chunks.
                             setTimeout(() => revealResults(result), 700);
                         }, 3000);
                     } else {
@@ -1380,47 +1382,75 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         if (DOM.confPill) DOM.confPill.className = `pill-confidence band-${tier}`;
 
         if (DOM.photoFrame) {
-            let imgUrl = data.image_url || data.result?.image_url || data.result_image_url || uploadedImageURL ||
+            const imgUrl = data.image_url || data.result?.image_url || data.result_image_url || uploadedImageURL ||
                 sessionStorage.getItem('uploadedImage');
             console.log('🧪 Full imgUrl:', imgUrl);
 
+            // Split the heavy tail across animation frames instead of doing
+            // Leaflet map init + image decode + control binding in one
+            // synchronous callback. The first frame paints the text/pill
+            // state above; the map gets its own frame, media/controls the
+            // next. Runtime timing is UNVERIFIED in a browser (node --check
+            // only), but the work is no longer one uninterrupted block.
+            scheduleRevealFrame(() => {
+                renderResultMap(data, lat, lng, hasCoords, imgUrl);
+                scheduleRevealFrame(() => {
+                    renderResultMedia(data, imgUrl, lat, lng, hasCoords);
+                });
+            });
+        }
+
+        function scheduleRevealFrame(callback) {
+            if (prefersReducedMotion || typeof window.requestAnimationFrame !== 'function') {
+                setTimeout(callback, 0);
+                return;
+            }
+            // Double rAF: the first frame lets the browser lay out the newly
+            // shown results split; the second does the expensive DOM work.
+            window.requestAnimationFrame(() => window.requestAnimationFrame(callback));
+        }
+
+        function renderResultMap(data, lat, lng, hasCoords, imgUrl) {
             if (data.coordinates_missing || !hasCoords) {
                 // No pin, no fallback globe flight: show a clear message only.
                 if (DOM.mapStatusText) {
                     DOM.mapStatusText.textContent = 'Location could not be pinned - coordinates missing';
                 }
-            } else {
-                if (!resultMapInstance) {
-                    resultMapInstance = L.map('resultMap', {
-                        center: [lat, lng],
-                        zoom: 13,
-                        zoomControl: true,
-                        attributionControl: true
-                    });
-                    L.tileLayer(ROADS_URL, {
-                        attribution: ROADS_ATTR,
-                        maxZoom: 19
-                    }).addTo(resultMapInstance);
-                    setTimeout(() => resultMapInstance.invalidateSize(), 300);
-                } else {
-                    resultMapInstance.setView([lat, lng], 13);
-                }
-
-                const markerIcon = L.divIcon({
-                    html: `<div class="avatar-marker marker-drop">
-                             <div class="ring"></div><div class="ring2"></div>
-                             <div class="photo" style="background-image:url('${imgUrl || ''}')">
-                             </div>
-                           </div>`,
-                    className: '',
-                    iconSize: [46, 46],
-                    iconAnchor: [23, 23]
-                });
-                L.marker([lat, lng], {
-                    icon: markerIcon
-                }).addTo(resultMapInstance);
+                return;
             }
 
+            if (!resultMapInstance) {
+                resultMapInstance = L.map('resultMap', {
+                    center: [lat, lng],
+                    zoom: 13,
+                    zoomControl: true,
+                    attributionControl: true
+                });
+                L.tileLayer(ROADS_URL, {
+                    attribution: ROADS_ATTR,
+                    maxZoom: 19
+                }).addTo(resultMapInstance);
+                setTimeout(() => resultMapInstance.invalidateSize(), 300);
+            } else {
+                resultMapInstance.setView([lat, lng], 13);
+            }
+
+            const markerIcon = L.divIcon({
+                html: `<div class="avatar-marker marker-drop">
+                         <div class="ring"></div><div class="ring2"></div>
+                         <div class="photo" style="background-image:url('${imgUrl || ''}')">
+                         </div>
+                       </div>`,
+                className: '',
+                iconSize: [46, 46],
+                iconAnchor: [23, 23]
+            });
+            L.marker([lat, lng], {
+                icon: markerIcon
+            }).addTo(resultMapInstance);
+        }
+
+        function renderResultMedia(data, imgUrl, lat, lng, hasCoords) {
             const renderImage = (url) => {
                 let attempts = 0;
                 const MAX_RETRIES = 5;
@@ -1467,9 +1497,24 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 `${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}° ${lng>=0?'E':'W'}` :
                 'N/A';
 
+            // Honest heading: "confirmed" needs a valid pin AND a score at or
+            // above the defined threshold AND no low_confidence flag.
+            const headingText = window.ConfidenceHeading
+                ? window.ConfidenceHeading.evidenceHeading(
+                    confidence,
+                    hasCoords && !data.coordinates_missing,
+                    data.low_confidence === true
+                )
+                : ((hasCoords && !data.coordinates_missing && data.low_confidence !== true && confidence >= 65)
+                    ? 'CONFIRMED LOCATION EVIDENCE'
+                    : 'Possible location (low evidence)');
+            const confirmedHeading = headingText === 'CONFIRMED LOCATION EVIDENCE';
+            const headingColor = confirmedHeading ? 'var(--success)' : 'var(--warning)';
+            const headingBg = confirmedHeading ? 'rgba(45,212,191,0.05)' : 'rgba(245,158,11,0.06)';
+
             DOM.reasoningText.innerHTML = `
-                <div style="margin-bottom:12px; padding:10px; border-left:3px solid var(--success); background:rgba(45,212,191,0.05);">
-                    <strong style="color:var(--success);">CONFIRMED LOCATION EVIDENCE</strong><br>
+                <div style="margin-bottom:12px; padding:10px; border-left:3px solid ${headingColor}; background:${headingBg};">
+                    <strong style="color:${headingColor};">${headingText}</strong><br>
                     <span style="color:var(--text-secondary);">Landmark: <strong>${data.landmark_name || data.city || 'Unknown'}</strong></span><br>
                     <span style="color:var(--text-secondary);">Coordinates: <strong>${latStr}</strong></span><br>
                     <span style="color:var(--text-secondary);">Confidence: <strong>${confidence}%</strong></span>

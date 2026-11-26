@@ -30,6 +30,23 @@ class ConfidenceCalculator
     /** A result without coordinates cannot be pinned: cap its confidence. */
     private const NO_COORDINATE_CAP = 49;
 
+    /**
+     * A named landmark with valid coordinates must never score below the
+     * no-coordinate cap: having a pin is never worse evidence than not
+     * having one. The same value doubles as the floor for identified
+     * landmarks whose raw signal sum is lower.
+     */
+    private const IDENTIFIED_COORDINATE_FLOOR = self::NO_COORDINATE_CAP;
+
+    /**
+     * Independent forward geocode agreement. "A few km" is deliberately
+     * tight: a landmark name that geocodes to the same country within this
+     * radius is real corroboration, not a loose text match.
+     */
+    private const FORWARD_GEOCODE_AGREE_KM = 5.0;
+
+    private const FORWARD_GEOCODE_POINTS = 10;
+
     public function __construct(private OpenStreetMapService $osm) {}
 
     /**
@@ -68,17 +85,23 @@ class ConfidenceCalculator
         $hasCoordinates = is_numeric($lat) && is_numeric($lng)
             && abs((float) $lat) <= 90 && abs((float) $lng) <= 180;
         $data['coordinates_missing'] = ! $hasCoordinates;
+        $identified = $this->isIdentifiedLandmark($data);
         if (! $hasCoordinates) {
             // A named landmark was genuinely identified: present it at the
             // honest cap, not at 0/5 just because there is no pin to verify.
             // An "Unknown Location" answer stays low.
-            $name = strtolower(trim((string) ($data['landmark_name'] ?? '')));
-            $identified = $name !== ''
-                && ! in_array($name, ['unknown', 'unknown location', 'n/a', 'none'], true);
             $score = $identified
                 ? self::NO_COORDINATE_CAP
                 : min($score, self::NO_COORDINATE_CAP);
             $factors[] = 'Coordinates missing: location could not be pinned; confidence capped at '.self::NO_COORDINATE_CAP.'.';
+        } elseif ($identified && $score < self::IDENTIFIED_COORDINATE_FLOOR) {
+            // Monotonicity: a named landmark WITH a valid pin must never
+            // score lower than the same landmark without one. Contradicting
+            // signals still surface in confidence_factors; they cannot push
+            // the score below the no-coordinate cap.
+            $score = self::IDENTIFIED_COORDINATE_FLOOR;
+            $factors[] = 'Named landmark with valid coordinates: score floored at '
+                .self::IDENTIFIED_COORDINATE_FLOOR.' so a pinned result is never weaker than an unpinned one.';
         }
 
         $data['model_reported_confidence'] = $modelReported;
@@ -320,6 +343,19 @@ class ConfidenceCalculator
         return array_slice($candidates, 0, 3);
     }
 
+    /**
+     * A non-empty landmark name that is not one of the model's "I don't
+     * know" sentinels. Used for both the no-coordinate cap and the
+     * identified-landmark floor so the two rules cannot drift apart.
+     */
+    private function isIdentifiedLandmark(array $data): bool
+    {
+        $name = strtolower(trim((string) ($data['landmark_name'] ?? '')));
+
+        return $name !== ''
+            && ! in_array($name, ['unknown', 'unknown location', 'n/a', 'none'], true);
+    }
+
     private function level(int $score): string
     {
         if ($score >= 80) {
@@ -361,9 +397,10 @@ class ConfidenceCalculator
     }
 
     /**
-     * Informational only: distance between the model coordinates and the
-     * place named by the model. Points stay 0 until real-photo geo:eval
-     * data justifies a weighting.
+     * Independent forward geocode of the landmark name. Model-supplied
+     * coordinates earn points only when they land within a few km of that
+     * independent result IN THE SAME COUNTRY. Coordinates that came from
+     * the forward geocode itself are circular evidence and always earn 0.
      */
     private function checkForwardGeocode(array $data, array &$signals, array &$factors, bool $selfSourced = false): void
     {
@@ -417,14 +454,31 @@ class ConfidenceCalculator
         $distanceKm = $this->haversine(
             (float) $lat, (float) $lng, (float) $place['lat'], (float) $place['lng']
         );
+
+        // Same country is part of the rule: two places with the same name in
+        // different countries must not corroborate each other.
+        $statedCode = $this->countryCode($data['country'] ?? null);
+        $placeAddress = is_array($place['address'] ?? null) ? $place['address'] : [];
+        $placeCode = $this->countryCode(
+            $place['country_code'] ?? $placeAddress['country_code'] ?? null
+        );
+        $sameCountry = $statedCode !== null && $placeCode !== null && $statedCode === $placeCode;
+
+        $agrees = $distanceKm <= self::FORWARD_GEOCODE_AGREE_KM && $sameCountry;
+        $points = $agrees ? self::FORWARD_GEOCODE_POINTS : 0;
+
         $signals['forward_geocode_distance'] = [
-            'points' => 0,
-            'state' => 'resolved',
+            'points' => $points,
+            'state' => $agrees ? 'agree' : 'resolved',
             'distance_km' => round($distanceKm, 1),
             'query' => $query,
+            'country_match' => $sameCountry,
         ];
-        $factors[] = 'Forward geocode of "'.$query.'" is '.round($distanceKm, 1)
-            .' km from the model coordinates (informational; points=0).';
+        $factors[] = $agrees
+            ? 'Model coordinates agree with an independent forward geocode of "'.$query.'" ('
+                .round($distanceKm, 1).' km, same country): +'.self::FORWARD_GEOCODE_POINTS.'.'
+            : 'Forward geocode of "'.$query.'" is '.round($distanceKm, 1)
+                .' km away (same country: '.($sameCountry ? 'yes' : 'no').'); no independent agreement points.';
     }
 
     /**

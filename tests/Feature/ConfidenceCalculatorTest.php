@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Gemini\ConfidenceCalculator;
+use Tests\Support\FakeOpenStreetMapService;
 use Tests\TestCase;
 
 class ConfidenceCalculatorTest extends TestCase
@@ -77,6 +78,159 @@ class ConfidenceCalculatorTest extends TestCase
         $this->assertSame('conflict', $result['confidence_signals']['exif_gps']['state']);
         $this->assertStringContainsString('EXIF GPS conflicts', implode(' ', $result['confidence_factors']));
         $this->assertLessThan(90, $result['confidence']);
+    }
+
+    /**
+     * Golden Gate Bridge, model-supplied coordinates, independent forward
+     * geocode agrees, country matches. No EXIF GPS.
+     */
+    private function goldenGateResult(array $overrides = []): array
+    {
+        return array_merge([
+            'landmark_name' => 'Golden Gate Bridge',
+            'city' => 'San Francisco',
+            'country' => 'United States',
+            'latitude' => 37.8199,
+            'longitude' => -122.4783,
+            'confidence' => 20,
+            'visual_clues' => ['suspension towers', 'international orange', 'main cables', 'bay'],
+            'candidates' => [
+                ['location' => 'Golden Gate Bridge', 'probability' => 88],
+                ['location' => 'San Francisco-Oakland Bay Bridge', 'probability' => 30],
+            ],
+            'coordinate_sources' => 2,
+            'coordinate_source' => 'model',
+        ], $overrides);
+    }
+
+    private function calculatorWithGeocoders(): ConfidenceCalculator
+    {
+        config([
+            'services.gemini.confidence_reverse_geocode' => true,
+            'services.gemini.confidence_forward_geocode' => true,
+        ]);
+
+        return new ConfidenceCalculator(new FakeOpenStreetMapService(
+            ['address' => ['country' => 'United States', 'country_code' => 'us']],
+            [
+                'lat' => 37.8199,
+                'lng' => -122.4783,
+                'country_code' => 'us',
+                'display_name' => 'Golden Gate Bridge, San Francisco, California, United States',
+            ]
+        ));
+    }
+
+    public function test_forward_geocode_agreement_awards_points_for_model_coordinates(): void
+    {
+        $result = $this->calculatorWithGeocoders()->calculate(
+            $this->goldenGateResult(),
+            ['resolution' => ['width' => 1600, 'height' => 1200]]
+        );
+
+        $signal = $result['confidence_signals']['forward_geocode_distance'];
+        $this->assertSame(10, $signal['points'], 'model coordinates within 5 km + same country earn points');
+        $this->assertSame('agree', $signal['state']);
+        $this->assertTrue($signal['country_match']);
+        $this->assertSame(75, $result['confidence']);
+        $this->assertStringContainsString('agree with an independent forward geocode', implode(' ', $result['confidence_factors']));
+    }
+
+    public function test_forward_geocode_self_sourced_coordinates_earn_no_points(): void
+    {
+        $result = $this->calculatorWithGeocoders()->calculate(
+            $this->goldenGateResult(['coordinate_source' => 'forward_geocode']),
+            ['resolution' => ['width' => 1600, 'height' => 1200]]
+        );
+
+        $signal = $result['confidence_signals']['forward_geocode_distance'];
+        $this->assertSame(0, $signal['points'], 'coordinates from the geocode itself are circular');
+        $this->assertSame('self_sourced', $signal['state']);
+        $this->assertSame('self_sourced', $result['confidence_signals']['country_consistency']['state']);
+        $this->assertStringContainsString('circular', implode(' ', $result['confidence_factors']));
+    }
+
+    public function test_forward_geocode_in_another_country_earns_no_points(): void
+    {
+        config([
+            'services.gemini.confidence_reverse_geocode' => true,
+            'services.gemini.confidence_forward_geocode' => true,
+        ]);
+        // Same name, same distance, but the geocode resolves to Canada.
+        $osm = new FakeOpenStreetMapService(
+            ['address' => ['country' => 'United States', 'country_code' => 'us']],
+            ['lat' => 37.8199, 'lng' => -122.4783, 'country_code' => 'ca']
+        );
+
+        $result = (new ConfidenceCalculator($osm))->calculate(
+            $this->goldenGateResult(),
+            ['resolution' => ['width' => 1600, 'height' => 1200]]
+        );
+
+        $signal = $result['confidence_signals']['forward_geocode_distance'];
+        $this->assertSame(0, $signal['points']);
+        $this->assertFalse($signal['country_match']);
+    }
+
+    /**
+     * Monotonic property: for the same landmark, adding a valid pin must
+     * never lower the score below the no-coordinate result (49 cap).
+     */
+    public function test_identified_landmark_with_coordinates_is_never_lower_than_without(): void
+    {
+        $lowRes = ['resolution' => ['width' => 320, 'height' => 240]];
+        $variants = [
+            'all negative signals' => [
+                'overrides' => [
+                    'visual_clues' => [],
+                    'candidates' => [
+                        ['location' => 'Golden Gate Bridge', 'probability' => 50],
+                        ['location' => 'Bay Bridge', 'probability' => 48],
+                    ],
+                    'coordinate_sources' => 1,
+                ],
+                'meta' => $lowRes,
+            ],
+            'no evidence at all' => [
+                'overrides' => [
+                    'visual_clues' => [],
+                    'candidates' => [],
+                    'coordinate_sources' => 0,
+                ],
+                'meta' => $lowRes,
+            ],
+            'strong evidence with EXIF' => [
+                'overrides' => [],
+                'meta' => [
+                    'gps' => ['latitude' => 37.8199, 'longitude' => -122.4783],
+                    'resolution' => ['width' => 1600, 'height' => 1200],
+                ],
+            ],
+        ];
+
+        foreach ($variants as $label => $variant) {
+            config([
+                'services.gemini.confidence_reverse_geocode' => false,
+                'services.gemini.confidence_forward_geocode' => false,
+            ]);
+            $calculator = new ConfidenceCalculator(new FakeOpenStreetMapService);
+
+            $withCoords = $calculator->calculate(
+                $this->goldenGateResult($variant['overrides']),
+                $variant['meta']
+            );
+            $withoutCoords = $calculator->calculate(
+                $this->goldenGateResult(array_merge($variant['overrides'], ['latitude' => null, 'longitude' => null])),
+                $variant['meta']
+            );
+
+            $this->assertSame(49, $withoutCoords['confidence'], $label.' (without coordinates)');
+            $this->assertGreaterThanOrEqual(
+                $withoutCoords['confidence'],
+                $withCoords['confidence'],
+                $label.': valid coordinates must not score lower than missing coordinates'
+            );
+        }
     }
 
     public function test_low_confidence_returns_top_three_alternatives(): void
