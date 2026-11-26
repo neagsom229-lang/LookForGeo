@@ -11,8 +11,9 @@ use Throwable;
 class GeminiResultEnhancer
 {
     /**
-     * A named-landmark coordinate from the model only is an estimate; the
-     * gazetteer-backed answer wins when the two disagree by more than this.
+     * A named-landmark coordinate from the model only is an estimate; when it
+     * disagrees with the gazetteer-backed answer by more than this, the
+     * disagreement is surfaced (never silently overriding the model answer).
      */
     private const GAZETTEER_PREFER_KM = 5.0;
 
@@ -36,7 +37,14 @@ class GeminiResultEnhancer
         $data = $this->addRichMetadata($data);
 
         $data['location_precision'] = $this->resolveLocationPrecision($data);
-        $data['uncertainty_radius_m'] = $this->resolveUncertaintyRadius($data);
+        $radius = $this->resolveUncertaintyRadius($data);
+        $disagreementKm = (float) ($data['coordinate_disagreement_km'] ?? 0);
+        if ($disagreementKm > 0) {
+            // Never present a disagreed coordinate as more certain than the
+            // evidence: widen the radius to at least the disagreement distance.
+            $radius = max($radius, $disagreementKm * 1000);
+        }
+        $data['uncertainty_radius_m'] = round($radius, 1);
 
         return $this->validateAllFields($data);
     }
@@ -267,9 +275,9 @@ class GeminiResultEnhancer
      * Named-landmark gazetteer preference (Wikimedia-style coordinate
      * authority). Runs after the model answer and its cross-source average;
      * when a landmark was identified and the model coordinates disagree with
-     * the gazetteer by more than GAZETTEER_PREFER_KM, the gazetteer answer
-     * wins. Any failure is swallowed: a geocode problem must never fail the
-     * analysis, the model answer stays in place.
+     * the gazetteer by more than GAZETTEER_PREFER_KM, the disagreement is
+     * recorded and both answers kept. Any failure is swallowed: a geocode
+     * problem must never fail the analysis, the model answer stays in place.
      */
     private function applyGazetteerPreference(array $data): array
     {
@@ -311,10 +319,17 @@ class GeminiResultEnhancer
         ) / 1000;
 
         if ($distanceKm > self::GAZETTEER_PREFER_KM) {
+            // Do NOT silently override the model coordinates: keep the model
+            // answer and record the gazetteer side as a disagreement. The
+            // consumer (precision / radius / confidence) reacts honestly.
             $data['coordinate_disagreement_km'] = round($distanceKm, 2);
-            $data['latitude'] = (float) $place['lat'];
-            $data['longitude'] = (float) $place['lng'];
-            $data['coordinate_source'] = 'gazetteer';
+            $data['gazetteer_coordinates'] = [
+                'lat' => (float) $place['lat'],
+                'lng' => (float) $place['lng'],
+                'display_name' => (string) ($place['display_name'] ?? ''),
+                'country_code' => $place['country_code'] ?? null,
+                'source' => (string) ($place['source'] ?? 'gazetteer'),
+            ];
             $data['forward_geocode_outcome'] = 'disagree';
 
             return $data;
@@ -346,14 +361,18 @@ class GeminiResultEnhancer
         if (isset($data['latitude'], $data['longitude']) && $this->isValidCoordinate($data['latitude'], $data['longitude'])) {
             return 'approximate';
         }
+        if ((float) ($data['coordinate_disagreement_km'] ?? 0) > 0) {
+            // Model vs gazetteer disagreement: keep the estimate, mark it approximate.
+            return 'approximate';
+        }
 
         return 'region';
     }
 
     /**
-     * Uncertainty radius in meters for the returned precision. A gazetteer
-     * answer is a known place (near zero); a model-only estimate carries the
-     * model uncertainty; an unidentified answer is region-level.
+     * Uncertainty radius in meters for the returned precision. Never zero:
+     * a matched landmark has a 100 m minimum, a model-only estimate carries a
+     * conservative 5 km default, an unidentified answer is region-level.
      */
     private function resolveUncertaintyRadius(array $data): float
     {
@@ -361,9 +380,11 @@ class GeminiResultEnhancer
             return 50_000.0;
         }
         if (($data['coordinate_source'] ?? null) === 'gazetteer') {
-            return 0.0;
+            // Matched landmark via gazetteer: 100 m minimum (documented floor).
+            return 100.0;
         }
         if (isset($data['latitude'], $data['longitude']) && $this->isValidCoordinate($data['latitude'], $data['longitude'])) {
+            // Model-only estimate: conservative 5 km default (documented).
             return 5_000.0;
         }
 
@@ -430,7 +451,7 @@ class GeminiResultEnhancer
             'coordinate_source' => 'model',
             'coordinate_disagreement_km' => null,
             'location_precision' => 'region',
-            'uncertainty_radius_m' => 0,
+            'uncertainty_radius_m' => 50_000.0,
         ];
 
         foreach ($defaults as $key => $defaultValue) {

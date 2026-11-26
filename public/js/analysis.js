@@ -1398,7 +1398,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         const approximateLocation = locationPrecision === 'approximate';
 
         if (locationDisagreed && DOM.mapStatusText) {
-            DOM.mapStatusText.textContent = 'Location adjusted from model estimate to gazetteer answer (' + coordinateDisagreementKm.toFixed(1) + ' km difference)';
+            DOM.mapStatusText.textContent = 'Model and gazetteer disagree by ' + coordinateDisagreementKm.toFixed(1) + ' km — showing model estimate with widened uncertainty';
         }
 
         if (DOM.photoFrame) {
@@ -1562,7 +1562,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                     ${reasoning}
                 </div>
                 ${approximateLocation ? '<span style="color:var(--warning);"><strong>Approximate location</strong> (model estimate, uncertainty ~' + (uncertaintyRadiusM / 1000).toFixed(1) + ' km)</span>' : ''}
-                ${locationDisagreed ? '<span style="color:var(--warning);"><strong>Coordinates disagreed with gazetteer by ' + coordinateDisagreementKm.toFixed(1) + ' km - gazetteer answer preferred</strong></span>' : ''}
+                ${locationDisagreed ? '<span style="color:var(--warning);"><strong>Model/gazetteer disagreement: ' + coordinateDisagreementKm.toFixed(1) + ' km (model kept; uncertainty widened)</strong></span>' : ''}
             `;
         }
     }

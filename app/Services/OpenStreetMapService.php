@@ -16,6 +16,11 @@ class OpenStreetMapService
 
     private const NOMINATIM_LIMIT_KEY = 'nominatim_request';
 
+    /** Wikidata (P625) gazetteer policy: cache + 5s timeout, never fail the analysis. */
+    private const WIKIDATA_CACHE_SECONDS = 600;
+
+    private const WIKIDATA_LIMIT_KEY = 'wikidata_request';
+
     /** Outcome of the most recent geocode call, for explain/telemetry. */
     private ?string $lastOutcome = null;
 
@@ -47,6 +52,24 @@ class OpenStreetMapService
             return false;
         }
         RateLimiter::hit(self::NOMINATIM_LIMIT_KEY, 1);
+
+        return true;
+    }
+
+    /** Cache-backed limiter for the Wikidata gazetteer (no sleep, cross-worker). */
+    private function allowWikidata(string $operation): bool
+    {
+        if (RateLimiter::tooManyAttempts(self::WIKIDATA_LIMIT_KEY, 1)) {
+            $this->recordOutcome('rate_limit');
+            Log::warning('Wikidata request skipped', [
+                'category' => 'rate_limit',
+                'provider' => 'wikidata',
+                'operation' => $operation,
+            ]);
+
+            return false;
+        }
+        RateLimiter::hit(self::WIKIDATA_LIMIT_KEY, 1);
 
         return true;
     }
@@ -369,8 +392,121 @@ class OpenStreetMapService
      * Search for places with category filter
      */
     /**
+     * Gazetteer lookup for a named landmark via Wikidata P625 (first source).
+     * Cache-backed, 5s timeout, never throws: any failure returns null and the
+     * caller falls through to the next source (Nominatim).
+     */
+    public function wikidataGeocode(string $landmark, ?string $city = null, ?string $country = null): ?array
+    {
+        $query = trim(implode(', ', array_filter([
+            $landmark, $city, $country,
+        ], fn ($part) => is_string($part) && trim($part) !== '')));
+        if ($query === '') {
+            $this->recordOutcome('skipped_no_query');
+
+            return null;
+        }
+
+        $cacheKey = 'wikidata_'.md5($query);
+        if (Cache::has($cacheKey)) {
+            $this->recordOutcome('ok');
+
+            return Cache::get($cacheKey);
+        }
+        if (! $this->allowWikidata('wikidata')) {
+            return null;
+        }
+
+        try {
+            $search = Http::timeout(5)
+                ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
+                ->get('https://www.wikidata.org/w/api.php', [
+                    'action' => 'wbsearchentities',
+                    'search' => $query,
+                    'language' => 'en',
+                    'type' => 'item',
+                    'limit' => 1,
+                    'format' => 'json',
+                ]);
+
+            if (! $search->successful()) {
+                $this->logNominatimFailure('wikidata', $search->status() === 429 ? 'rate_limit' : 'http_error', [
+                    'status' => $search->status(),
+                ]);
+
+                return null;
+            }
+
+            $searchData = $search->json();
+            $entityId = is_array($searchData) ? ($searchData['search'][0]['id'] ?? null) : null;
+            if (! is_string($entityId) || $entityId === '') {
+                $this->logNominatimFailure('wikidata', 'empty', ['status' => $search->status()]);
+
+                return null;
+            }
+
+            $entity = Http::timeout(5)
+                ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
+                ->get('https://www.wikidata.org/wiki/Special/EntityData/'.$entityId.'.json', [
+                    'format' => 'json',
+                ]);
+
+            if (! $entity->successful()) {
+                $this->logNominatimFailure('wikidata', $entity->status() === 429 ? 'rate_limit' : 'http_error', [
+                    'status' => $entity->status(),
+                ]);
+
+                return null;
+            }
+
+            $entityData = $entity->json();
+            $claims = is_array($entityData) && isset($entityData['entities'][$entityId]['claims']['P625'])
+                ? $entityData['entities'][$entityId]['claims']['P625']
+                : null;
+            $claim = is_array($claims) ? ($claims[0] ?? $claims) : null;
+            $value = is_array($claim) && isset($claim['mainsnak']['datavalue']['value'])
+                ? $claim['mainsnak']['datavalue']['value']
+                : (is_array($claims) && isset($claims['mainsnak']['datavalue']['value']) ? $claims['mainsnak']['datavalue']['value'] : null);
+            if (! is_array($value) || ! isset($value['latitude'], $value['longitude'])
+                || ! is_numeric($value['latitude']) || ! is_numeric($value['longitude'])) {
+                // No usable P625 coordinate: report "empty", never invent one.
+                $this->logNominatimFailure('wikidata', 'empty', ['status' => $entity->status()]);
+                $this->recordOutcome('empty');
+
+                return null;
+            }
+
+            $label = is_array($searchData) ? ($searchData['search'][0]['label'] ?? $searchData['search'][0]['display']['label']['value'] ?? $entityId) : $entityId;
+
+            $result = [
+                'lat' => (float) $value['latitude'],
+                'lng' => (float) $value['longitude'],
+                'display_name' => (string) $label,
+                'source' => 'wikidata',
+                'query' => $query,
+            ];
+
+            Cache::put($cacheKey, $result, self::WIKIDATA_CACHE_SECONDS);
+            $this->recordOutcome('ok');
+
+            return $result;
+        } catch (ConnectionException $e) {
+            $this->logNominatimFailure('wikidata', 'timeout', [
+                'message' => SecretSanitizer::redact($e->getMessage()),
+            ]);
+        } catch (\Throwable $e) {
+            $this->logNominatimFailure('wikidata', 'bad_response', [
+                'message' => SecretSanitizer::redact($e->getMessage()),
+            ]);
+        }
+
+        return null;
+    }
+
+    /**
      * Forward geocode a place name for an informational distance signal.
-     * Returns lat/lng plus the display name, or null on any failure.
+     * Gazetteer chain: Wikidata P625 first, Nominatim second. Returns lat/lng
+     * plus the display name, or null on any failure.
      */
     public function forwardGeocode(string $landmark, ?string $city = null, ?string $country = null): ?array
     {
@@ -389,6 +525,16 @@ class OpenStreetMapService
 
             return Cache::get($cacheKey);
         }
+        // Gazetteer chain for a named landmark: Wikidata P625 first, Nominatim second.
+        $wikidata = $this->wikidataGeocode($landmark, $city, $country);
+        if (is_array($wikidata) && isset($wikidata['lat'], $wikidata['lng']) && is_numeric($wikidata['lat']) && is_numeric($wikidata['lng'])) {
+            $wikidata['source'] = 'wikidata';
+            Cache::put($cacheKey, $wikidata, self::NOMINATIM_CACHE_SECONDS);
+            $this->recordOutcome('ok');
+
+            return $wikidata;
+        }
+
         if (! $this->allowNominatim('forward')) {
             return null;
         }
@@ -425,6 +571,7 @@ class OpenStreetMapService
                 'lng' => (float) $data[0]['lon'],
                 'display_name' => (string) ($data[0]['display_name'] ?? ''),
                 'country_code' => $address['country_code'] ?? ($data[0]['country_code'] ?? null),
+                'source' => 'nominatim',
                 'query' => $query,
             ];
             Cache::put($cacheKey, $result, self::NOMINATIM_CACHE_SECONDS);

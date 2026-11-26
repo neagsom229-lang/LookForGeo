@@ -78,8 +78,10 @@ class GeoEval extends Command
             $labels = array_slice($labels, 0, $limit);
         }
 
-        if (! $live && $realPhotoMode) {
-            $this->warn('Mock mode returns the label as the prediction; accuracy numbers are not meaningful without --live.');
+        if (! $live) {
+            // Mock mode feeds the ground truth back as the prediction, so any
+            // number produced here measures the harness, not the AI model.
+            $this->warn('MOCK MODE: harness smoke test, NOT accuracy — mock responses return the ground truth as the prediction.');
         }
         if (! $live) {
             // Mock: no network, no reverse-geocode call. The fake returns the
@@ -134,6 +136,7 @@ class GeoEval extends Command
         ));
 
         $rows = [];
+        $totalCostUsd = 0.0;
         foreach ($labels as $label) {
             $path = $realPhotoMode
                 ? rtrim($imagesDir, '/\\').'/'.$label['file']
@@ -155,6 +158,11 @@ class GeoEval extends Command
                 $result = null;
             }
             $seconds = round(microtime(true) - $started, 3);
+            if ($live) {
+                // Conservative per-image estimate (model + geocode overhead); never print keys.
+                $totalCostUsd += 0.0025;
+                usleep(500_000); // simple rate limit: 2 req/s max
+            }
 
             $predLat = is_array($result) ? ($result['latitude'] ?? null) : null;
             $predLng = is_array($result) ? ($result['longitude'] ?? null) : null;
@@ -194,6 +202,7 @@ class GeoEval extends Command
         }
 
         $report = $this->buildReport($rows, $live, $realPhotoMode);
+        $report['metrics']['estimated_cost_usd'] = $live ? round($totalCostUsd, 4) : 0.0;
         $reportPath = (string) ($this->option('report') ?: storage_path('app/eval-'.($live ? 'live' : 'mock').'.json'));
         file_put_contents($reportPath, json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
@@ -307,6 +316,9 @@ class GeoEval extends Command
             'fixture_license' => $realPhotoMode
                 ? 'User-supplied photos; see the license column of the labels CSV'
                 : 'CC0 synthetic images; coordinates are public geographic facts',
+            'disclaimer' => $live
+                ? null
+                : 'Harness smoke test, NOT accuracy: mock mode returns the ground truth as the prediction.',
             'ground_truth' => $realPhotoMode ? 'labels' : 'tests/eval/ground_truth.csv',
             'count' => $total,
             'metrics' => [
@@ -369,6 +381,7 @@ class GeoEval extends Command
             ['Latency p50 (s)', $m['latency_p50_s'] ?? 'n/a'],
             ['Latency p95 (s)', $m['latency_p95_s'] ?? 'n/a'],
             ['Failure rate', $m['failure_rate_pct'].'%'],
+            ['Estimated cost (USD)', $m['estimated_cost_usd'] ?? 'n/a'],
         ]);
 
         $this->line('Within 1 km: '.($m['pct_within']['1km'] ?? 'n/a').'%');

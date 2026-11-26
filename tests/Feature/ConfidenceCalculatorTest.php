@@ -404,6 +404,24 @@ class ConfidenceCalculatorTest extends TestCase
         $this->assertSame('self_sourced', $signal['state']);
     }
 
+    public function test_gazetteer_sourced_coordinates_earn_no_self_corroboration_points(): void
+    {
+        $result = $this->calculatorWithoutGeocoders()->calculate(
+            $this->baseResult([
+                'coordinate_source' => 'gazetteer',
+                'coordinate_sources' => 1,
+            ]),
+            []
+        );
+
+        $this->assertSame(0, $result['confidence_signals']['country_consistency']['points']);
+        $this->assertSame('self_sourced', $result['confidence_signals']['country_consistency']['state']);
+        $this->assertSame(0, $result['confidence_signals']['forward_geocode_distance']['points']);
+        $this->assertSame('self_sourced', $result['confidence_signals']['forward_geocode_distance']['state']);
+        $this->assertSame(0, $result['confidence_signals']['coordinate_sources']['points']);
+        $this->assertSame('self_sourced', $result['confidence_signals']['coordinate_sources']['state']);
+    }
+
     /**
      * The kept-first escalation path uses this method: it must add the
      * agreement points without re-running any geocoder.
