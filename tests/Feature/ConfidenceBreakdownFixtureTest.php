@@ -73,6 +73,31 @@ class ConfidenceBreakdownFixtureTest extends TestCase
         }
     }
 
+    /**
+     * The production shape that displayed 20%: named landmark + model
+     * coordinates + matching country, no other positive signals. The
+     * identified-landmark floor lifts it to 49; it stays low confidence.
+     */
+    public function test_minimal_production_like_fixture_is_floored_to_the_cap(): void
+    {
+        $result = $this->calculator()->calculate([
+            'landmark_name' => 'Golden Gate Bridge',
+            'city' => 'San Francisco',
+            'country' => 'United States',
+            'latitude' => 37.8199,
+            'longitude' => -122.4783,
+            'confidence' => 20,
+            'coordinate_source' => 'model',
+        ], []);
+
+        $this->assertSame(49, $result['confidence']);
+        $this->assertSame(10, $result['confidence_signals']['forward_geocode_distance']['points']);
+
+        if (getenv('TEST_VERBOSE') === '1') {
+            fwrite(STDERR, "\n".$this->table($result, 'minimal: model coordinates + country match only'));
+        }
+    }
+
     private function table(array $result, string $label): string
     {
         $rows = "| Signal | Points | State | Detail |\n|---|---|---|---|\n";
