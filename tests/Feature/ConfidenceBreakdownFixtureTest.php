@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Gemini\ConfidenceCalculator;
-use App\Services\OpenStreetMapService;
+use Tests\Support\FakeOpenStreetMapService;
 use Tests\TestCase;
 
 /**
@@ -40,19 +40,15 @@ class ConfidenceBreakdownFixtureTest extends TestCase
             'services.gemini.confidence_forward_geocode' => true,
         ]);
 
-        $osm = \Mockery::mock(OpenStreetMapService::class);
-        $osm->shouldReceive('reverseGeocode')->andReturn([
-            'address' => ['country' => 'United States', 'country_code' => 'us'],
-        ]);
-        $osm->shouldReceive('forwardGeocode')->andReturn([
-            'lat' => 37.8199,
-            'lng' => -122.4783,
-            'country_code' => 'us',
-            'display_name' => 'Golden Gate Bridge, San Francisco, California, United States',
-        ]);
-        $osm->shouldReceive('lastOutcomeCategory')->andReturn('ok');
-
-        return new ConfidenceCalculator($osm);
+        return new ConfidenceCalculator(new FakeOpenStreetMapService(
+            ['address' => ['country' => 'United States', 'country_code' => 'us']],
+            [
+                'lat' => 37.8199,
+                'lng' => -122.4783,
+                'country_code' => 'us',
+                'display_name' => 'Golden Gate Bridge, San Francisco, California, United States',
+            ]
+        ));
     }
 
     public function test_golden_gate_breakdown_for_model_and_self_sourced_coordinates(): void

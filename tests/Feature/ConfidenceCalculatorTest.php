@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Gemini\ConfidenceCalculator;
-use App\Services\OpenStreetMapService;
+use Tests\Support\FakeOpenStreetMapService;
 use Tests\TestCase;
 
 class ConfidenceCalculatorTest extends TestCase
@@ -110,19 +110,15 @@ class ConfidenceCalculatorTest extends TestCase
             'services.gemini.confidence_forward_geocode' => true,
         ]);
 
-        $osm = \Mockery::mock(OpenStreetMapService::class);
-        $osm->shouldReceive('reverseGeocode')->andReturn([
-            'address' => ['country' => 'United States', 'country_code' => 'us'],
-        ]);
-        $osm->shouldReceive('forwardGeocode')->andReturn([
-            'lat' => 37.8199,
-            'lng' => -122.4783,
-            'country_code' => 'us',
-            'display_name' => 'Golden Gate Bridge, San Francisco, California, United States',
-        ]);
-        $osm->shouldReceive('lastOutcomeCategory')->andReturn('ok');
-
-        return new ConfidenceCalculator($osm);
+        return new ConfidenceCalculator(new FakeOpenStreetMapService(
+            ['address' => ['country' => 'United States', 'country_code' => 'us']],
+            [
+                'lat' => 37.8199,
+                'lng' => -122.4783,
+                'country_code' => 'us',
+                'display_name' => 'Golden Gate Bridge, San Francisco, California, United States',
+            ]
+        ));
     }
 
     public function test_forward_geocode_agreement_awards_points_for_model_coordinates(): void
@@ -160,17 +156,11 @@ class ConfidenceCalculatorTest extends TestCase
             'services.gemini.confidence_reverse_geocode' => true,
             'services.gemini.confidence_forward_geocode' => true,
         ]);
-        $osm = \Mockery::mock(OpenStreetMapService::class);
-        $osm->shouldReceive('reverseGeocode')->andReturn([
-            'address' => ['country' => 'United States', 'country_code' => 'us'],
-        ]);
         // Same name, same distance, but the geocode resolves to Canada.
-        $osm->shouldReceive('forwardGeocode')->andReturn([
-            'lat' => 37.8199,
-            'lng' => -122.4783,
-            'country_code' => 'ca',
-        ]);
-        $osm->shouldReceive('lastOutcomeCategory')->andReturn('ok');
+        $osm = new FakeOpenStreetMapService(
+            ['address' => ['country' => 'United States', 'country_code' => 'us']],
+            ['lat' => 37.8199, 'lng' => -122.4783, 'country_code' => 'ca']
+        );
 
         $result = (new ConfidenceCalculator($osm))->calculate(
             $this->goldenGateResult(),
@@ -223,7 +213,7 @@ class ConfidenceCalculatorTest extends TestCase
                 'services.gemini.confidence_reverse_geocode' => false,
                 'services.gemini.confidence_forward_geocode' => false,
             ]);
-            $calculator = new ConfidenceCalculator(\Mockery::mock(OpenStreetMapService::class));
+            $calculator = new ConfidenceCalculator(new FakeOpenStreetMapService);
 
             $withCoords = $calculator->calculate(
                 $this->goldenGateResult($variant['overrides']),

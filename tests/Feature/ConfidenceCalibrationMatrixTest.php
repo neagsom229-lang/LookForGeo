@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Services\Gemini\ConfidenceCalculator;
-use App\Services\OpenStreetMapService;
 use Illuminate\Support\Facades\Cache;
+use Tests\Support\FakeOpenStreetMapService;
 use Tests\TestCase;
 
 /**
@@ -103,8 +103,7 @@ class ConfidenceCalibrationMatrixTest extends TestCase
                 'services.gemini.key' => 'AIzaSyFakeCalibKey1234567890',
             ]);
             Cache::flush();
-            $osm = \Mockery::mock(OpenStreetMapService::class);
-            $osm->shouldReceive('reverseGeocode')->andReturn($case['osm']);
+            $osm = new FakeOpenStreetMapService($case['osm']);
             $calculator = new ConfidenceCalculator($osm);
 
             $out = $calculator->calculate($case['data'], $case['meta']);
