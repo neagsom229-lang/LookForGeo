@@ -127,6 +127,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Optional OpenAI-compatible vision fallback (free/low-cost providers)
+    |--------------------------------------------------------------------------
+    | Used only when Gemini attempts fail and this provider is configured.
+    | Supports OpenAI-compatible chat/completions APIs (OpenRouter, Groq, etc.).
+    | Disabled by default; no secrets committed.
+    */
+    'ai_fallback' => [
+        'enabled' => (bool) env('AI_FALLBACK_ENABLED', false),
+        'provider' => env('AI_FALLBACK_PROVIDER', 'openai_compatible'),
+        'key' => env('AI_FALLBACK_API_KEY'),
+        'base_url' => env('AI_FALLBACK_BASE_URL', 'https://api.openai.com/v1'),
+        'model' => env('AI_FALLBACK_MODEL', 'gpt-4o-mini'),
+        'timeout' => (int) env('AI_FALLBACK_TIMEOUT', 45),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | NOMINATIM (OpenStreetMap geocoding)
     |--------------------------------------------------------------------------
     */
