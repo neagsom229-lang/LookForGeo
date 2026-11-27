@@ -1421,7 +1421,8 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         const uncertaintyRadiusM = Number(data.uncertainty_radius_m ?? 0);
         const coordinateDisagreementKm = Number(data.coordinate_disagreement_km ?? 0);
         const locationDisagreed = coordinateDisagreementKm > 5;
-        const approximateArea = locationPrecision === 'approximate';
+        const lp = globalThis.LocationPrecision;
+        const approximateArea = lp ? lp.isApproximateArea(locationPrecision) : (locationPrecision === 'approximate');
 
         if (locationDisagreed && DOM.mapStatusText) {
             DOM.mapStatusText.textContent = 'Model and gazetteer disagree by ' + coordinateDisagreementKm.toFixed(1) + ' km — showing model estimate with widened uncertainty';
@@ -1499,10 +1500,13 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             // dashed circle only for area-level answers ("Approximate area").
             // A gazetteer-backed landmark pin has its own (small) radius and is
             // drawn as a pin, never as an area circle.
-            const uncertaintyRadiusM = Number(data.uncertainty_radius_m ?? 0);
-            if (approximateArea && uncertaintyRadiusM > 0) {
+            const areaRadiusM = Number(data.uncertainty_radius_m ?? 0);
+            const drawAreaCircle = lp
+                ? lp.shouldDrawUncertaintyCircle(locationPrecision, areaRadiusM)
+                : (approximateArea && areaRadiusM > 0);
+            if (drawAreaCircle) {
                 L.circle([lat, lng], {
-                    radius: uncertaintyRadiusM,
+                    radius: areaRadiusM,
                     color: '#f59e0b',
                     weight: 2,
                     dashArray: '6 6',
@@ -1588,7 +1592,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                     <strong style="color:var(--accent);">AI Reasoning:</strong><br>
                     ${reasoning}
                 </div>
-                ${approximateArea ? '<span style="color:var(--warning);"><strong>Approximate area</strong> (uncertainty ~' + (uncertaintyRadiusM / 1000).toFixed(1) + ' km)</span>' : ''}
+                ${approximateArea ? '<span style="color:var(--warning);"><strong>Approximate area</strong> (uncertainty ~' + (Number(uncertaintyRadiusM ?? 0) / 1000).toFixed(1) + ' km)</span>' : ''}
                 ${locationDisagreed ? '<span style="color:var(--warning);"><strong>Model/gazetteer disagreement: ' + coordinateDisagreementKm.toFixed(1) + ' km (model kept; uncertainty widened)</strong></span>' : ''}
             `;
         }
