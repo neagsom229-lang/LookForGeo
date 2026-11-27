@@ -724,10 +724,13 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             }
         });
 
+        let lastW = 0, lastH = 0;
         function resize() {
             const rect = canvas.getBoundingClientRect();
-            const w = rect.width || 1;
-            const h = rect.height || 1;
+            const w = Math.max(1, Math.floor(rect.width));
+            const h = Math.max(1, Math.floor(rect.height));
+            if (w === lastW && h === lastH) return;
+            lastW = w; lastH = h;
             renderer.setSize(w, h, false);
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
@@ -785,6 +788,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         } = earthScene;
 
         function frame() {
+            if (document.hidden) { earthAnimId = null; return; }
             resize();
             if (!prefersReducedMotion) {
                 earth.rotation.y += 0.0016;
@@ -793,6 +797,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             renderer.render(scene, camera);
             earthAnimId = requestAnimationFrame(frame);
         }
+        if (earthAnimId) cancelAnimationFrame(earthAnimId);
         frame();
     }
 
@@ -802,6 +807,17 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             earthAnimId = null;
         }
     }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) return;
+        if (!earthAnimId && earthScene && DOM.starfieldCanvas && DOM.starfieldCanvas.offsetParent !== null) {
+            initStarfield();
+        }
+        if (!resultEarthAnimId && resultEarthScene && DOM.resultGlobeCanvas && DOM.resultGlobeCanvas.classList.contains('active')
+            && Number.isFinite(lastResultLat) && Number.isFinite(lastResultLng)) {
+            startResultGlobe(lastResultLat, lastResultLng, lastResultName);
+        }
+    });
 
     function setGlobeMarker(lat, lng, isTarget = false) {
         if (!earthScene) return;
@@ -854,10 +870,16 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     let resultEarthAnimId = null;
     let resultGlobeMarkerMesh = null;
     let targetName = '';
+    let lastResultLat = null;
+    let lastResultLng = null;
+    let lastResultName = '';
 
     function startResultGlobe(lat, lng, name) {
         if (!DOM.resultGlobeCanvas) return;
         targetName = name || 'Target Location';
+        lastResultLat = lat;
+        lastResultLng = lng;
+        lastResultName = targetName;
 
         if (!resultEarthScene) {
             resultEarthScene = buildEarthScene(DOM.resultGlobeCanvas);
@@ -913,15 +935,17 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         let hasTriggered = false;
 
         // Listen for when the user stops interacting (zoom/rotate/pan)
-        controls.addEventListener('end', () => {
-            // ✅ USE THIS: camera.position.distanceTo(controls.target)
+        if (controls._traceGeoEndHandler) controls.removeEventListener('end', controls._traceGeoEndHandler);
+        controls._traceGeoEndHandler = () => {
+            // Use camera distance to target for zoom threshold.
             const distance = camera.position.distanceTo(controls.target);
 
             if (!hasTriggered && distance < ZOOM_TO_MAP_THRESHOLD) {
                 hasTriggered = true;
                 switchFromGlobeToMap(lat, lng);
             }
-        });
+        };
+        controls.addEventListener('end', controls._traceGeoEndHandler);
         // =================================
 
         function updateLabel() {
@@ -937,12 +961,14 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         }
 
         function frame() {
+            if (document.hidden) { resultEarthAnimId = null; return; }
             resize();
             controls.update();
             updateLabel();
             renderer.render(scene, camera);
             resultEarthAnimId = requestAnimationFrame(frame);
         }
+        if (resultEarthAnimId) cancelAnimationFrame(resultEarthAnimId);
         frame();
     }
 
@@ -1380,28 +1406,6 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             factors.push(`Model self-reported ${data.model_reported_confidence}% (not used for this score).`);
         }
         const alternatives = Array.isArray(data.alternatives) ? data.alternatives : [];
-        if (DOM.confidenceEvidence) {
-            DOM.confidenceEvidence.style.display = factors.length ? 'block' : 'none';
-            if (DOM.confidenceFactors) {
-                DOM.confidenceFactors.innerHTML = '';
-                factors.forEach(f => {
-                    const li = document.createElement('li');
-                    li.textContent = f;
-                    DOM.confidenceFactors.appendChild(li);
-                });
-            }
-            if (DOM.confidenceAlternatives) {
-                DOM.confidenceAlternatives.style.display = alternatives.length ? 'block' : 'none';
-                if (DOM.alternativeList) {
-                    DOM.alternativeList.innerHTML = '';
-                    alternatives.forEach(a => {
-                        const li = document.createElement('li');
-                        li.textContent = `${a.location || a.city || 'Unknown'} (${a.probability ?? 0}%)`;
-                        DOM.alternativeList.appendChild(li);
-                    });
-                }
-            }
-        }
 
         if (DOM.placeTitle) DOM.placeTitle.textContent = data.landmark_name || data.city || 'Unknown';
         if (DOM.placeCountry) DOM.placeCountry.textContent = data.country || '';
@@ -1431,13 +1435,88 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         const approximateArea = lp ? lp.isApproximateArea(locationPrecision) : (locationPrecision === 'approximate');
 
         if (locationDisagreed && DOM.mapStatusText) {
-            DOM.mapStatusText.textContent = 'Model and gazetteer disagree by ' + coordinateDisagreementKm.toFixed(1) + ' km — showing model estimate with widened uncertainty';
+            DOM.mapStatusText.textContent = 'Model and gazetteer disagree by ' + coordinateDisagreementKm.toFixed(1) + ' km ? showing model estimate with widened uncertainty';
         }
+
+        function scheduleRevealFrame(callback) {
+            if (prefersReducedMotion || typeof window.requestAnimationFrame !== 'function') {
+                setTimeout(callback, 0);
+                return;
+            }
+            // Double rAF: the first frame lets the browser lay out the newly
+            // shown results split; the second does the expensive DOM work.
+            window.requestAnimationFrame(() => window.requestAnimationFrame(callback));
+        }
+
+        const renderReasoning = () => {
+            if (DOM.confidenceEvidence) {
+                DOM.confidenceEvidence.style.display = factors.length ? 'block' : 'none';
+                if (DOM.confidenceFactors) {
+                    DOM.confidenceFactors.innerHTML = '';
+                    factors.forEach(f => {
+                        const li = document.createElement('li');
+                        li.textContent = f;
+                        DOM.confidenceFactors.appendChild(li);
+                    });
+                }
+                if (DOM.confidenceAlternatives) {
+                    DOM.confidenceAlternatives.style.display = alternatives.length ? 'block' : 'none';
+                    if (DOM.alternativeList) {
+                        DOM.alternativeList.innerHTML = '';
+                        alternatives.forEach(a => {
+                            const li = document.createElement('li');
+                            li.textContent = `${a.location || a.city || 'Unknown'} (${a.probability ?? 0}%)`;
+                            DOM.alternativeList.appendChild(li);
+                        });
+                    }
+                }
+            }
+
+            if (DOM.reasoningText) {
+                const reasoning = data.reasoning || 'No reasoning available.';
+                const latStr = hasCoords ?
+                    `${Math.abs(lat).toFixed(4)}? ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}? ${lng>=0?'E':'W'}` :
+                    'N/A';
+
+                // Honest heading: "confirmed" needs a valid pin AND a score at or
+                // above the defined threshold AND no low_confidence flag.
+                const headingText = window.ConfidenceHeading
+                    ? window.ConfidenceHeading.evidenceHeading(
+                        confidence,
+                        hasCoords && !data.coordinates_missing,
+                        data.low_confidence === true
+                    )
+                    : ((hasCoords && !data.coordinates_missing && data.low_confidence !== true && confidence >= 65)
+                        ? 'CONFIRMED LOCATION EVIDENCE'
+                        : 'Possible location (low evidence)');
+                const confirmedHeading = headingText === 'CONFIRMED LOCATION EVIDENCE';
+                const headingColor = confirmedHeading ? 'var(--success)' : 'var(--warning)';
+                const headingBg = confirmedHeading ? 'rgba(45,212,191,0.05)' : 'rgba(245,158,11,0.06)';
+
+                DOM.reasoningText.innerHTML = `
+                    <div style="margin-bottom:12px; padding:10px; border-left:3px solid ${headingColor}; background:${headingBg};">
+                        <strong style="color:${headingColor};">${headingText}</strong><br>
+                        <span style="color:var(--text-secondary);">Landmark: <strong>${data.landmark_name || data.city || 'Unknown'}</strong></span><br>
+                        <span style="color:var(--text-secondary);">Coordinates: <strong>${latStr}</strong></span><br>
+                        <span style="color:var(--text-secondary);">Confidence: <strong>${confidence}%</strong></span><br>
+                        ${data.confidence_floor_applied === true
+                            ? '<span style="color:var(--warning);"><strong>Low evidence (score floored)</strong></span><br>'
+                            : ''}
+                    </div>
+                    <div style="line-height:1.8;">
+                        <strong style="color:var(--accent);">AI Reasoning:</strong><br>
+                        ${reasoning}
+                    </div>
+                    ${approximateArea ? '<span style="color:var(--warning);"><strong>Approximate area</strong> (uncertainty ~' + (Number(uncertaintyRadiusM ?? 0) / 1000).toFixed(1) + ' km)</span>' : ''}
+                    ${locationDisagreed ? '<span style="color:var(--warning);"><strong>Model/gazetteer disagreement: ' + coordinateDisagreementKm.toFixed(1) + ' km (model kept; uncertainty widened)</strong></span>' : ''}
+                `;
+            }
+        };
 
         if (DOM.photoFrame) {
             const imgUrl = data.image_url || data.result?.image_url || data.result_image_url || uploadedImageURL ||
                 sessionStorage.getItem('uploadedImage');
-            console.log('🧪 Full imgUrl:', imgUrl);
+            dbg('?? Full imgUrl:', imgUrl);
 
             // Split the heavy tail across animation frames instead of doing
             // Leaflet map init + image decode + control binding in one
@@ -1449,18 +1528,11 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 renderResultMap(data, lat, lng, hasCoords, imgUrl);
                 scheduleRevealFrame(() => {
                     renderResultMedia(data, imgUrl, lat, lng, hasCoords);
+                    renderReasoning();
                 });
             });
-        }
-
-        function scheduleRevealFrame(callback) {
-            if (prefersReducedMotion || typeof window.requestAnimationFrame !== 'function') {
-                setTimeout(callback, 0);
-                return;
-            }
-            // Double rAF: the first frame lets the browser lay out the newly
-            // shown results split; the second does the expensive DOM work.
-            window.requestAnimationFrame(() => window.requestAnimationFrame(callback));
+        } else {
+            scheduleRevealFrame(renderReasoning);
         }
 
         function renderResultMap(data, lat, lng, hasCoords, imgUrl) {
@@ -1561,46 +1633,6 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 DOM.photoFrame.innerHTML = `<div class="no-photo"><i class="fas fa-image"></i></div>`;
             }
             setupControls(data, lat, lng, hasCoords);
-        }
-
-        if (DOM.reasoningText) {
-            const reasoning = data.reasoning || 'No reasoning available.';
-            const latStr = hasCoords ?
-                `${Math.abs(lat).toFixed(4)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(4)}° ${lng>=0?'E':'W'}` :
-                'N/A';
-
-            // Honest heading: "confirmed" needs a valid pin AND a score at or
-            // above the defined threshold AND no low_confidence flag.
-            const headingText = window.ConfidenceHeading
-                ? window.ConfidenceHeading.evidenceHeading(
-                    confidence,
-                    hasCoords && !data.coordinates_missing,
-                    data.low_confidence === true
-                )
-                : ((hasCoords && !data.coordinates_missing && data.low_confidence !== true && confidence >= 65)
-                    ? 'CONFIRMED LOCATION EVIDENCE'
-                    : 'Possible location (low evidence)');
-            const confirmedHeading = headingText === 'CONFIRMED LOCATION EVIDENCE';
-            const headingColor = confirmedHeading ? 'var(--success)' : 'var(--warning)';
-            const headingBg = confirmedHeading ? 'rgba(45,212,191,0.05)' : 'rgba(245,158,11,0.06)';
-
-            DOM.reasoningText.innerHTML = `
-                <div style="margin-bottom:12px; padding:10px; border-left:3px solid ${headingColor}; background:${headingBg};">
-                    <strong style="color:${headingColor};">${headingText}</strong><br>
-                    <span style="color:var(--text-secondary);">Landmark: <strong>${data.landmark_name || data.city || 'Unknown'}</strong></span><br>
-                    <span style="color:var(--text-secondary);">Coordinates: <strong>${latStr}</strong></span><br>
-                    <span style="color:var(--text-secondary);">Confidence: <strong>${confidence}%</strong></span><br>
-                    ${data.confidence_floor_applied === true
-                        ? '<span style="color:var(--warning);"><strong>Low evidence (score floored)</strong></span><br>'
-                        : ''}
-                </div>
-                <div style="line-height:1.8;">
-                    <strong style="color:var(--accent);">AI Reasoning:</strong><br>
-                    ${reasoning}
-                </div>
-                ${approximateArea ? '<span style="color:var(--warning);"><strong>Approximate area</strong> (uncertainty ~' + (Number(uncertaintyRadiusM ?? 0) / 1000).toFixed(1) + ' km)</span>' : ''}
-                ${locationDisagreed ? '<span style="color:var(--warning);"><strong>Model/gazetteer disagreement: ' + coordinateDisagreementKm.toFixed(1) + ' km (model kept; uncertainty widened)</strong></span>' : ''}
-            `;
         }
     }
 
