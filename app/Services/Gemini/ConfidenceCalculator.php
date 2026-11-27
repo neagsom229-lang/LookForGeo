@@ -617,6 +617,14 @@ class ConfidenceCalculator
         $agrees = $distanceKm <= self::FORWARD_GEOCODE_AGREE_KM && $sameCountry;
         $points = $agrees ? self::FORWARD_GEOCODE_POINTS : 0;
 
+        // Wikidata gazetteer hits are corroborating evidence for the name but
+        // this distance signal stays informational until real-photo evidence
+        // supports awarding confidence points for it.
+        if (($place['source'] ?? null) === 'wikidata') {
+            $agrees = false;
+            $points = 0;
+        }
+
         $signals['forward_geocode_distance'] = [
             'points' => $points,
             'state' => $agrees ? 'agree' : 'resolved',
@@ -624,7 +632,7 @@ class ConfidenceCalculator
             'query' => $query,
             'country_match' => $sameCountry,
         ];
-        $factors[] = $agrees
+        $factors[] = $points > 0
             ? 'Model coordinates agree with an independent forward geocode of "'.$query.'" ('
                 .round($distanceKm, 1).' km, same country): +'.self::FORWARD_GEOCODE_POINTS.'.'
             : 'Forward geocode of "'.$query.'" is '.round($distanceKm, 1)

@@ -17,6 +17,22 @@ class GeminiResultEnhancer
      */
     private const GAZETTEER_PREFER_KM = 5.0;
 
+    /**
+     * Phase-2 landmark pin precision: a gazetteer pin (Wikidata P625) closer
+     * than this to the model estimate is landmark-precise; beyond it the
+     * gazetteer point wins and the disagreement is recorded.
+     */
+    private const LANDMARK_PIN_TOLERANCE_M = 300.0;
+
+    /** Minimum uncertainty radius (m) for a gazetteer-backed landmark pin. */
+    private const MIN_GAZETTEER_RADIUS_M = 100.0;
+
+    /** Compound landmark parts more than this apart are ambiguous. */
+    private const COMPOUND_PARTS_KM = 1.0;
+
+    /** Model-estimate / settlement / region answers get at least this radius. */
+    private const AREA_RADIUS_M = 2000.0;
+
     public function __construct(
         private ConfidenceCalculator $confidence,
         private OpenStreetMapService $osm
@@ -43,6 +59,11 @@ class GeminiResultEnhancer
             // Never present a disagreed coordinate as more certain than the
             // evidence: widen the radius to at least the disagreement distance.
             $radius = max($radius, $disagreementKm * 1000);
+        }
+        if (! empty($data['compound_ambiguous'])) {
+            // Compound landmark parts resolved apart: the answer is approximate.
+            $data['location_precision'] = 'approximate';
+            $radius = max($radius, self::AREA_RADIUS_M);
         }
         $data['uncertainty_radius_m'] = round($radius, 1);
 
@@ -311,12 +332,60 @@ class GeminiResultEnhancer
 
         if (! is_array($place) || ! isset($place['lat'], $place['lng']) || ! is_numeric($place['lat']) || ! is_numeric($place['lng'])) {
             // No usable gazetteer hit: keep the honest model answer.
+            $data['forward_geocode_outcome'] = $this->osm->lastOutcomeCategory();
+
             return $data;
         }
 
         $distanceKm = $this->osm->calculateDistance(
             (float) $lat, (float) $lng, (float) $place['lat'], (float) $place['lng']
         ) / 1000;
+
+        $compoundAmbiguous = $this->resolveCompoundPreference($data);
+
+        $isLandmark = $this->isLandmarkGazetteerMatch($data, $place);
+
+        if ($compoundAmbiguous) {
+            // Compound landmark with parts clearly apart: approximate area.
+            $data['location_precision'] = 'approximate';
+        }
+
+        if ($isLandmark && $distanceKm > self::LANDMARK_PIN_TOLERANCE_M / 1000) {
+            // Phase 2 landmark pin precision: the model pin is more than 300 m
+            // from a same-country landmark-class gazetteer answer, so the
+            // gazetteer point wins. The model estimate is kept (auditable) and
+            // the disagreement is surfaced; the radius never drops below the
+            // pin tolerance.
+            $previousSource = (string) ($data['coordinate_source'] ?? 'model');
+            $data['latitude'] = (float) $place['lat'];
+            $data['longitude'] = (float) $place['lng'];
+            $data['coordinate_source'] = 'gazetteer';
+            $data['coordinate_disagreement_km'] = round($distanceKm, 2);
+            $data['model_coordinates'] = [
+                'lat' => (float) $lat,
+                'lng' => (float) $lng,
+                'source' => $previousSource,
+            ];
+            $data['gazetteer_coordinates'] = [
+                'lat' => (float) $place['lat'],
+                'lng' => (float) $place['lng'],
+                'display_name' => (string) ($place['display_name'] ?? ''),
+                'country_code' => $place['country_code'] ?? null,
+                'source' => (string) ($place['source'] ?? 'gazetteer'),
+                'class_id' => $place['class_id'] ?? null,
+            ];
+            $data['forward_geocode_outcome'] = 'adopted';
+
+            return $data;
+        }
+
+        if ($isLandmark) {
+            // Within the 300 m pin tolerance: the gazetteer confirms the model
+            // pin, so the answer is landmark-precise (radius at the pin floor).
+            $data['coordinate_source'] = 'gazetteer';
+
+            return $data;
+        }
 
         if ($distanceKm > self::GAZETTEER_PREFER_KM) {
             // Do NOT silently override the model coordinates: keep the model
@@ -338,6 +407,91 @@ class GeminiResultEnhancer
         return $data;
     }
 
+    /**
+     * Phase-2 compound-name handling: resolve the first part of a compound
+     * landmark ("A and B", "A / B") and flag the answer approximate when the
+     * parts are more than COMPOUND_PARTS_KM apart. The first part's coordinates
+     * win when they resolve.
+     *
+     * @return bool True when the compound parts are ambiguous (answer -> approximate).
+     */
+    private function resolveCompoundPreference(array &$data): bool
+    {
+        $name = (string) ($data['landmark_name'] ?? '');
+        $parts = $this->osm->splitCompoundName($name);
+        if (count($parts) < 2) {
+            return false;
+        }
+        $city = isset($data['city']) && is_string($data['city']) && trim($data['city']) !== ''
+            ? $data['city']
+            : null;
+        $country = isset($data['country']) && is_string($data['country']) && trim($data['country']) !== ''
+            ? $data['country']
+            : null;
+
+        $first = $this->osm->forwardGeocode($parts[0], $city, $country);
+        $second = $this->osm->forwardGeocode($parts[1], $city, $country);
+
+        $firstValid = is_array($first) && isset($first['lat'], $first['lng']) && is_numeric($first['lat']) && is_numeric($first['lng']);
+        if (! $firstValid) {
+            // Nothing to resolve: keep the model answer, no ambiguity claim.
+            return false;
+        }
+
+        $secondValid = is_array($second) && isset($second['lat'], $second['lng']) && is_numeric($second['lat']) && is_numeric($second['lng']);
+
+        $secondLat = is_array($second) && isset($second['lat'], $second['lng']) && is_numeric($second['lat']) && is_numeric($second['lng'])
+            ? (float) $second['lat']
+            : (float) $first['lat'];
+        $secondLng = is_array($second) && isset($second['lat'], $second['lng']) && is_numeric($second['lat']) && is_numeric($second['lng'])
+            ? (float) $second['lng']
+            : (float) $first['lng'];
+
+        $distanceKm = $this->osm->calculateDistance(
+            (float) $first['lat'], (float) $first['lng'], $secondLat, $secondLng
+        ) / 1000;
+
+        // Resolve the first part: it is the better-supported reading of the name.
+        $data['latitude'] = (float) $first['lat'];
+        $data['longitude'] = (float) $first['lng'];
+        $data['coordinate_source'] = 'gazetteer';
+
+        if ($secondValid && $distanceKm > self::COMPOUND_PARTS_KM) {
+            // Compound parts are more than 1 km apart: ambiguous -> approximate.
+            $data['compound_ambiguous'] = true;
+        }
+
+        return (bool) ($data['compound_ambiguous'] ?? false);
+    }
+
+    /**
+     * A gazetteer hit is a landmark-precise candidate only when the matched
+     * Wikidata entity is a building / monument / palace (allowlist) and the
+     * resolved country agrees with the model's stated country.
+     */
+    private function isLandmarkGazetteerMatch(array $data, array $place): bool
+    {
+        if (($place['source'] ?? '') !== 'wikidata') {
+            return false;
+        }
+        if (! $this->osm->isLandmarkClass($place['class_id'] ?? null)) {
+            return false;
+        }
+
+        $modelCode = $this->confidence->normalizeCountryCode(
+            isset($data['country']) && is_string($data['country']) ? $data['country'] : null
+        );
+        $placeCode = $this->confidence->normalizeCountryCode(
+            isset($place['country_code']) && is_string($place['country_code']) ? $place['country_code'] : null
+        );
+
+        if ($modelCode === null || $placeCode === null || $modelCode !== $placeCode) {
+            return false;
+        }
+
+        return true;
+    }
+
     private function isIdentified(array $data): bool
     {
         $name = strtolower(trim((string) ($data['landmark_name'] ?? '')));
@@ -348,12 +502,18 @@ class GeminiResultEnhancer
 
     /**
      * location_precision: landmark (gazetteer-backed), approximate (model
-     * estimate) or region (no identifiable precise place).
+     * estimate, settlement / region / natural feature or compound ambiguity)
+     * or region (no identifiable precise place).
      */
     private function resolveLocationPrecision(array $data): string
     {
         if (! $this->isIdentified($data)) {
             return 'region';
+        }
+        if ($this->hasAreaLevelName($data)) {
+            // Settlement / region / natural feature / landmark_name == city:
+            // an area, not a pin. Never a "landmark" precision here.
+            return 'approximate';
         }
         if (($data['coordinate_source'] ?? null) === 'gazetteer') {
             return 'landmark';
@@ -372,16 +532,24 @@ class GeminiResultEnhancer
     /**
      * Uncertainty radius in meters for the returned precision. Never zero:
      * a matched landmark has a 100 m minimum, a model-only estimate carries a
-     * conservative 5 km default, an unidentified answer is region-level.
+     * conservative 5 km default, an unidentified answer is region-level, and
+     * area-level answers (settlement / region / natural feature) carry at least
+     * AREA_RADIUS_M.
      */
     private function resolveUncertaintyRadius(array $data): float
     {
         if (! $this->isIdentified($data)) {
             return 50_000.0;
         }
+        if ($this->hasAreaLevelName($data)) {
+            return max(self::AREA_RADIUS_M, 5_000.0);
+        }
         if (($data['coordinate_source'] ?? null) === 'gazetteer') {
-            // Matched landmark via gazetteer: 100 m minimum (documented floor).
-            return 100.0;
+            // Matched landmark via gazetteer: 100 m minimum (documented floor),
+            // widened to the gazetteer disagreement distance when one was kept.
+            $disagreementKm = (float) ($data['coordinate_disagreement_km'] ?? 0);
+
+            return max(self::MIN_GAZETTEER_RADIUS_M, $disagreementKm > 0 ? $disagreementKm * 1000 : 0.0);
         }
         if (isset($data['latitude'], $data['longitude']) && $this->isValidCoordinate($data['latitude'], $data['longitude'])) {
             // Model-only estimate: conservative 5 km default (documented).
@@ -389,6 +557,48 @@ class GeminiResultEnhancer
         }
 
         return 50_000.0;
+    }
+
+    /**
+     * Phase-2 area-level detection: the landmark name equals the city (the
+     * Alpine landscape case, e.g. "San Vigilio di Marebbe") or the name is a
+     * settlement / region / natural feature. Those are areas, not pins.
+     */
+    private function hasAreaLevelName(array $data): bool
+    {
+        $name = strtolower(trim((string) ($data['landmark_name'] ?? '')));
+        $city = strtolower(trim((string) ($data['city'] ?? '')));
+
+        if ($name === '' || $city === '') {
+            return false;
+        }
+        if ($name === $city) {
+            // The landmark name carries no distinct place type: it is the place.
+            return true;
+        }
+
+        $areaMarkers = [
+            'village', 'town', 'city', 'municipality', 'district', 'province', 'state', 'region',
+            'county', 'mountain', 'peak', 'hill', 'valley', 'ridge', 'alps', 'alpine', 'island', 'islands',
+            'peninsula', 'archipelago', 'coast', 'beach', 'shore', 'river', 'rivers', 'lake', 'lakes',
+            'sea', 'ocean', 'bay', 'gulf', 'straits', 'forest', 'forests', 'park', 'national_park',
+            'reserve', 'wilderness', 'desert', 'plain', 'plateau', 'canyon', 'glacier', 'volcano',
+            'waterfall', 'waterfalls', 'moor', 'heath', 'moorland', 'savanna', 'marsh', 'wetland',
+            'cave', 'caverns', 'hot_spring', 'geothermal', 'delta', 'estuary', 'lagoon', 'fjord', 'strait',
+        ];
+
+        foreach ($areaMarkers as $marker) {
+            if ($name === $marker || str_ends_with($name, ' '.$marker) || str_ends_with($name, '_'.$marker)) {
+                return true;
+            }
+        }
+
+        // "The ..." prefixed settlements read as area-level too.
+        if (preg_match('/^(the\s+)?(village|town|city|municipality|region|province|state|district|county|mountain|peak|hill|valley|river|lake|sea|ocean|island|coast|beach|forest|park|national_park|reserve|desert|plateau|glacier|volcano|wilderness)\b/i', $name) === 1) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
