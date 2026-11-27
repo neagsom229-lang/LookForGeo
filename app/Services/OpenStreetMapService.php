@@ -479,6 +479,10 @@ class OpenStreetMapService
                 return null;
             }
 
+            // The P31 class of the matched entity drives the landmark allowlist
+            // (building / monument / palace / ...). Null when the claim is absent.
+            $p31Id = $this->wikidataPropertyId($entityClaims, 'P31');
+
             // Require P17 (country) to match the model country (ISO compare) when provided.
             $modelCountry = is_string($country) ? trim($country) : '';
             if ($modelCountry !== '') {
@@ -493,6 +497,10 @@ class OpenStreetMapService
 
                     return null;
                 }
+
+                $countryCode = $p17;
+            } else {
+                $countryCode = $this->normalizeCountryCode($modelCountry) ?? $this->wikidataCountryCode($entityClaims);
             }
 
             $label = $searchData['search'][0]['label'] ?? $searchData['search'][0]['display']['label']['value'] ?? $entityId;
@@ -503,6 +511,9 @@ class OpenStreetMapService
                 'display_name' => (string) $label,
                 'source' => 'wikidata',
                 'query' => $query,
+                'entity_id' => (string) $entityId,
+                'country_code' => $countryCode,
+                'class_id' => $p31Id,
             ];
 
             Cache::put($cacheKey, $result, self::WIKIDATA_CACHE_SECONDS);
@@ -575,6 +586,73 @@ class OpenStreetMapService
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    /**
+     * Resolve a Wikidata property (P625 / P17 / P31) mainsnak value to its
+     * entity id. Returns null when the claim is absent or malformed. Handles
+     * both statement shapes the Wikidata API can return (list-wrapped or bare).
+     */
+    private function wikidataPropertyId(array $entityClaims, string $property): ?string
+    {
+        $claims = $entityClaims[$property] ?? null;
+        if (! is_array($claims)) {
+            return null;
+        }
+        $claim = $claims[0] ?? $claims;
+        if (! is_array($claim) || empty($claim['mainsnak']['datavalue']['value'])) {
+            return null;
+        }
+        $value = $claim['mainsnak']['datavalue']['value'];
+        if (isset($value['id'])) {
+            return (string) $value['id'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Phase-2 landmark allowlist: a gazetteer-backed answer whose Wikidata
+     * P31 class is a building / monument / palace / castle / statue / memorial
+     * is a landmark-precise candidate. Settlements, regions and natural
+     * features are not in this allowlist and stay "approximate".
+     */
+    public function isLandmarkClass(?string $classId): bool
+    {
+        $id = $classId !== null ? trim((string) $classId) : '';
+
+        if ($id === '') {
+            return false;
+        }
+
+        return in_array($id, [
+            'Q16560', // palace
+            'Q23413', // castle
+            'Q41176', // building
+            'Q179700', // statue
+            'Q4989906', // monument
+            'Q5003624', // memorial
+            'Q53536964', // royal palace
+        ], true);
+    }
+
+    /**
+     * Split a compound landmark name ("A and B", "A / B", "A & B") into its
+     * parts. A plain name returns a single-element array.
+     */
+    public function splitCompoundName(string $name): array
+    {
+        $clean = trim($name);
+        if ($clean === '') {
+            return [];
+        }
+
+        $parts = preg_split('/\s+(?:and|\/|&)\s+/i', $clean, -1, PREG_SPLIT_NO_EMPTY) ?: [$clean];
+
+        $result = array_map('trim', $parts);
+        $result = array_values(array_filter($result, static fn ($part) => $part !== ''));
+
+        return $result === [] ? [$clean] : $result;
     }
 
     /**
