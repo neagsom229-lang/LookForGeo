@@ -25,8 +25,14 @@
     const AI_WAIT_MAX_MS = 20 * 60 * 1000;
     const AI_WAIT_CALM_HINT = 'The AI service is busy, so we are retrying automatically. This can take up to about 20 minutes.';
 
+    const DEBUG = window.__TRACEGEO_DEBUG__ === true || /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+    const dbg = DEBUG ? console.log.bind(console) : () => {};
+
     function nextPollDelay() {
-        return POLL_DELAYS_MS[Math.min(Math.max(pollAttempts - 1, 0), POLL_DELAYS_MS.length - 1)];
+        const base = POLL_DELAYS_MS[Math.min(Math.max(pollAttempts - 1, 0), POLL_DELAYS_MS.length - 1)];
+        // During long AI-wait retries the server state changes slowly; back off to reduce load.
+        if (aiWaitingSince !== null) return Math.max(base, 8000);
+        return base;
     }
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -1221,7 +1227,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                         const tName = result.landmark_name || result.city || result.place || 'Unknown Location';
                         const canReveal = isValidCoord(tLat, tLng) && !result.coordinates_missing;
 
-                        console.log('Target coordinates:', {
+                        dbg('Target coordinates:', {
                             tLat,
                             tLng,
                             tName,
