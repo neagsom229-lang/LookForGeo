@@ -23,12 +23,57 @@ class OpenStreetMapService
 
     private const WIKIDATA_LIMIT_KEY = 'wikidata_request';
 
+    /** Total time budget for all gazetteer HTTP calls in one resolution. */
+    private const GAZETTEER_BUDGET_SECONDS = 8.0;
+
     /** Outcome of the most recent geocode call, for explain/telemetry. */
     private ?string $lastOutcome = null;
+
+    private ?float $gazetteerDeadline = null;
+
+    /** @var null|callable():float */
+    private $clock = null;
 
     public function lastOutcomeCategory(): ?string
     {
         return $this->lastOutcome;
+    }
+
+    /** @param null|callable():float $clock */
+    public function setClock(?callable $clock): void
+    {
+        $this->clock = $clock;
+    }
+
+    /** @phpstan-impure */
+    private function now(): float
+    {
+        if (is_callable($this->clock)) {
+            return (float) call_user_func($this->clock);
+        }
+
+        return microtime(true);
+    }
+
+    private function startGazetteerBudget(): void
+    {
+        $this->gazetteerDeadline = $this->now() + self::GAZETTEER_BUDGET_SECONDS;
+    }
+
+    /** @phpstan-impure */
+    private function gazetteerBudgetExceeded(): bool
+    {
+        return $this->gazetteerDeadline !== null && $this->now() >= $this->gazetteerDeadline;
+    }
+
+    /** @phpstan-impure */
+    private function gazetteerRemainingSeconds(): float
+    {
+        if ($this->gazetteerDeadline === null) {
+            return self::GAZETTEER_BUDGET_SECONDS;
+        }
+
+        return max(0.0, $this->gazetteerDeadline - $this->now());
     }
 
     /** Contact comes from config/env; no personal address is committed. */
@@ -62,9 +107,9 @@ class OpenStreetMapService
     private function allowWikidata(string $operation): bool
     {
         if (RateLimiter::tooManyAttempts(self::WIKIDATA_LIMIT_KEY, 1)) {
-            $this->recordOutcome('rate_limit');
+            $this->recordOutcome('blocked', 'wikidata');
             Log::warning('Wikidata request skipped', [
-                'category' => 'rate_limit',
+                'category' => 'blocked',
                 'provider' => 'wikidata',
                 'operation' => $operation,
             ]);
@@ -371,21 +416,28 @@ class OpenStreetMapService
     }
 
     /** Last outcome is cached (no secrets) so admin health can diagnose it. */
-    private function recordOutcome(string $category): void
+    private function recordOutcome(string $category, string $provider = 'nominatim'): void
     {
         $this->lastOutcome = $category;
-        Cache::put('nominatim:last_outcome', [
+        $key = $provider === 'wikidata' ? 'wikidata:last_outcome' : 'nominatim:last_outcome';
+        Cache::put($key, [
             'outcome' => $category,
             'at' => now()->toIso8601String(),
         ], 3600);
     }
 
-    private function logNominatimFailure(string $operation, string $category, array $context): void
+    private function logNominatimFailure(string $operation, string $category, array $context, string $provider = 'nominatim'): void
     {
-        $this->recordOutcome($category);
-        Log::warning('Nominatim geocode failed', array_merge([
+        if ($operation === 'wikidata' || $provider === 'wikidata') {
+            $provider = 'wikidata';
+            if ($category === 'rate_limit') {
+                $category = 'blocked';
+            }
+        }
+        $this->recordOutcome($category, $provider);
+        Log::warning(($provider === 'wikidata' ? 'Wikidata' : 'Nominatim').' geocode failed', array_merge([
             'category' => $category,
-            'provider' => 'nominatim',
+            'provider' => $provider,
             'operation' => $operation,
         ], $context));
     }
@@ -411,7 +463,7 @@ class OpenStreetMapService
 
         $cacheKey = 'wikidata_'.md5($query);
         if (Cache::has($cacheKey)) {
-            $this->recordOutcome('ok');
+            $this->recordOutcome('ok', 'wikidata');
 
             return Cache::get($cacheKey);
         }
@@ -419,8 +471,14 @@ class OpenStreetMapService
             return null;
         }
 
+        if ($this->gazetteerBudgetExceeded()) {
+            $this->recordOutcome('timeout', 'wikidata');
+
+            return null;
+        }
+
         try {
-            $search = Http::timeout(5)
+            $search = Http::timeout(max(0.1, min(5.0, $this->gazetteerRemainingSeconds())))
                 ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
                 ->get('https://www.wikidata.org/w/api.php', [
                     'action' => 'wbsearchentities',
@@ -447,7 +505,13 @@ class OpenStreetMapService
                 return null;
             }
 
-            $entity = Http::timeout(5)
+            if ($this->gazetteerBudgetExceeded()) {
+                $this->recordOutcome('timeout', 'wikidata');
+
+                return null;
+            }
+
+            $entity = Http::timeout(max(0.1, min(5.0, $this->gazetteerRemainingSeconds())))
                 ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
                 ->get('https://www.wikidata.org/wiki/Special/EntityData/'.$entityId.'.json', [
                     'format' => 'json',
@@ -513,11 +577,11 @@ class OpenStreetMapService
                 ?? $entityId;
 
             if (! $this->wikidataNameMatches($landmark, $entityNode, (string) $label)) {
-                $this->logNominatimFailure('wikidata', 'name_mismatch', [
+                $this->logNominatimFailure('wikidata', 'empty', [
                     'entity' => $entityId,
                     'label' => (string) $label,
+                    'reason' => 'name_mismatch',
                 ]);
-                $this->recordOutcome('name_mismatch');
 
                 return null;
             }
@@ -534,7 +598,7 @@ class OpenStreetMapService
             ];
 
             Cache::put($cacheKey, $result, self::WIKIDATA_CACHE_SECONDS);
-            $this->recordOutcome('ok');
+            $this->recordOutcome('ok', 'wikidata');
 
             return $result;
         } catch (ConnectionException $e) {
@@ -570,9 +634,14 @@ class OpenStreetMapService
             return is_string($cached) && $cached !== '' ? strtolower($cached) : null;
         }
         // Follow-up P17 lookup: the main wikidata call was already rate-limited.
+        if ($this->gazetteerBudgetExceeded()) {
+            $this->recordOutcome('timeout', 'wikidata');
+
+            return null;
+        }
 
         try {
-            $resp = Http::timeout(5)
+            $resp = Http::timeout(max(0.1, min(5.0, $this->gazetteerRemainingSeconds())))
                 ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
                 ->get('https://www.wikidata.org/wiki/Special/EntityData/'.$countryId.'.json');
 
@@ -733,8 +802,14 @@ class OpenStreetMapService
             return is_array($cached) ? $cached : null;
         }
 
+        if ($this->gazetteerRemainingSeconds() <= 0.0) {
+            $this->recordOutcome('timeout', 'wikidata');
+
+            return null;
+        }
+
         try {
-            $resp = Http::timeout(5)
+            $resp = Http::timeout(max(0.1, min(5.0, $this->gazetteerRemainingSeconds())))
                 ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
                 ->get('https://www.wikidata.org/wiki/Special/EntityData/'.$entityId.'.json', [
                     'format' => 'json',
@@ -772,19 +847,26 @@ class OpenStreetMapService
     private function wikidataNameMatches(string $landmark, array $entityNode, string $fallbackLabel): bool
     {
         $needle = $this->normalizeLandmarkName($landmark);
-        if ($needle === '') {
+        $needleUnicode = $this->normalizeLandmarkNameUnicode($landmark);
+        if ($needle === '' && $needleUnicode === '') {
             return true;
         }
 
         $candidates = [$fallbackLabel];
 
-        $label = $entityNode['labels']['en']['value'] ?? null;
-        if (is_string($label) && $label !== '') {
-            $candidates[] = $label;
+        $labels = is_array($entityNode['labels'] ?? null) ? $entityNode['labels'] : [];
+        foreach ($labels as $labelNode) {
+            $value = is_array($labelNode) ? ($labelNode['value'] ?? null) : null;
+            if (is_string($value) && $value !== '') {
+                $candidates[] = $value;
+            }
         }
 
-        $aliases = $entityNode['aliases']['en'] ?? [];
-        if (is_array($aliases)) {
+        $aliasesByLang = is_array($entityNode['aliases'] ?? null) ? $entityNode['aliases'] : [];
+        foreach ($aliasesByLang as $aliases) {
+            if (! is_array($aliases)) {
+                continue;
+            }
             foreach ($aliases as $alias) {
                 $value = is_array($alias) ? ($alias['value'] ?? null) : null;
                 if (is_string($value) && $value !== '') {
@@ -794,19 +876,32 @@ class OpenStreetMapService
         }
 
         foreach (array_unique($candidates) as $candidate) {
-            $normalized = $this->normalizeLandmarkName((string) $candidate);
-            if ($normalized === '') {
+            $candidateStr = (string) $candidate;
+            $normalized = $this->normalizeLandmarkName($candidateStr);
+            $normalizedUnicode = $this->normalizeLandmarkNameUnicode($candidateStr);
+            if ($normalized === '' && $normalizedUnicode === '') {
                 continue;
             }
-            if ($normalized === $needle) {
-                return true;
-            }
-            if (str_contains($normalized, $needle) || str_contains($needle, $normalized)) {
-                return true;
-            }
-            similar_text($normalized, $needle, $percent);
-            if (($percent / 100) >= 0.85) {
-                return true;
+
+            foreach ([[$needle, $normalized], [$needleUnicode, $normalizedUnicode]] as [$n, $h]) {
+                if ($n === '' || $h === '') {
+                    continue;
+                }
+                if ($h === $n) {
+                    return true;
+                }
+
+                $shorter = mb_strlen($h) <= mb_strlen($n) ? $h : $n;
+                $shorterWords = preg_split('/\s+/u', trim($shorter), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+                $allowContainment = count($shorterWords) >= 2 && mb_strlen($shorter) >= 8;
+                if ($allowContainment && (str_contains($h, $n) || str_contains($n, $h))) {
+                    return true;
+                }
+
+                similar_text($h, $n, $percent);
+                if (($percent / 100) >= 0.85) {
+                    return true;
+                }
             }
         }
 
@@ -820,6 +915,16 @@ class OpenStreetMapService
         $value = preg_replace('/\bthe\b/', ' ', $value) ?? $value;
         $value = preg_replace('/[^a-z0-9\s]/', ' ', $value) ?? $value;
         $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+
+        return trim($value);
+    }
+
+    private function normalizeLandmarkNameUnicode(string $name): string
+    {
+        $value = mb_strtolower($name);
+        $value = preg_replace('/\bthe\b/u', ' ', $value) ?? $value;
+        $value = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $value) ?? $value;
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
 
         return trim($value);
     }
@@ -865,14 +970,21 @@ class OpenStreetMapService
 
             return Cache::get($cacheKey);
         }
+        $this->startGazetteerBudget();
         // Gazetteer chain for a named landmark: Wikidata P625 first, Nominatim second.
         $wikidata = $this->wikidataGeocode($landmark, $city, $country);
         if (is_array($wikidata) && isset($wikidata['lat'], $wikidata['lng']) && is_numeric($wikidata['lat']) && is_numeric($wikidata['lng'])) {
             $wikidata['source'] = 'wikidata';
             Cache::put($cacheKey, $wikidata, self::NOMINATIM_CACHE_SECONDS);
-            $this->recordOutcome('ok');
+            $this->recordOutcome('ok', 'wikidata');
 
             return $wikidata;
+        }
+
+        if ($this->gazetteerBudgetExceeded()) {
+            $this->recordOutcome('timeout');
+
+            return null;
         }
 
         if (! $this->allowNominatim('forward')) {
@@ -880,7 +992,7 @@ class OpenStreetMapService
         }
 
         try {
-            $response = Http::timeout(5)
+            $response = Http::timeout(max(0.1, min(5.0, $this->gazetteerRemainingSeconds())))
                 ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
                 ->get('https://nominatim.openstreetmap.org/search', [
                     'q' => $query,

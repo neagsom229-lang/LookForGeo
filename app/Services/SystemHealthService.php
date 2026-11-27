@@ -65,6 +65,7 @@ class SystemHealthService
                     'failed_jobs' => $databaseDown ? ['count' => null, 'skipped' => 'database_down'] : $this->failedJobs(),
                     'gemini' => $this->gemini(),
                     'nominatim' => $this->nominatim(),
+                    'wikidata' => $this->wikidata(),
                     'worker' => [
                         'queue_backlog' => $queueCheck['backlog'] ?? null,
                         'queue_oldest_seconds' => $queueCheck['oldest_seconds'] ?? null,
@@ -395,6 +396,24 @@ class SystemHealthService
         ];
     }
 
+    /**
+     * Last Wikidata outcome for admin diagnostics only. No secrets.
+     */
+    private function wikidata(): array
+    {
+        try {
+            $last = Cache::get('wikidata:last_outcome');
+        } catch (Throwable $e) {
+            $last = null;
+        }
+
+        return [
+            'contact_configured' => trim((string) config('services.nominatim.contact', '')) !== '',
+            'last_outcome' => is_array($last) ? ($last['outcome'] ?? null) : null,
+            'last_outcome_at' => is_array($last) ? ($last['at'] ?? null) : null,
+        ];
+    }
+
     private function gemini(): array
     {
         $lastObserved = Cache::get('gemini:last_observed_status');
@@ -462,6 +481,7 @@ class SystemHealthService
                 'pending_migrations_count' => -1,
                 'failed_jobs' => ['count' => null],
                 'nominatim' => $this->nominatim(),
+                'wikidata' => $this->wikidata(),
                 'gemini' => [
                     'configured_models' => array_values(array_filter([
                         (string) config('services.gemini.model'),
