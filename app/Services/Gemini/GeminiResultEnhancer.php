@@ -24,6 +24,13 @@ class GeminiResultEnhancer
      */
     private const LANDMARK_PIN_TOLERANCE_M = 300.0;
 
+    /**
+     * Gazetteer adoption cap: a wrong same-country hit hundreds of km away must
+     * never override the model pin. Beyond this distance we keep the model pin,
+     * record the disagreement, widen the radius and mark the answer approximate.
+     */
+    private const GAZETTEER_ADOPT_MAX_KM = 25.0;
+
     /** Minimum uncertainty radius (m) for a gazetteer-backed landmark pin. */
     private const MIN_GAZETTEER_RADIUS_M = 100.0;
 
@@ -351,6 +358,29 @@ class GeminiResultEnhancer
         }
 
         if ($isLandmark && $distanceKm > self::LANDMARK_PIN_TOLERANCE_M / 1000) {
+            if ($distanceKm > self::GAZETTEER_ADOPT_MAX_KM) {
+                // Far same-country hit: too distant to be the same landmark.
+                // Keep the model pin, record disagreement, widen radius, mark approximate.
+                $data['coordinate_disagreement_km'] = round($distanceKm, 2);
+                $data['location_precision'] = 'approximate';
+                $data['uncertainty_radius_m'] = max(
+                    (float) ($data['uncertainty_radius_m'] ?? 0),
+                    self::AREA_RADIUS_M,
+                    $distanceKm * 1000
+                );
+                $data['gazetteer_coordinates'] = [
+                    'lat' => (float) $place['lat'],
+                    'lng' => (float) $place['lng'],
+                    'display_name' => (string) ($place['display_name'] ?? ''),
+                    'country_code' => $place['country_code'] ?? null,
+                    'source' => (string) ($place['source'] ?? 'gazetteer'),
+                    'class_id' => $place['class_id'] ?? null,
+                ];
+                $data['forward_geocode_outcome'] = 'disagreed_far';
+
+                return $data;
+            }
+
             // Phase 2 landmark pin precision: the model pin is more than 300 m
             // from a same-country landmark-class gazetteer answer, so the
             // gazetteer point wins. The model estimate is kept (auditable) and
@@ -374,6 +404,7 @@ class GeminiResultEnhancer
                 'source' => (string) ($place['source'] ?? 'gazetteer'),
                 'class_id' => $place['class_id'] ?? null,
             ];
+            $data['gazetteer_landmark_class'] = true;
             $data['forward_geocode_outcome'] = 'adopted';
 
             return $data;
@@ -383,6 +414,7 @@ class GeminiResultEnhancer
             // Within the 300 m pin tolerance: the gazetteer confirms the model
             // pin, so the answer is landmark-precise (radius at the pin floor).
             $data['coordinate_source'] = 'gazetteer';
+            $data['gazetteer_landmark_class'] = true;
 
             return $data;
         }
@@ -403,6 +435,15 @@ class GeminiResultEnhancer
 
             return $data;
         }
+
+        $data['gazetteer_coordinates'] = [
+            'lat' => (float) $place['lat'],
+            'lng' => (float) $place['lng'],
+            'display_name' => (string) ($place['display_name'] ?? ''),
+            'country_code' => $place['country_code'] ?? null,
+            'source' => (string) ($place['source'] ?? 'gazetteer'),
+        ];
+        $data['forward_geocode_outcome'] = 'agrees';
 
         return $data;
     }
@@ -509,6 +550,11 @@ class GeminiResultEnhancer
     {
         if (! $this->isIdentified($data)) {
             return 'region';
+        }
+        $gazetteerLandmark = ($data['coordinate_source'] ?? null) === 'gazetteer'
+            && ! empty($data['gazetteer_landmark_class']);
+        if ($gazetteerLandmark) {
+            return 'landmark';
         }
         if ($this->hasAreaLevelName($data)) {
             // Settlement / region / natural feature / landmark_name == city:

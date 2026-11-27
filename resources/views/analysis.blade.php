@@ -188,6 +188,7 @@
         window.__EMBED_KEY__ = @json($embedKey);
     </script>
     <script src="{{ asset('js/confidence-heading.js') }}"></script>
+    <script src="{{ asset('js/location-precision.js') }}"></script>
     <script src="{{ asset('js/street-view-fallback.js') }}"></script>
     <script src="{{ asset('js/analysis.js') }}"></script>
     <script>

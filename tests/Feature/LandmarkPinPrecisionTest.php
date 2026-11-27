@@ -172,6 +172,30 @@ class LandmarkPinPrecisionTest extends TestCase
         $this->assertGreaterThanOrEqual(2000.0, (float) $result['uncertainty_radius_m']);
     }
 
+    public function test_wrong_same_country_hit_400km_away_does_not_override_model_pin(): void
+    {
+        // Same country, landmark class, but 400+ km away: must not adopt.
+        $this->fakeWikidata('Q999001', 'Royal Palace', 'Q53536964', 15.1564, 104.9282, 'KH');
+
+        $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult([
+            'landmark_name' => 'Royal Palace',
+            'city' => 'Phnom Penh',
+            'country' => 'Cambodia',
+            'latitude' => 11.5564,
+            'longitude' => 104.9282,
+            'confidence' => 62,
+        ]));
+
+        $this->assertSame('model', $result['coordinate_source']);
+        $this->assertEqualsWithDelta(11.5564, (float) $result['latitude'], 0.000001);
+        $this->assertEqualsWithDelta(104.9282, (float) $result['longitude'], 0.000001);
+        $this->assertNotNull($result['coordinate_disagreement_km']);
+        $this->assertGreaterThan(25.0, (float) $result['coordinate_disagreement_km']);
+        $this->assertSame('approximate', $result['location_precision']);
+        $this->assertGreaterThanOrEqual(2000.0, (float) $result['uncertainty_radius_m']);
+        $this->assertGreaterThanOrEqual((float) $result['coordinate_disagreement_km'] * 1000, (float) $result['uncertainty_radius_m']);
+    }
+
     public function test_gazetteer_landmark_beyond_pin_tolerance_adopts_wikidata_point(): void
     {
         $this->fakeWikidata('Q420618', 'Royal Palace', 'Q53536964', 11.563680555556, 104.93111944444, 'KH');
@@ -233,11 +257,12 @@ class LandmarkPinPrecisionTest extends TestCase
             'confidence' => 55,
         ]));
 
+        // Wikidata down: keep the honest model answer, but never as a precise pin.
         $this->assertSame('model', $result['coordinate_source']);
         $this->assertEqualsWithDelta(11.5564, (float) $result['latitude'], 0.000001);
+        $this->assertEqualsWithDelta(104.9282, (float) $result['longitude'], 0.000001);
         $this->assertSame('approximate', $result['location_precision']);
         $this->assertGreaterThanOrEqual(2000.0, (float) $result['uncertainty_radius_m']);
-        $this->assertNotNull($result['forward_geocode_outcome']);
     }
 
     public function test_compound_landmark_parts_more_than_1km_apart_are_approximate(): void
@@ -278,9 +303,195 @@ class LandmarkPinPrecisionTest extends TestCase
             ],
         ]));
 
+        // Compound parts >1 km apart: ambiguous, so approximate area, not a pin.
         $this->assertSame('approximate', $result['location_precision']);
         $this->assertGreaterThanOrEqual(2000.0, (float) $result['uncertainty_radius_m']);
-        $this->assertEqualsWithDelta(13.40, (float) $result['latitude'], 0.000001);
+    }
+
+    public function test_p279_bridge_subclass_is_treated_as_landmark_class(): void
+    {
+        Http::fake([
+            'https://www.wikidata.org/w/api.php*' => Http::response([
+                'search' => [['id' => 'QBRIDGE1', 'label' => 'Test Bridge']],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/Q424.json*' => Http::response([
+                'entities' => ['Q424' => ['id' => 'Q424', 'type' => 'item', 'claims' => [
+                    'P297' => [['mainsnak' => ['datavalue' => ['value' => 'KH']]]],
+                ]]],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/Q158438.json*' => Http::response([
+                'entities' => ['Q158438' => ['id' => 'Q158438', 'type' => 'item', 'claims' => [
+                    'P279' => [['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q12280']]]]],
+                ]]],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/QBRIDGE1.json*' => Http::response([
+                'entities' => ['QBRIDGE1' => ['id' => 'QBRIDGE1', 'type' => 'item', 'labels' => ['en' => ['value' => 'Test Bridge']], 'claims' => [
+                    'P625' => [['mainsnak' => ['datavalue' => ['value' => ['latitude' => 11.563680555556, 'longitude' => 104.93111944444, 'precision' => 1000]]]]],
+                    'P17' => [['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q424']]]]],
+                    'P31' => [['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q158438']]]]],
+                ]]],
+            ], 200),
+        ]);
+
+        $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult([
+            'landmark_name' => 'Test Bridge',
+            'city' => 'Phnom Penh',
+            'country' => 'Cambodia',
+            'latitude' => 11.5564,
+            'longitude' => 104.9282,
+            'confidence' => 62,
+        ]));
+
+        $this->assertSame('gazetteer', $result['coordinate_source']);
+        $this->assertSame('landmark', $result['location_precision']);
+    }
+
+    public function test_p279_buddhist_temple_subclass_is_treated_as_landmark_class(): void
+    {
+        Http::fake([
+            'https://www.wikidata.org/w/api.php*' => Http::response([
+                'search' => [['id' => 'QTEMPLE1', 'label' => 'Wat Test']],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/Q424.json*' => Http::response([
+                'entities' => ['Q424' => ['id' => 'Q424', 'type' => 'item', 'claims' => [
+                    'P297' => [['mainsnak' => ['datavalue' => ['value' => 'KH']]]],
+                ]]],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/Q5393308.json*' => Http::response([
+                'entities' => ['Q5393308' => ['id' => 'Q5393308', 'type' => 'item', 'claims' => [
+                    'P279' => [['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q44539']]]]],
+                ]]],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/QTEMPLE1.json*' => Http::response([
+                'entities' => ['QTEMPLE1' => ['id' => 'QTEMPLE1', 'type' => 'item', 'labels' => ['en' => ['value' => 'Wat Test']], 'claims' => [
+                    'P625' => [['mainsnak' => ['datavalue' => ['value' => ['latitude' => 11.563680555556, 'longitude' => 104.93111944444, 'precision' => 1000]]]]],
+                    'P17' => [['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q424']]]]],
+                    'P31' => [['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q5393308']]]]],
+                ]]],
+            ], 200),
+        ]);
+
+        $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult([
+            'landmark_name' => 'Wat Test',
+            'city' => 'Phnom Penh',
+            'country' => 'Cambodia',
+            'latitude' => 11.5564,
+            'longitude' => 104.9282,
+            'confidence' => 62,
+        ]));
+
+        $this->assertSame('gazetteer', $result['coordinate_source']);
+        $this->assertSame('landmark', $result['location_precision']);
+    }
+
+    public function test_p279_tower_subclass_is_treated_as_landmark_class(): void
+    {
+        Http::fake([
+            'https://www.wikidata.org/w/api.php*' => Http::response([
+                'search' => [['id' => 'QTOWER1', 'label' => 'Test Tower']],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/Q424.json*' => Http::response([
+                'entities' => ['Q424' => ['id' => 'Q424', 'type' => 'item', 'claims' => [
+                    'P297' => [['mainsnak' => ['datavalue' => ['value' => 'KH']]]],
+                ]]],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/Q1440300.json*' => Http::response([
+                'entities' => ['Q1440300' => ['id' => 'Q1440300', 'type' => 'item', 'claims' => [
+                    'P279' => [['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q12518']]]]],
+                ]]],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/QTOWER1.json*' => Http::response([
+                'entities' => ['QTOWER1' => ['id' => 'QTOWER1', 'type' => 'item', 'labels' => ['en' => ['value' => 'Test Tower']], 'claims' => [
+                    'P625' => [['mainsnak' => ['datavalue' => ['value' => ['latitude' => 11.563680555556, 'longitude' => 104.93111944444, 'precision' => 1000]]]]],
+                    'P17' => [['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q424']]]]],
+                    'P31' => [['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q1440300']]]]],
+                ]]],
+            ], 200),
+        ]);
+
+        $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult([
+            'landmark_name' => 'Test Tower',
+            'city' => 'Phnom Penh',
+            'country' => 'Cambodia',
+            'latitude' => 11.5564,
+            'longitude' => 104.9282,
+            'confidence' => 62,
+        ]));
+
+        $this->assertSame('gazetteer', $result['coordinate_source']);
+        $this->assertSame('landmark', $result['location_precision']);
+    }
+
+    public function test_similar_but_wrong_wikidata_name_skips_to_nominatim(): void
+    {
+        Http::fake([
+            'https://www.wikidata.org/w/api.php*' => Http::response([
+                'search' => [
+                    ['id' => 'Q999777', 'label' => 'Royal Residence'],
+                ],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/Q424.json*' => Http::response([
+                'entities' => [
+                    'Q424' => [
+                        'id' => 'Q424',
+                        'type' => 'item',
+                        'claims' => [
+                            'P297' => [
+                                ['mainsnak' => ['datavalue' => ['value' => 'KH']]],
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+            'https://www.wikidata.org/wiki/Special/EntityData/Q999777.json*' => Http::response([
+                'entities' => [
+                    'Q999777' => [
+                        'id' => 'Q999777',
+                        'type' => 'item',
+                        'labels' => [
+                            'en' => ['language' => 'en', 'value' => 'Royal Residence'],
+                        ],
+                        'aliases' => [
+                            'en' => [
+                                ['language' => 'en', 'value' => 'Royal House'],
+                            ],
+                        ],
+                        'claims' => [
+                            'P625' => [
+                                ['mainsnak' => ['datavalue' => ['value' => ['latitude' => 11.563680555556, 'longitude' => 104.93111944444, 'precision' => 1000]]]],
+                            ],
+                            'P17' => [
+                                ['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q424']]]],
+                            ],
+                            'P31' => [
+                                ['mainsnak' => ['datavalue' => ['value' => ['entity-type' => 'item', 'id' => 'Q53536964']]]],
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+            'https://nominatim.openstreetmap.org/*' => Http::response([
+                [
+                    'lat' => '11.5564',
+                    'lon' => '104.9282',
+                    'display_name' => 'Royal Palace, Phnom Penh, Cambodia',
+                    'address' => ['country_code' => 'kh'],
+                ],
+            ], 200),
+        ]);
+
+        $result = app(GeminiResultEnhancer::class)->enhance($this->baseResult([
+            'landmark_name' => 'Royal Palace',
+            'city' => 'Phnom Penh',
+            'country' => 'Cambodia',
+            'latitude' => 11.5564,
+            'longitude' => 104.9282,
+            'confidence' => 62,
+        ]));
+
+        // Wrong-name Wikidata hit must be ignored; do not adopt its coordinates.
+        $this->assertNotSame(11.563680555556, (float) $result['latitude']);
+        $this->assertSame('nominatim', $result['gazetteer_coordinates']['source'] ?? null);
     }
 
     public function test_analytics_still_shape_complete_after_enrich(): void

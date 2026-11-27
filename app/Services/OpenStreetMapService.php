@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 class OpenStreetMapService
 {
@@ -503,7 +504,23 @@ class OpenStreetMapService
                 $countryCode = $this->normalizeCountryCode($modelCountry) ?? $this->wikidataCountryCode($entityClaims);
             }
 
-            $label = $searchData['search'][0]['label'] ?? $searchData['search'][0]['display']['label']['value'] ?? $entityId;
+            $entityNode = is_array($entityData['entities'][$entityId] ?? null)
+                ? $entityData['entities'][$entityId]
+                : [];
+            $label = $searchData['search'][0]['label']
+                ?? $entityNode['labels']['en']['value']
+                ?? $searchData['search'][0]['display']['label']['value']
+                ?? $entityId;
+
+            if (! $this->wikidataNameMatches($landmark, $entityNode, (string) $label)) {
+                $this->logNominatimFailure('wikidata', 'name_mismatch', [
+                    'entity' => $entityId,
+                    'label' => (string) $label,
+                ]);
+                $this->recordOutcome('name_mismatch');
+
+                return null;
+            }
 
             $result = [
                 'lat' => (float) $value['latitude'],
@@ -620,9 +637,28 @@ class OpenStreetMapService
     public function isLandmarkClass(?string $classId): bool
     {
         $id = $classId !== null ? trim((string) $classId) : '';
-
         if ($id === '') {
             return false;
+        }
+
+        $roots = [
+            'Q41176', // building
+            'Q4989906', // monument
+            'Q12280', // bridge
+            'Q12518', // tower
+            'Q44539', // temple
+            'Q16970', // religious building
+            'Q839954', // archaeological site
+            'Q35145263', // natural geographic object / natural landmark
+        ];
+
+        try {
+            $matched = $this->wikidataIsSubclassOf($id, $roots, 3);
+            if ($matched !== null) {
+                return $matched;
+            }
+        } catch (\Throwable $e) {
+            // Fall back to the exact allowlist on any failure.
         }
 
         return in_array($id, [
@@ -634,6 +670,158 @@ class OpenStreetMapService
             'Q5003624', // memorial
             'Q53536964', // royal palace
         ], true);
+    }
+
+    /**
+     * Follow P279 (subclass of) up to $depth levels. Returns true/false on a
+     * definitive answer, or null on failure so the caller can fall back.
+     */
+    private function wikidataIsSubclassOf(string $classId, array $roots, int $depth): ?bool
+    {
+        $cacheKey = 'wikidata_p279_'.md5($classId.'|'.implode(',', $roots).'|'.$depth);
+        if (Cache::has($cacheKey)) {
+            $cached = Cache::get($cacheKey);
+
+            return is_bool($cached) ? $cached : null;
+        }
+
+        $queue = [[$classId, 0]];
+        $seen = [];
+
+        while ($queue !== []) {
+            [$current, $level] = array_shift($queue);
+            if (isset($seen[$current]) || $level > $depth) {
+                continue;
+            }
+            $seen[$current] = true;
+
+            if (in_array($current, $roots, true)) {
+                Cache::put($cacheKey, true, self::WIKIDATA_CACHE_SECONDS);
+
+                return true;
+            }
+
+            if ($level === $depth) {
+                continue;
+            }
+
+            $parents = $this->wikidataP279Parents($current);
+            if ($parents === null) {
+                return null;
+            }
+            foreach ($parents as $parent) {
+                if (! isset($seen[$parent])) {
+                    $queue[] = [$parent, $level + 1];
+                }
+            }
+        }
+
+        Cache::put($cacheKey, false, self::WIKIDATA_CACHE_SECONDS);
+
+        return false;
+    }
+
+    /**
+     * @return array<int,string>|null list of P279 parent Q-ids, or null on failure
+     */
+    private function wikidataP279Parents(string $entityId): ?array
+    {
+        $cacheKey = 'wikidata_p279_parents_'.md5($entityId);
+        if (Cache::has($cacheKey)) {
+            $cached = Cache::get($cacheKey);
+
+            return is_array($cached) ? $cached : null;
+        }
+
+        try {
+            $resp = Http::timeout(5)
+                ->withHeaders(['User-Agent' => $this->nominatimUserAgent()])
+                ->get('https://www.wikidata.org/wiki/Special/EntityData/'.$entityId.'.json', [
+                    'format' => 'json',
+                ]);
+
+            if (! $resp->successful()) {
+                return null;
+            }
+
+            $data = $resp->json();
+            $claims = is_array($data) ? ($data['entities'][$entityId]['claims']['P279'] ?? []) : [];
+            $parents = [];
+            if (is_array($claims)) {
+                foreach ($claims as $claim) {
+                    $id = is_array($claim) ? ($claim['mainsnak']['datavalue']['value']['id'] ?? null) : null;
+                    if (is_string($id) && $id !== '') {
+                        $parents[] = $id;
+                    }
+                }
+            }
+
+            $parents = array_values(array_unique($parents));
+            Cache::put($cacheKey, $parents, self::WIKIDATA_CACHE_SECONDS);
+
+            return $parents;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Step 4 name check: accept a Wikidata hit only when its label or alias
+     * matches the model landmark name after normalization, or similarity >= 0.85.
+     */
+    private function wikidataNameMatches(string $landmark, array $entityNode, string $fallbackLabel): bool
+    {
+        $needle = $this->normalizeLandmarkName($landmark);
+        if ($needle === '') {
+            return true;
+        }
+
+        $candidates = [$fallbackLabel];
+
+        $label = $entityNode['labels']['en']['value'] ?? null;
+        if (is_string($label) && $label !== '') {
+            $candidates[] = $label;
+        }
+
+        $aliases = $entityNode['aliases']['en'] ?? [];
+        if (is_array($aliases)) {
+            foreach ($aliases as $alias) {
+                $value = is_array($alias) ? ($alias['value'] ?? null) : null;
+                if (is_string($value) && $value !== '') {
+                    $candidates[] = $value;
+                }
+            }
+        }
+
+        foreach (array_unique($candidates) as $candidate) {
+            $normalized = $this->normalizeLandmarkName((string) $candidate);
+            if ($normalized === '') {
+                continue;
+            }
+            if ($normalized === $needle) {
+                return true;
+            }
+            if (str_contains($normalized, $needle) || str_contains($needle, $normalized)) {
+                return true;
+            }
+            similar_text($normalized, $needle, $percent);
+            if (($percent / 100) >= 0.85) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function normalizeLandmarkName(string $name): string
+    {
+        $value = Str::ascii($name);
+        $value = strtolower($value);
+        $value = preg_replace('/\bthe\b/', ' ', $value) ?? $value;
+        $value = preg_replace('/[^a-z0-9\s]/', ' ', $value) ?? $value;
+        $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+
+        return trim($value);
     }
 
     /**
