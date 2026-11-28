@@ -23,7 +23,7 @@
     // inside the 25-minute reaper window -- not the old 120s no-progress cap.
     const AI_WAIT_LABEL = 'Waiting for AI service';
     const AI_WAIT_MAX_MS = 20 * 60 * 1000;
-    const AI_WAIT_CALM_HINT = 'The AI service is busy, so we are retrying automatically. This can take up to about 20 minutes.';
+    const AI_WAIT_CALM_HINT = 'The AI service is busy — we\'re auto-retrying in the background. You can keep this page open; results will appear automatically.';
 
     const DEBUG = window.__TRACEGEO_DEBUG__ === true || /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
     const dbg = DEBUG ? console.log.bind(console) : () => {};
@@ -360,6 +360,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     let streetViewTimer = null;
     let streetViewSession = null;
     let completionTimers = [];
+    let autoRetryTimer = null;
     let currentAnalysisId = null;
     let pollAttempts = 0;
     let consecutiveErrors = 0;
@@ -421,13 +422,29 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
 
     function showRetryButton(analysisId) {
         if (!DOM.pcRetry) return;
+        if (autoRetryTimer) { clearInterval(autoRetryTimer); autoRetryTimer = null; }
         DOM.pcRetry.style.display = 'inline-flex';
         DOM.pcRetry.disabled = false;
-        DOM.pcRetry.textContent = 'Retry analysis';
         DOM.pcRetry.dataset.analysisId = String(analysisId);
+        let remaining = 15;
+        const render = () => {
+            DOM.pcRetry.textContent = remaining > 0 ? `Auto-retry in ${remaining}s — click to retry now` : 'Retrying...';
+        };
+        render();
+        autoRetryTimer = setInterval(() => {
+            remaining -= 1;
+            if (!DOM.pcRetry || DOM.pcRetry.style.display === 'none') { clearInterval(autoRetryTimer); autoRetryTimer = null; return; }
+            if (remaining <= 0) {
+                clearInterval(autoRetryTimer); autoRetryTimer = null;
+                retryFailedAnalysis();
+                return;
+            }
+            render();
+        }, 1000);
     }
 
     function hideRetryButton() {
+        if (autoRetryTimer) { clearInterval(autoRetryTimer); autoRetryTimer = null; }
         if (!DOM.pcRetry) return;
         DOM.pcRetry.style.display = 'none';
         DOM.pcRetry.disabled = false;
@@ -435,6 +452,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     }
 
     async function retryFailedAnalysis() {
+        if (autoRetryTimer) { clearInterval(autoRetryTimer); autoRetryTimer = null; }
         const id = DOM.pcRetry && DOM.pcRetry.dataset.analysisId;
         if (!id) return;
         if (DOM.pcRetry) {
@@ -484,8 +502,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         if (!el) {
             el = document.createElement('div');
             el.id = 'pcHint';
-            el.style.cssText = 'margin-top:10px;padding:8px 10px;border-radius:8px;' +
-                'background:rgba(255,193,7,.12);color:#ffd54f;font-size:12px;line-height:1.4;display:none;';
+            el.style.display = 'none';
             const anchor = DOM.pcSteps || DOM.pcScanning;
             if (anchor && anchor.parentElement) {
                 anchor.parentElement.insertBefore(el, anchor.nextSibling);
@@ -1310,7 +1327,12 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 if (data.hint) {
                     showQueueHint(data.hint);
                 } else if (aiWaitWithinBudget) {
-                    showQueueHint(AI_WAIT_CALM_HINT, false);
+                    const waited = aiWaitingSince ? Math.max(0, Math.floor((Date.now() - aiWaitingSince) / 1000)) : 0;
+                    const mins = Math.floor(waited / 60);
+                    const secs = waited % 60;
+                    const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                    showQueueHint(`${AI_WAIT_CALM_HINT} (waiting ${elapsed}, checking automatically)`, false);
+                    if (DOM.navStatus) DOM.navStatus.textContent = `Auto-checking… waiting ${elapsed}`;
                 } else {
                     hideQueueHint();
                 }
@@ -1372,7 +1394,12 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         PERF.reveals++;
         perfMark('reveal:start');
         if (DOM.progressCard) DOM.progressCard.style.display = 'none';
-        if (DOM.resultsSplit) DOM.resultsSplit.classList.add('show');
+        if (DOM.resultsSplit) {
+            DOM.resultsSplit.classList.add('show');
+            setTimeout(() => {
+                try { DOM.resultsSplit.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' }); } catch (_) {}
+            }, 250);
+        }
 
         if (DOM.globeTransition && DOM.globeTransitionCanvas) {
             DOM.globeTransition.classList.remove('fade-out');
