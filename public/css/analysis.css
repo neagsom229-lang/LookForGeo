@@ -1516,6 +1516,8 @@
 
     .globe-label {
         position: absolute;
+        left: 0;
+        top: 0;
         pointer-events: none;
         background: rgba(8, 8, 14, 0.9);
         border: 1px solid var(--success);
@@ -1525,6 +1527,7 @@
         font-size: 12px;
         font-family: 'Space Grotesk', sans-serif;
         transform: translate(-50%, -100%);
+        will-change: transform;
         z-index: 10;
         white-space: nowrap;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
