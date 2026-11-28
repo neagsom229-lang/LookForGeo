@@ -811,18 +811,21 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             resize
         } = earthScene;
 
-        function frame() {
+        let lastStarTs = 0;
+        function frame(ts) {
             if (document.hidden) { earthAnimId = null; return; }
+            earthAnimId = requestAnimationFrame(frame);
+            if (ts && lastStarTs && (ts - lastStarTs) < 33) return; // ~30fps cap
+            lastStarTs = ts || 0;
             resize();
             if (!prefersReducedMotion) {
                 earth.rotation.y += 0.0016;
                 clouds.rotation.y += 0.0021;
             }
             renderer.render(scene, camera);
-            earthAnimId = requestAnimationFrame(frame);
         }
         if (earthAnimId) cancelAnimationFrame(earthAnimId);
-        frame();
+        frame(0);
     }
 
     function stopStarfield() {
@@ -866,13 +869,15 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     function drawStaticGlobe(canvas) {
         if (!canvas) return () => {};
         const t = buildEarthScene(canvas);
-        let animId = null;
-        (function frame() {
+        let animId = null, lastTs = 0;
+        (function frame(ts) {
+            animId = requestAnimationFrame(frame);
+            if (ts && lastTs && (ts - lastTs) < 33) return;
+            lastTs = ts || 0;
             t.resize();
             if (!prefersReducedMotion) t.earth.rotation.y += 0.003;
             t.renderer.render(t.scene, t.camera);
-            animId = requestAnimationFrame(frame);
-        })();
+        })(0);
         return () => {
             if (animId) cancelAnimationFrame(animId);
         };
@@ -972,25 +977,33 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         controls.addEventListener('end', controls._traceGeoEndHandler);
         // =================================
 
+        let lastLabelX = -1, lastLabelY = -1, lastFrameTs = 0;
         function updateLabel() {
             if (!label || !resultGlobeMarkerMesh) return;
             const vector = resultGlobeMarkerMesh.position.clone();
             vector.project(camera);
-            const x = (vector.x * 0.5 + 0.5) * DOM.resultGlobeCanvas.clientWidth;
-            const y = (-vector.y * 0.5 + 0.5) * DOM.resultGlobeCanvas.clientHeight;
-            label.style.left = x + 'px';
-            label.style.top = y + 'px';
-            label.style.display = 'block';
-            label.textContent = '≡ƒôì ' + targetName;
+            const w = DOM.resultGlobeCanvas.clientWidth;
+            const h = DOM.resultGlobeCanvas.clientHeight;
+            const x = Math.round((vector.x * 0.5 + 0.5) * w);
+            const y = Math.round((-vector.y * 0.5 + 0.5) * h);
+            if (x !== lastLabelX || y !== lastLabelY) {
+                label.style.left = '0px'; label.style.top = '0px'; label.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
+                lastLabelX = x; lastLabelY = y;
+            }
+            if (label.style.display !== 'block') label.style.display = 'block';
+            const nextText = '?? ' + targetName;
+            if (label.textContent !== nextText) label.textContent = nextText;
         }
 
-        function frame() {
+        function frame(ts) {
             if (document.hidden) { resultEarthAnimId = null; return; }
+            resultEarthAnimId = requestAnimationFrame(frame);
+            if (ts && lastFrameTs && (ts - lastFrameTs) < 33) return; // ~30fps cap
+            lastFrameTs = ts || 0;
             resize();
             controls.update();
             updateLabel();
             renderer.render(scene, camera);
-            resultEarthAnimId = requestAnimationFrame(frame);
         }
         if (resultEarthAnimId) cancelAnimationFrame(resultEarthAnimId);
         frame();
@@ -1134,12 +1147,14 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         }
         lastProgress = p;
         renderSub(lastProgress);
-        document.querySelectorAll('.pc-steps .pcs').forEach(el => {
+        if (!updateProgressCard._steps) updateProgressCard._steps = Array.from(document.querySelectorAll('.pc-steps .pcs'));
+        for (let i = 0; i < updateProgressCard._steps.length; i++) {
+            const el = updateProgressCard._steps[i];
             const idx = parseInt(el.dataset.step, 10);
             el.classList.remove('active', 'done');
             if (idx < stage) el.classList.add('done');
             else if (idx === stage) el.classList.add('active');
-        });
+        }
     }
 
     // ========== SESSION ==========
@@ -2126,10 +2141,14 @@ TraceGeo OSINT Intelligence`;
         if (analysisId) {
             startAnalysis(analysisId, uploadedImage);
         } else {
-            initStarfield();
-            showGlobeMode('≡ƒîì Ready for analysis');
-            if (DOM.statusDot) DOM.statusDot.style.background = 'var(--success)';
-            showToast('?? OSINT Engine ready');
+            const initIdle = () => {
+                initStarfield();
+                showGlobeMode('?? Ready for analysis');
+                if (DOM.statusDot) DOM.statusDot.style.background = 'var(--success)';
+                showToast('? OSINT Engine ready');
+            };
+            if ('requestIdleCallback' in window) requestIdleCallback(initIdle, { timeout: 500 });
+            else setTimeout(initIdle, 60);
         }
         perfMark('dom:init:end');
         perfMeasure('dom:init', 'dom:init:start', 'dom:init:end');
