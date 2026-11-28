@@ -140,6 +140,9 @@ return [
         'base_url' => env('AI_FALLBACK_BASE_URL', 'https://api.openai.com/v1'),
         'model' => env('AI_FALLBACK_MODEL', 'gpt-4o-mini'),
         'timeout' => (int) env('AI_FALLBACK_TIMEOUT', 45),
+        // Optional attribution headers (recommended by OpenRouter).
+        'http_referer' => env('AI_FALLBACK_HTTP_REFERER'),
+        'app_title' => env('AI_FALLBACK_APP_TITLE', env('APP_NAME', 'LookForGeo')),
     ],
 
     /*

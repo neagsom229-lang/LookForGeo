@@ -667,10 +667,23 @@ class GeminiClient
         ];
 
         try {
-            $response = Http::timeout($timeout)
+            $headers = [];
+            $referer = trim((string) config('services.ai_fallback.http_referer', ''));
+            $title = trim((string) config('services.ai_fallback.app_title', ''));
+            if ($referer !== '') {
+                $headers['HTTP-Referer'] = $referer;
+            }
+            if ($title !== '') {
+                $headers['X-OpenRouter-Title'] = $title;
+            }
+
+            $request = Http::timeout($timeout)
                 ->connectTimeout(min(10, $timeout))
-                ->withToken($key)
-                ->post($baseUrl.'/chat/completions', $payload);
+                ->withToken($key);
+            if ($headers !== []) {
+                $request = $request->withHeaders($headers);
+            }
+            $response = $request->post($baseUrl.'/chat/completions', $payload);
 
             if (! $response->successful()) {
                 Log::warning('AI fallback failed', ['status' => $response->status(), 'provider' => 'openai_compatible']);
