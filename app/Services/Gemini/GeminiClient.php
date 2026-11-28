@@ -220,6 +220,11 @@ class GeminiClient
                 $this->noteCircuitFailure($failedModel, $classified);
             }
 
+            $fallback = $this->tryAiFallback($imageData, $prompt);
+            if ($fallback !== null) {
+                return $fallback;
+            }
+
             return $classified;
         }
 
@@ -268,12 +273,22 @@ class GeminiClient
 
             $result = $this->withClassification($result);
             if ($result['error'] === 'api_key_missing') {
+                $fallback = $this->tryAiFallback($imageData, $prompt);
+                if ($fallback !== null) {
+                    return $fallback;
+                }
+
                 return $result;
             }
 
             $this->noteCircuitFailure($model, $result);
             $last = $result;
             $isPrimary = false;
+        }
+
+        $fallback = $this->tryAiFallback($imageData, $prompt);
+        if ($fallback !== null) {
+            return $fallback;
         }
 
         return $last;
@@ -623,6 +638,97 @@ class GeminiClient
         ];
 
         return $base;
+    }
+
+    /**
+     * Optional OpenAI-compatible vision fallback. Used only when configured and
+     * Gemini attempts failed. Returns a parsed result array or null.
+     */
+    private function tryAiFallback(string $imageData, string $prompt): ?array
+    {
+        if (! config('services.ai_fallback.enabled', false)) {
+            return null;
+        }
+
+        $key = (string) config('services.ai_fallback.key', '');
+        $baseUrl = rtrim((string) config('services.ai_fallback.base_url', 'https://api.openai.com/v1'), '/');
+        $models = array_values(array_filter(array_map('trim', explode(',', (string) config('services.ai_fallback.model', 'gpt-4o-mini')))));
+        $timeout = max(1, (int) config('services.ai_fallback.timeout', 45));
+
+        if ($key === '' || $models === []) {
+            return null;
+        }
+
+        $compressed = $this->compressImageIfNeeded($imageData);
+        $dataUrl = 'data:'.$compressed['mime'].';base64,'.base64_encode($compressed['data']);
+        $headers = [];
+        $referer = trim((string) config('services.ai_fallback.http_referer', ''));
+        $title = trim((string) config('services.ai_fallback.app_title', ''));
+        if ($referer !== '') {
+            $headers['HTTP-Referer'] = $referer;
+        }
+        if ($title !== '') {
+            $headers['X-OpenRouter-Title'] = $title;
+        }
+
+        foreach ($models as $model) {
+            $payload = [
+                'model' => $model,
+                'temperature' => 0.2,
+                'max_tokens' => 2500,
+                'messages' => [
+                    [
+                        'role' => 'user',
+                        'content' => [
+                            ['type' => 'text', 'text' => $prompt],
+                            ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]],
+                        ],
+                    ],
+                ],
+            ];
+
+            try {
+                $request = Http::timeout($timeout)
+                    ->connectTimeout(min(10, $timeout))
+                    ->withToken($key);
+                if ($headers !== []) {
+                    $request = $request->withHeaders($headers);
+                }
+                $response = $request->post($baseUrl.'/chat/completions', $payload);
+
+                if (! $response->successful()) {
+                    Log::warning('AI fallback failed', ['status' => $response->status(), 'provider' => 'openai_compatible', 'model' => $model]);
+
+                    continue;
+                }
+
+                $text = $response->json('choices.0.message.content');
+                if (! is_string($text) || trim($text) === '') {
+                    Log::warning('AI fallback empty content', ['provider' => 'openai_compatible', 'model' => $model]);
+
+                    continue;
+                }
+
+                $parsed = $this->parseAIResponse($this->cleanText($text));
+                if (! $parsed) {
+                    Log::warning('AI fallback parse failed', ['provider' => 'openai_compatible', 'model' => $model]);
+
+                    continue;
+                }
+
+                $result = $this->cleanArray($parsed);
+                $result['winner'] = $model;
+                $result['fallback_provider'] = 'openai_compatible';
+
+                return $result;
+            } catch (\Throwable $e) {
+                Log::warning('AI fallback exception', ['error' => SecretSanitizer::redact($e->getMessage()), 'model' => $model]);
+
+                continue;
+            }
+        }
+
+        return null;
     }
 
     private function sendSingleGeminiRequest($model, $imageData, $prompt, ?int $timeoutSeconds = null)

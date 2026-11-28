@@ -1,14 +1,14 @@
-    // ============================================================
-    //  TRACEGEO — STORYBOARD-ACCURATE PROCESSING SEQUENCE
+﻿    // ============================================================
+    //  TRACEGEO ΓÇö STORYBOARD-ACCURATE PROCESSING SEQUENCE
     //
     //  Sequence (matches PDF frames exactly):
-    //  Frame 2 → Flat dark map zooms into random city
-    //  Frame 3 → Switches to 3D starfield globe view
-    //  Frame 4 → Back to flat map, zooms another city
-    //  Frame 5 → Globe again
-    //  Frame 6 → Flat map, another city
+    //  Frame 2 ΓåÆ Flat dark map zooms into random city
+    //  Frame 3 ΓåÆ Switches to 3D starfield globe view
+    //  Frame 4 ΓåÆ Back to flat map, zooms another city
+    //  Frame 5 ΓåÆ Globe again
+    //  Frame 6 ΓåÆ Flat map, another city
     //  ...alternates until analysis done...
-    //  Final   → Cinematic zoom to real target → white flash → results
+    //  Final   ΓåÆ Cinematic zoom to real target ΓåÆ white flash ΓåÆ results
     // ============================================================
 
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -23,10 +23,17 @@
     // inside the 25-minute reaper window -- not the old 120s no-progress cap.
     const AI_WAIT_LABEL = 'Waiting for AI service';
     const AI_WAIT_MAX_MS = 20 * 60 * 1000;
-    const AI_WAIT_CALM_HINT = 'The AI service is busy, so we are retrying automatically. This can take up to about 20 minutes.';
+    const AI_WAIT_CALM_HINT = 'The AI service is busy — we\'re auto-retrying in the background. You can keep this page open; results will appear automatically.';
 
     const DEBUG = window.__TRACEGEO_DEBUG__ === true || /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
     const dbg = DEBUG ? console.log.bind(console) : () => {};
+    const PERF = window.__TRACEGEO_PERF__ = { polls: 0, aiWaitPolls: 0, reveals: 0, lastPollMs: 0, marks: {} };
+    const perfMark = (name) => { try { performance.mark(name); PERF.marks[name] = performance.now(); } catch (_) {} };
+    const perfMeasure = (name, start, end) => { try { performance.measure(name, start, end); } catch (_) {} };
+    window.__TRACEGEO_NEXT_POLL_DELAY__ = (attempts, aiWaiting) => {
+        const base = POLL_DELAYS_MS[Math.min(Math.max(attempts - 1, 0), POLL_DELAYS_MS.length - 1)];
+        return aiWaiting ? Math.max(base, 8000) : base;
+    };
 
     function nextPollDelay() {
         const base = POLL_DELAYS_MS[Math.min(Math.max(pollAttempts - 1, 0), POLL_DELAYS_MS.length - 1)];
@@ -353,6 +360,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     let streetViewTimer = null;
     let streetViewSession = null;
     let completionTimers = [];
+    let autoRetryTimer = null;
     let currentAnalysisId = null;
     let pollAttempts = 0;
     let consecutiveErrors = 0;
@@ -393,14 +401,14 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
 
     function showError(message, failedAnalysisId) {
         if (DOM.pcError) {
-            DOM.pcError.textContent = `⚠️ ${message}`;
+            DOM.pcError.textContent = `ΓÜá∩╕Å ${message}`;
             DOM.pcError.style.display = 'block';
         }
         if (DOM.statusDot) {
             DOM.statusDot.style.background = 'var(--danger)';
             DOM.statusDot.style.boxShadow = '0 0 20px var(--danger)';
         }
-        showToast('❌ ' + message);
+        showToast('Γ¥î ' + message);
 
         if (failedAnalysisId) {
             // Keep the card visible so the Retry action is reachable.
@@ -414,13 +422,29 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
 
     function showRetryButton(analysisId) {
         if (!DOM.pcRetry) return;
+        if (autoRetryTimer) { clearInterval(autoRetryTimer); autoRetryTimer = null; }
         DOM.pcRetry.style.display = 'inline-flex';
         DOM.pcRetry.disabled = false;
-        DOM.pcRetry.textContent = 'Retry analysis';
         DOM.pcRetry.dataset.analysisId = String(analysisId);
+        let remaining = 15;
+        const render = () => {
+            DOM.pcRetry.textContent = remaining > 0 ? `Auto-retry in ${remaining}s — click to retry now` : 'Retrying...';
+        };
+        render();
+        autoRetryTimer = setInterval(() => {
+            remaining -= 1;
+            if (!DOM.pcRetry || DOM.pcRetry.style.display === 'none') { clearInterval(autoRetryTimer); autoRetryTimer = null; return; }
+            if (remaining <= 0) {
+                clearInterval(autoRetryTimer); autoRetryTimer = null;
+                retryFailedAnalysis();
+                return;
+            }
+            render();
+        }, 1000);
     }
 
     function hideRetryButton() {
+        if (autoRetryTimer) { clearInterval(autoRetryTimer); autoRetryTimer = null; }
         if (!DOM.pcRetry) return;
         DOM.pcRetry.style.display = 'none';
         DOM.pcRetry.disabled = false;
@@ -428,6 +452,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     }
 
     async function retryFailedAnalysis() {
+        if (autoRetryTimer) { clearInterval(autoRetryTimer); autoRetryTimer = null; }
         const id = DOM.pcRetry && DOM.pcRetry.dataset.analysisId;
         if (!id) return;
         if (DOM.pcRetry) {
@@ -455,7 +480,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             startAnalysis(parseInt(id, 10), sessionStorage.getItem('uploadedImage') || uploadedImageURL);
         } catch (err) {
             if (DOM.pcError) {
-                DOM.pcError.textContent = `⚠️ ${err.message || 'Retry failed'}`;
+                DOM.pcError.textContent = `ΓÜá∩╕Å ${err.message || 'Retry failed'}`;
                 DOM.pcError.style.display = 'block';
             }
             if (DOM.pcRetry) {
@@ -477,8 +502,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         if (!el) {
             el = document.createElement('div');
             el.id = 'pcHint';
-            el.style.cssText = 'margin-top:10px;padding:8px 10px;border-radius:8px;' +
-                'background:rgba(255,193,7,.12);color:#ffd54f;font-size:12px;line-height:1.4;display:none;';
+            el.style.display = 'none';
             const anchor = DOM.pcSteps || DOM.pcScanning;
             if (anchor && anchor.parentElement) {
                 anchor.parentElement.insertBefore(el, anchor.nextSibling);
@@ -486,7 +510,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 DOM.progressCard.appendChild(el);
             }
         }
-        el.textContent = '💡 ' + hint;
+        el.textContent = '≡ƒÆí ' + hint;
         el.style.display = 'block';
         if (toast !== false) showToast(hint);
     }
@@ -554,7 +578,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             const safeZoom = Math.min(Math.max(zoom || 2, 1), 18);
 
             if (!earthMapInstance) {
-                console.warn('⚠️ earthMapInstance not initialized');
+                console.warn('ΓÜá∩╕Å earthMapInstance not initialized');
                 resolve();
                 return;
             }
@@ -857,7 +881,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     // ---- Dedicated 3D globe instance for the RESULTS panel ----
     // FIX: this used to try to reuse #starfieldCanvas + earthScene, but that
     // canvas sits outside .results-split's stacking context (z-index 1-2)
-    // while .results-split is z-index 20 with opaque panes on top of it —
+    // while .results-split is z-index 20 with opaque panes on top of it ΓÇö
     // so toggling "3D Globe" after results appeared visually did nothing;
     // the flat map underneath just kept showing. This is a separate scene
     // bound to #resultGlobeCanvas, which lives *inside* #satPane.
@@ -957,7 +981,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             label.style.left = x + 'px';
             label.style.top = y + 'px';
             label.style.display = 'block';
-            label.textContent = '📍 ' + targetName;
+            label.textContent = '≡ƒôì ' + targetName;
         }
 
         function frame() {
@@ -980,12 +1004,12 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         const label = document.getElementById('resultGlobeLabel');
         if (label) label.style.display = 'none';
     }
-    // ========== SWITCH BETWEEN FLAT MAP ↔ GLOBE (pre-results exploration) ==========
+    // ========== SWITCH BETWEEN FLAT MAP Γåö GLOBE (pre-results exploration) ==========
     function showGlobeMode(statusText) {
         DOM.mapEarthContainer.classList.add('hidden');
         DOM.starfieldCanvas.classList.add('visible');
         DOM.globeModeBadge.classList.add('visible');
-        if (DOM.mapStatusText) DOM.mapStatusText.textContent = statusText || '🌐 3D Globe scan active...';
+        if (DOM.mapStatusText) DOM.mapStatusText.textContent = statusText || '≡ƒîÉ 3D Globe scan active...';
     }
 
     function showFlatMapMode() {
@@ -1006,7 +1030,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 explorationIndex = i;
 
                 if (i % 2 === 1) {
-                    showGlobeMode(`🌐 Scanning ${wp.name}...`);
+                    showGlobeMode(`≡ƒîÉ Scanning ${wp.name}...`);
                     setGlobeMarker(wp.lat, wp.lng, false);
                     if (DOM.pcScanning) DOM.pcScanning.textContent = `// SCANNING ${wp.name.toUpperCase()}`;
                     await sleep(3200);
@@ -1018,7 +1042,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
 
                 showFlatMapMode();
                 if (DOM.mapStatusText) {
-                    DOM.mapStatusText.textContent = `🌍 Probing ${wp.name}...`;
+                    DOM.mapStatusText.textContent = `≡ƒîì Probing ${wp.name}...`;
                 }
                 if (DOM.pcScanning) DOM.pcScanning.textContent = `// PROBING ${wp.name.toUpperCase()}`;
 
@@ -1064,7 +1088,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             });
         }
 
-        if (DOM.mapStatusText) DOM.mapStatusText.textContent = `🎯 Target acquired — ${name}...`;
+        if (DOM.mapStatusText) DOM.mapStatusText.textContent = `≡ƒÄ» Target acquired ΓÇö ${name}...`;
         if (DOM.pcScanning) DOM.pcScanning.textContent = `// PINPOINTING ${name.toUpperCase()}`;
 
         await flyEarthTo(latNum, lngNum, 2.5, 1400);
@@ -1082,7 +1106,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         await sleep(900);
 
         if (DOM.mapStatusText) {
-            DOM.mapStatusText.innerHTML = `<span class="target-found">🎯 ${name} — CONFIRMED!</span>`;
+            DOM.mapStatusText.innerHTML = `<span class="target-found">≡ƒÄ» ${name} ΓÇö CONFIRMED!</span>`;
         }
     }
 
@@ -1091,19 +1115,19 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         if (!DOM.pcSub) return;
         const elapsed = startTime ? (Date.now() - startTime) / 1000 : 0;
         DOM.pcSub.textContent =
-            `Elapsed ${elapsed.toFixed(1)}s · Progress ${Math.min(progress || 0, 100)}% · Engine TraceGeo AI`;
+            `Elapsed ${elapsed.toFixed(1)}s ┬╖ Progress ${Math.min(progress || 0, 100)}% ┬╖ Engine TraceGeo AI`;
     }
 
     function updateProgressCard(stage, progress, label) {
         const labels = {
-            0: 'Reading uploaded image…',
-            1: 'Extracting visual features…',
-            2: 'Running visual analysis…',
-            3: 'Running Bayesian evidence fusion…',
-            4: 'Pinpointing location…',
+            0: 'Reading uploaded imageΓÇª',
+            1: 'Extracting visual featuresΓÇª',
+            2: 'Running visual analysisΓÇª',
+            3: 'Running Bayesian evidence fusionΓÇª',
+            4: 'Pinpointing locationΓÇª',
         };
         const p = Math.min(progress || 0, 100);
-        if (DOM.pcHeadline) DOM.pcHeadline.textContent = label || labels[stage] || 'Analyzing…';
+        if (DOM.pcHeadline) DOM.pcHeadline.textContent = label || labels[stage] || 'AnalyzingΓÇª';
         if (DOM.pcFill) DOM.pcFill.style.width = p + '%';
         if (p > lastProgress) {
             lastProgressTime = Date.now();
@@ -1182,7 +1206,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 return r.json();
             })
             .then(data => {
-                console.log('📊', data);
+                PERF.polls++; dbg('??', data);
                 consecutiveErrors = 0;
 
                 if (data.image_url) {
@@ -1205,6 +1229,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                     String(data.stage_label || '').indexOf(AI_WAIT_LABEL) === 0;
 
                 if (waitingForAI) {
+                    PERF.aiWaitPolls++;
                     if (aiWaitingSince === null) aiWaitingSince = Date.now();
                 } else {
                     aiWaitingSince = null;
@@ -1259,7 +1284,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                             tName,
                             canReveal
                         });
-                        console.log('📦 Full result:', result);
+                        dbg('?? Full result:', result);
 
                         // No fallback flight: with missing coordinates we keep
                         // the current view and show the honest status message.
@@ -1302,12 +1327,17 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                 if (data.hint) {
                     showQueueHint(data.hint);
                 } else if (aiWaitWithinBudget) {
-                    showQueueHint(AI_WAIT_CALM_HINT, false);
+                    const waited = aiWaitingSince ? Math.max(0, Math.floor((Date.now() - aiWaitingSince) / 1000)) : 0;
+                    const mins = Math.floor(waited / 60);
+                    const secs = waited % 60;
+                    const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                    showQueueHint(`${AI_WAIT_CALM_HINT} (waiting ${elapsed}, checking automatically)`, false);
+                    if (DOM.navStatus) DOM.navStatus.textContent = `Auto-checking… waiting ${elapsed}`;
                 } else {
                     hideQueueHint();
                 }
 
-                pollTimer = setTimeout(pollStatus, nextPollDelay());
+                const _pollDelay = nextPollDelay(); PERF.lastPollMs = _pollDelay; pollTimer = setTimeout(pollStatus, _pollDelay);
             })
             .catch(err => {
                 console.error('Poll error:', err);
@@ -1361,8 +1391,15 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     }
 
     function revealResults(data) {
+        PERF.reveals++;
+        perfMark('reveal:start');
         if (DOM.progressCard) DOM.progressCard.style.display = 'none';
-        if (DOM.resultsSplit) DOM.resultsSplit.classList.add('show');
+        if (DOM.resultsSplit) {
+            DOM.resultsSplit.classList.add('show');
+            setTimeout(() => {
+                try { DOM.resultsSplit.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' }); } catch (_) {}
+            }, 250);
+        }
 
         if (DOM.globeTransition && DOM.globeTransitionCanvas) {
             DOM.globeTransition.classList.remove('fade-out');
@@ -1634,6 +1671,8 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             }
             setupControls(data, lat, lng, hasCoords);
         }
+        perfMark('reveal:end');
+        perfMeasure('reveal', 'reveal:start', 'reveal:end');
     }
 
     // ========== CONTROLS ==========
@@ -1647,7 +1686,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         set('copyCoordsBtn', () => {
             if (!hasCoords) return;
             navigator.clipboard?.writeText(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-            showToast('📋 Coordinates copied!');
+            showToast('≡ƒôï Coordinates copied!');
         });
 
         const roadsBtn = document.getElementById('roadsToggle');
@@ -1716,7 +1755,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             if (roadsBtn) roadsBtn.classList.remove('active');
             if (terrainBtn) terrainBtn.classList.add('active');
 
-            showToast('🗺️ Zoomed to precise location!');
+            showToast('≡ƒù║∩╕Å Zoomed to precise location!');
         };
 
         // ===== STRICT MODE SWITCHING =====
@@ -1734,7 +1773,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             streetBtn.classList.remove('active');
             roadsBtn.classList.remove('active');
             terrainBtn.classList.remove('active');
-            showToast('🌐 Real 3D Globe Mode Active');
+            showToast('≡ƒîÉ Real 3D Globe Mode Active');
         };
 
         const switchToStreetView = () => {
@@ -1752,7 +1791,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
             globeBtn.classList.remove('active');
             roadsBtn.classList.remove('active');
             terrainBtn.classList.remove('active');
-            showToast('📸 Real-Time Street View Active');
+            showToast('≡ƒô╕ Real-Time Street View Active');
         };
 
         // Choose default view based on screen size
@@ -1797,7 +1836,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         set('saveReportBtn', () => exportReport(data, lat, lng));
         set('shareBtn', async () => {
             const summary =
-                `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` — ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
+                `${data.landmark_name || data.city || 'Location'}${hasCoords ? ` ΓÇö ${lat.toFixed(4)}, ${lng.toFixed(4)}` : ''}`;
             if (navigator.share) {
                 try {
                     await navigator.share({
@@ -1810,7 +1849,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
                     /* user cancelled */ }
             }
             navigator.clipboard?.writeText(summary);
-            showToast('📋 Summary copied to clipboard!');
+            showToast('≡ƒôï Summary copied to clipboard!');
         });
 
         // ===== PHOTO ACTIONS =====
@@ -1824,7 +1863,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         });
         set('reverseSearchBtn', () => {
             if (!uploadedImageURL) {
-                showToast('❌ No image to search.');
+                showToast('Γ¥î No image to search.');
                 return;
             }
             window.open(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(uploadedImageURL)}`,
@@ -1905,7 +1944,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         <div class="street-setup-notice">
             <i class="fas fa-street-view"></i>
             <h4>Street View needs one setup step</h4>
-            <p>Inline Street View requires a free Google Maps Embed API key — it isn't configured yet, so it can't show the real panorama here.</p>
+            <p>Inline Street View requires a free Google Maps Embed API key ΓÇö it isn't configured yet, so it can't show the real panorama here.</p>
             <button class="street-setup-cta" id="streetOpenRealBtn">
                 <i class="fas fa-up-right-from-square"></i> Open real Street View
             </button>
@@ -1923,7 +1962,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         <button class="street-back" id="streetBackBtn"><i class="fas fa-arrow-left"></i></button>
         <div class="street-loading-notice" id="streetLoadingNotice">
             <div class="spinner"></div>
-            <p>Loading Street View…</p>
+            <p>Loading Street ViewΓÇª</p>
         </div>
         <iframe id="streetIframe" style="opacity:0;" src="${embedSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allow="accelerometer; gyroscope; magnetometer; fullscreen"></iframe>
         <button class="street-open-full" id="streetOpenFullBtn" style="display:none;"><i class="fas fa-expand"></i> Open Full Street View</button>
@@ -1941,7 +1980,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
         <div class="street-setup-notice">
             <i class="fas fa-street-view"></i>
             <h4>Street View is taking too long</h4>
-            <p>It didn't load in time — this can happen if a browser extension, network, or firewall is blocking Google Maps embeds. You can still open the real panorama in a new tab.</p>
+            <p>It didn't load in time ΓÇö this can happen if a browser extension, network, or firewall is blocking Google Maps embeds. You can still open the real panorama in a new tab.</p>
             <button class="street-setup-cta" id="streetOpenRealBtn">
                 <i class="fas fa-up-right-from-square"></i> Open real Street View
             </button>
@@ -1995,7 +2034,7 @@ const ROADS_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Ope
     function exportReport(data, lat, lng) {
         const hasCoords = isValidCoord(lat, lng);
         const latStr = hasCoords ?
-            `${Math.abs(lat).toFixed(6)}° ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(6)}° ${lng>=0?'E':'W'}` : 'N/A';
+            `${Math.abs(lat).toFixed(6)}┬░ ${lat>=0?'N':'S'}, ${Math.abs(lng).toFixed(6)}┬░ ${lng>=0?'E':'W'}` : 'N/A';
         const confidence = data.confidence ?? 0;
         const tier = confidence >= 80 ? 'HIGH' : confidence >= 50 ? 'MEDIUM' : 'LOW';
 
@@ -2014,10 +2053,10 @@ Confidence:  ${confidence}% (${tier})
 
 EVIDENCE CHAIN
 --------------------------------------------
-• Verified Landmark: ${data.landmark_name || 'Unknown'}
-• Latitude: ${latStr}
-• Visual markers matched: ${(data.tags || []).join(', ') || 'N/A'}
-• Image Source: ${uploadedImageURL || 'N/A'}
+ΓÇó Verified Landmark: ${data.landmark_name || 'Unknown'}
+ΓÇó Latitude: ${latStr}
+ΓÇó Visual markers matched: ${(data.tags || []).join(', ') || 'N/A'}
+ΓÇó Image Source: ${uploadedImageURL || 'N/A'}
 
 AI REASONING
 --------------------------------------------
@@ -2033,7 +2072,7 @@ TraceGeo OSINT Intelligence`;
         a.href = URL.createObjectURL(blob);
         a.download = `TraceGeo_${(data.landmark_name || 'Report').replace(/\s+/g, '_')}.txt`;
         a.click();
-        showToast('📄 Report exported!');
+        showToast('≡ƒôä Report exported!');
     }
 
     // ========== ENTRY POINT ==========
@@ -2058,8 +2097,8 @@ TraceGeo OSINT Intelligence`;
             DOM.statusDot.style.boxShadow = '0 0 20px var(--warning)';
         }
 
-        showToast('🔍 Analysis in progress…');
-        updateProgressCard(0, 5, 'Starting analysis…');
+        showToast('≡ƒöì Analysis in progressΓÇª');
+        updateProgressCard(0, 5, 'Starting analysisΓÇª');
 
         if (elapsedInterval) clearInterval(elapsedInterval);
         elapsedInterval = setInterval(() => {
@@ -2072,12 +2111,13 @@ TraceGeo OSINT Intelligence`;
         const startPt = GLOBAL_WAYPOINTS[Math.floor(Math.random() * GLOBAL_WAYPOINTS.length)];
         initEarthMap([startPt.lat, startPt.lng], 3);
 
-        if (DOM.mapStatusText) DOM.mapStatusText.textContent = '🌍 Initializing OSINT Engine...';
+        if (DOM.mapStatusText) DOM.mapStatusText.textContent = '≡ƒîì Initializing OSINT Engine...';
 
         pollStatus();
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        perfMark('dom:init:start');
         if (DOM.pcRetry) DOM.pcRetry.addEventListener('click', retryFailedAnalysis);
 
         const analysisId = sessionStorage.getItem('analysisId');
@@ -2087,10 +2127,12 @@ TraceGeo OSINT Intelligence`;
             startAnalysis(analysisId, uploadedImage);
         } else {
             initStarfield();
-            showGlobeMode('🌍 Ready for analysis');
+            showGlobeMode('≡ƒîì Ready for analysis');
             if (DOM.statusDot) DOM.statusDot.style.background = 'var(--success)';
-            showToast('🌍 OSINT Engine ready');
+            showToast('?? OSINT Engine ready');
         }
+        perfMark('dom:init:end');
+        perfMeasure('dom:init', 'dom:init:start', 'dom:init:end');
     });
 
     // ========== COORDINATED RESIZE & LAYOUT HANDLING ==========
@@ -2140,9 +2182,9 @@ TraceGeo OSINT Intelligence`;
             DOM.statusDot.style.background = 'var(--success)';
             DOM.statusDot.style.boxShadow = '0 0 20px var(--success)';
         }
-        showToast('⏹️ Analysis cancelled');
+        showToast('ΓÅ╣∩╕Å Analysis cancelled');
     });
 
-    console.log('✅ TraceGeo loaded — storyboard-accurate sequence active');
-    console.log('🗺️  Flat map ↔ 3D starfield globe alternation enabled');
-    console.log('⌨️  Press ESC to cancel.');
+    dbg('? TraceGeo loaded ? storyboard-accurate sequence active');
+    dbg('???  Flat map ? 3D starfield globe alternation enabled');
+    dbg('??  Press ESC to cancel.');
