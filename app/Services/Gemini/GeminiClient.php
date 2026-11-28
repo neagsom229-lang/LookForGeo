@@ -220,6 +220,11 @@ class GeminiClient
                 $this->noteCircuitFailure($failedModel, $classified);
             }
 
+            $fallback = $this->tryAiFallback($imageData, $prompt);
+            if ($fallback !== null) {
+                return $fallback;
+            }
+
             return $classified;
         }
 
@@ -268,6 +273,11 @@ class GeminiClient
 
             $result = $this->withClassification($result);
             if ($result['error'] === 'api_key_missing') {
+                $fallback = $this->tryAiFallback($imageData, $prompt);
+                if ($fallback !== null) {
+                    return $fallback;
+                }
+
                 return $result;
             }
 
